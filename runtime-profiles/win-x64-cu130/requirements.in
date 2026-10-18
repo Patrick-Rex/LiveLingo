@@ -1,0 +1,4 @@
+torch @ https://download.pytorch.org/whl/cu130/torch-2.10.0%2Bcu130-cp313-cp313-win_amd64.whl
+qwen-asr==0.0.6
+transformers==4.57.6
+accelerate==1.12.0

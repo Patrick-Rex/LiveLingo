@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="Avalonia.Headless.XUnit" />
+    <ProjectReference Include="../../src/LiveLingo.App/LiveLingo.App.csproj" />
+  </ItemGroup>
+</Project>

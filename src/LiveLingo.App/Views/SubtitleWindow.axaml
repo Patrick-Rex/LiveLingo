@@ -1,0 +1,18 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:LiveLingo.App.ViewModels" x:Class="LiveLingo.App.Views.SubtitleWindow" x:DataType="vm:DesktopViewModel"
+        Title="LiveLingo 字幕" Width="1000" Height="260" MinWidth="320" MinHeight="120"
+        WindowDecorations="None" Background="Transparent" TransparencyLevelHint="Transparent"
+        Topmost="True" ShowActivated="False" ShowInTaskbar="False">
+  <Border Name="Surface" Background="#BF101720" CornerRadius="12" Padding="18,10" BorderThickness="1" BorderBrush="#395267">
+    <Grid RowDefinitions="Auto,*" RowSpacing="6">
+      <Grid ColumnDefinitions="*,Auto"><TextBlock Text="{Binding Status}" FontSize="11" Foreground="#A9BBCB" TextTrimming="CharacterEllipsis" /><TextBlock Grid.Column="1" Text="{Binding Backlog}" FontSize="11" Foreground="#9EDFC7" /></Grid>
+      <ScrollViewer Name="SubtitleScroll" Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+        <ItemsControl ItemsSource="{Binding OverlayRows}">
+          <ItemsControl.ItemTemplate><DataTemplate DataType="vm:SubtitleRow">
+            <StackPanel Spacing="4" Margin="0,6"><TextBlock Text="{Binding Source}" TextWrapping="Wrap" FontSize="18" Foreground="#C4D2DF" /><TextBlock Classes="translation" Text="{Binding Translation}" TextWrapping="Wrap" FontWeight="SemiBold" Foreground="White" /><TextBlock Text="{Binding Detail}" FontSize="10" Foreground="#A9BBCB" /></StackPanel>
+          </DataTemplate></ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </ScrollViewer>
+    </Grid>
+  </Border>
+</Window>

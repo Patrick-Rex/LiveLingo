@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "id": "win-x64-whisper",
+  "python": "3.13.2",
+  "interpreter": "D:\\Soft Ware\\LiveLingo\\runtimes\\win-x64-whisper\\Scripts\\python.exe",
+  "lockSha256": "9509d57d32d73d5aabadff231ec17acf8e0b7fa8737568cf386291bb638665b8"
+}

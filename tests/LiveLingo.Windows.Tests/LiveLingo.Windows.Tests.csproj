@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.22000.0</SupportedOSPlatformVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../tools/LiveLingo.Probe/LiveLingo.Probe.csproj" />
+    <ProjectReference Include="../../src/LiveLingo.Platform.Windows/LiveLingo.Platform.Windows.csproj" />
+  </ItemGroup>
+</Project>

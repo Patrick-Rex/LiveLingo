@@ -1,0 +1,11 @@
+# Keep the working tree consistent with .editorconfig on Windows and Unix.
+* text=auto eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.png binary
+*.jpg binary
+*.wav binary
+*.gguf binary
+*.safetensors binary
+*.bin binary
+*.exe binary

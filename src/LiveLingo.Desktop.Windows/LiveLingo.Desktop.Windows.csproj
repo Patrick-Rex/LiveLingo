@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.22000.0</SupportedOSPlatformVersion>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Avalonia.Desktop" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <ProjectReference Include="../LiveLingo.App/LiveLingo.App.csproj" />
+    <ProjectReference Include="../LiveLingo.Runtime/LiveLingo.Runtime.csproj" />
+    <ProjectReference Include="../LiveLingo.Platform.Windows/LiveLingo.Platform.Windows.csproj" />
+    <Content Include="../../workers/**/*.py" Link="workers/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../tools/model_eval/common.py;../../tools/model_eval/prepare_model.py;../../tools/model_eval/download.py" Link="tools/model_eval/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../runtime-profiles/win-x64-cu130/profile.json" Link="runtime-profiles/win-x64-cu130/profile.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../runtime-profiles/win-x64-cu130/requirements.lock" Link="runtime-profiles/win-x64-cu130/requirements.lock" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <Target Name="ExcludeDistributionSymbols" AfterTargets="ComputeFilesToPublish">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="'%(ResolvedFileToPublish.Extension)' == '.pdb'" />
+    </ItemGroup>
+  </Target>
+</Project>

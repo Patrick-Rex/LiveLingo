@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <None Include="../model_eval/translation-prompt.txt" Link="translation-prompt.txt" CopyToOutputDirectory="PreserveNewest" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+    <ProjectReference Include="../../src/LiveLingo.Runtime/LiveLingo.Runtime.csproj" />
+  </ItemGroup>
+</Project>

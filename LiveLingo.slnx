@@ -1,0 +1,19 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/LiveLingo.App/LiveLingo.App.csproj" />
+    <Project Path="src/LiveLingo.Desktop.Windows/LiveLingo.Desktop.Windows.csproj" />
+    <Project Path="src/LiveLingo.Core/LiveLingo.Core.csproj" />
+    <Project Path="src/LiveLingo.Runtime/LiveLingo.Runtime.csproj" />
+    <Project Path="src/LiveLingo.Platform.Windows/LiveLingo.Platform.Windows.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/LiveLingo.Probe/LiveLingo.Probe.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/LiveLingo.App.Tests/LiveLingo.App.Tests.csproj" />
+    <Project Path="tests/Fixtures/Processes/LiveLingo.ProcessFixture.csproj" />
+    <Project Path="tests/LiveLingo.Core.Tests/LiveLingo.Core.Tests.csproj" />
+    <Project Path="tests/LiveLingo.Runtime.Tests/LiveLingo.Runtime.Tests.csproj" />
+    <Project Path="tests/LiveLingo.Windows.Tests/LiveLingo.Windows.Tests.csproj" />
+  </Folder>
+</Solution>

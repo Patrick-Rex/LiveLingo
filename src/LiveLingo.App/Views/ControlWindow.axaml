@@ -1,0 +1,65 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:LiveLingo.App.ViewModels" xmlns:core="using:LiveLingo.Core.Desktop"
+        x:Class="LiveLingo.App.Views.ControlWindow" x:DataType="vm:DesktopViewModel"
+        Title="LiveLingo" Width="1020" Height="820" MinWidth="760" MinHeight="600" Background="#101720">
+  <Window.Styles>
+    <Style Selector="TextBlock.caption"><Setter Property="Foreground" Value="#94A9BD" /><Setter Property="FontSize" Value="12" /></Style>
+    <Style Selector="Button"><Setter Property="Padding" Value="16,10" /></Style>
+    <Style Selector="TextBox"><Setter Property="MinHeight" Value="34" /></Style>
+  </Window.Styles>
+  <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" Margin="28" RowSpacing="18">
+    <Grid ColumnDefinitions="*,Auto">
+      <StackPanel Spacing="4"><TextBlock Text="LiveLingo" FontSize="28" FontWeight="SemiBold" Foreground="#F1F6FC" />
+        <TextBlock Text="日语 → 简体中文 · 本地推理 · 可修订字幕" Classes="caption" /></StackPanel>
+      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+        <Button Content="显示 / 隐藏字幕" Command="{Binding ToggleOverlayCommand}" />
+        <Button Content="布局模式" Command="{Binding ToggleLayoutCommand}" />
+      </StackPanel>
+    </Grid>
+    <Border Grid.Row="1" Background="#1A2735" CornerRadius="12" Padding="18">
+      <StackPanel Spacing="12">
+        <TextBlock Text="采集应用" FontWeight="SemiBold" />
+        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
+          <ComboBox ItemsSource="{Binding Targets}" SelectedItem="{Binding SelectedTarget}" IsEnabled="{Binding CanEdit}" HorizontalAlignment="Stretch" AutomationProperties.Name="采集应用根进程">
+            <ComboBox.ItemTemplate><DataTemplate DataType="core:DesktopTarget"><TextBlock Text="{Binding Label}" /></DataTemplate></ComboBox.ItemTemplate>
+          </ComboBox>
+          <Button Grid.Column="1" Content="刷新" Command="{Binding RefreshCommand}" IsEnabled="{Binding CanEdit}" />
+          <Button Grid.Column="2" Content="开始 / 停止" Command="{Binding ToggleCommand}" Background="#226658" Foreground="White" />
+        </Grid>
+        <TextBlock Text="包括所选根的全部子孙与标签页。首次加载模型需要等待；运行时不能更改模型或路径。" Classes="caption" TextWrapping="Wrap" />
+        <Grid ColumnDefinitions="*,Auto"><TextBlock Text="{Binding Status}" TextWrapping="Wrap" /><TextBlock Grid.Column="1" Text="{Binding Backlog}" Foreground="#9EDFC7" /></Grid>
+        <TextBlock Text="{Binding Error}" Foreground="#FFBC99" TextWrapping="Wrap" />
+      </StackPanel>
+    </Border>
+    <Expander Grid.Row="2" Header="模型、路径与字幕设置" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+      <ScrollViewer MaxHeight="310">
+        <StackPanel Spacing="10" Margin="4,12" IsEnabled="{Binding CanEdit}">
+          <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
+            <StackPanel><TextBlock Text="翻译模型" Classes="caption" /><ComboBox ItemsSource="{Binding Models}" SelectedItem="{Binding TranslationModel}" HorizontalAlignment="Stretch" /></StackPanel>
+            <StackPanel Grid.Column="1"><TextBlock Text="识别语言" Classes="caption" /><ComboBox ItemsSource="{Binding Languages}" SelectedItem="{Binding AsrLanguage}" HorizontalAlignment="Stretch" /></StackPanel>
+          </Grid>
+          <TextBlock Text="Python 隔离环境" Classes="caption" /><TextBox Text="{Binding PythonPath}" AutomationProperties.Name="Python 路径" />
+          <TextBlock Text="Qwen 权重目录" Classes="caption" /><TextBox Text="{Binding ModelPath}" />
+          <TextBlock Text="Ollama 程序 / 权重目录" Classes="caption" /><TextBox Text="{Binding OllamaPath}" /><TextBox Text="{Binding OllamaModelsPath}" />
+          <TextBlock Text="数据目录 / 缓存目录（非 C 盘）" Classes="caption" /><TextBox Text="{Binding DataPath}" /><TextBox Text="{Binding CachePath}" />
+          <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
+            <StackPanel><TextBlock Text="中文字号 16–64" Classes="caption" /><Slider Minimum="16" Maximum="64" Value="{Binding FontSize}" /></StackPanel>
+            <StackPanel Grid.Column="1"><TextBlock Text="背景不透明度" Classes="caption" /><Slider Minimum="0.1" Maximum="1" Value="{Binding BackgroundOpacity}" /></StackPanel>
+          </Grid>
+          <TextBlock Text="Ctrl + Alt + 功能键编号：启停 / 显隐 / 布局" Classes="caption" />
+          <StackPanel Orientation="Horizontal" Spacing="12"><ComboBox ItemsSource="{Binding FunctionKeys}" SelectedItem="{Binding StartKey}" /><ComboBox ItemsSource="{Binding FunctionKeys}" SelectedItem="{Binding VisibilityKey}" /><ComboBox ItemsSource="{Binding FunctionKeys}" SelectedItem="{Binding LayoutKey}" /><Button Content="保存并应用" Command="{Binding SaveCommand}" /></StackPanel>
+        </StackPanel>
+      </ScrollViewer>
+    </Expander>
+    <Grid Grid.Row="3" RowDefinitions="Auto,*" RowSpacing="10">
+      <TextBlock Text="本次会话 · 完整有效字幕" FontWeight="SemiBold" />
+      <ListBox Grid.Row="1" ItemsSource="{Binding History}" Background="#15202C" BorderThickness="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+        <ListBox.Styles><Style Selector="ListBoxItem"><Setter Property="HorizontalContentAlignment" Value="Stretch" /></Style></ListBox.Styles>
+        <ListBox.ItemTemplate><DataTemplate DataType="vm:SubtitleRow">
+          <StackPanel Spacing="6" Margin="10"><TextBlock Text="{Binding Detail}" Classes="caption" /><TextBlock Text="{Binding Source}" TextWrapping="Wrap" Foreground="#ADBCCC" /><TextBlock Text="{Binding Translation}" TextWrapping="Wrap" FontSize="19" Foreground="#F1F6FC" /></StackPanel>
+        </DataTemplate></ListBox.ItemTemplate>
+      </ListBox>
+    </Grid>
+    <TextBlock Grid.Row="4" Text="模型可能漏识、误译；草稿允许修订。字幕窗仅显示最近两块，布局模式可滚动查看长句。" Classes="caption" TextWrapping="Wrap" />
+  </Grid>
+</Window>

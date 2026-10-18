@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "win-x64-cu130",
+  "python": "3.13.2",
+  "torch": "2.10.0+cu130",
+  "cuda": "13.0",
+  "interpreter": "D:\\Soft Ware\\LiveLingo\\runtimes\\win-x64-cu130\\Scripts\\python.exe",
+  "modelRevision": "7278e1e70fe206f11671096ffdd38061171dd6e5",
+  "lockSha256": "607e25dc5bb1bb5643804494248eda2b42907b592f19b052a507fd117968fdc1"
+}

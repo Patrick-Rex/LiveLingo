@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.22000.0</SupportedOSPlatformVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="LiveLingo.Windows.Tests" />
+    <ProjectReference Include="../../src/LiveLingo.Runtime/LiveLingo.Runtime.csproj" />
+    <ProjectReference Include="../../src/LiveLingo.Platform.Windows/LiveLingo.Platform.Windows.csproj" />
+    <ProjectReference Include="../../tests/Fixtures/Processes/LiveLingo.ProcessFixture.csproj" ReferenceOutputAssembly="false" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+  </ItemGroup>
+  <Target Name="CopyProcessFixture" AfterTargets="Build">
+    <ItemGroup>
+      <ProcessFixtureFiles Include="../../tests/Fixtures/Processes/bin/$(Configuration)/$(TargetFramework)/LiveLingo.ProcessFixture.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(ProcessFixtureFiles)" DestinationFolder="$(TargetDir)" SkipUnchangedFiles="true" />
+  </Target>
+  <Target Name="PublishProcessFixture" AfterTargets="Publish">
+    <ItemGroup>
+      <PublishedFixtureFiles Include="$(TargetDir)LiveLingo.ProcessFixture.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(PublishedFixtureFiles)" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
+  </Target>
+</Project>
