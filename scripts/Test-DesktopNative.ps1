@@ -6,6 +6,8 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'Enter-ModelEvaluation.ps1')
 if (-not [IO.Path]::IsPathFullyQualified($OutputDirectory) -or $OutputDirectory.StartsWith('C:', [StringComparison]::OrdinalIgnoreCase) -or (Test-Path -LiteralPath $OutputDirectory)) { throw '需要非 C 盘的新证据目录。' }
 $Executable = (Resolve-Path -LiteralPath $Executable).Path
+$fixtureSettings = $OutputDirectory + '.settings.json'
+if (Test-Path -LiteralPath $fixtureSettings) { throw '测试设置文件必须是新的独占路径。' }
 Add-Type -AssemblyName System.Drawing
 Add-Type -TypeDefinition @'
 using System;
@@ -50,7 +52,7 @@ function Send-FixtureHotkey([byte]$Key) {
 }
 $app = $null; $receiver = $null; $failure = $null; $checks = [ordered]@{}
 try {
-    $app = Start-Process -FilePath $Executable -ArgumentList @('--verify', ('"' + $OutputDirectory + '"'), '--seconds', '70') -PassThru -WindowStyle Hidden
+    $app = Start-Process -FilePath $Executable -ArgumentList @('--verify', ('"' + $OutputDirectory + '"'), '--settings', ('"' + $fixtureSettings + '"'), '--seconds', '70') -PassThru -WindowStyle Hidden
     $deadline = [DateTime]::UtcNow.AddSeconds(20)
     while (-not (Test-Path -LiteralPath (Join-Path $OutputDirectory 'ready.json'))) { if ($app.HasExited -or [DateTime]::UtcNow -gt $deadline) { throw '桌面未就绪。' }; Start-Sleep -Milliseconds 200 }
     $fixture = Join-Path $PSScriptRoot '../tests/Fixtures/Windows/OverlayReceiver.ps1'
@@ -59,7 +61,7 @@ try {
     $receiverState = Read-Json (Join-Path $OutputDirectory 'receiver.json')
     $readyState = Read-Json (Join-Path $OutputDirectory 'ready.json')
     $script:receiverHandle = [long]$receiverState.Handle
-    $script:ownedWindows = @($script:receiverHandle, [long]$readyState.Control, [long]$readyState.Overlay)
+    $script:ownedWindows = @($script:receiverHandle, [long]$readyState.Control, [long]$readyState.Overlay, [long]$readyState.LayoutLock)
     [DesktopInputFixture]::ShowWindow([IntPtr]$script:receiverHandle, 5) | Out-Null
     [DesktopInputFixture]::SetForegroundWindow([IntPtr]$script:receiverHandle) | Out-Null
     [IO.File]::WriteAllText((Join-Path $OutputDirectory 'command.txt'), 'position:120,250,950,230')
@@ -87,6 +89,22 @@ try {
     $checks.UpdateFocusPreserved = [DesktopInputFixture]::GetForegroundWindow().ToInt64() -eq $script:receiverHandle
     [IO.File]::WriteAllText((Join-Path $OutputDirectory 'command.txt'), 'reshow:1'); Start-Sleep -Milliseconds 500
     $checks.ReshowFocusPreserved = [DesktopInputFixture]::GetForegroundWindow().ToInt64() -eq $script:receiverHandle
+    $locked = Read-Window
+    $checks.LockButtonStyles = ($locked.LayoutLock.Styles -band 0x08080020) -eq 0x08080000
+    foreach ($expectedLayout in @($true, $false)) {
+        $buttonState = (Read-Window).LayoutLock
+        $buttonX = [int]($buttonState.Position.X + $buttonState.Width * $buttonState.RenderScaling / 2)
+        $buttonY = [int]($buttonState.Position.Y + $buttonState.Height * $buttonState.RenderScaling / 2)
+        $buttonHit = [DesktopInputFixture]::WindowFromPoint(([long]$buttonY -shl 32) -bor [uint32]$buttonX)
+        if ($buttonHit.ToInt64() -ne [long]$readyState.LayoutLock) { throw '字幕锁定按钮不在预期命中位置，拒绝点击。' }
+        [DesktopInputFixture]::SetCursorPos($buttonX, $buttonY) | Out-Null
+        [DesktopInputFixture]::mouse_event(2,0,0,0,[UIntPtr]::Zero); [DesktopInputFixture]::mouse_event(4,0,0,0,[UIntPtr]::Zero)
+        Start-Sleep -Milliseconds 400
+        $buttonResult = Read-Window
+        $checks["LockButtonLayout$expectedLayout"] = $buttonResult.LayoutMode -eq $expectedLayout
+        $checks["LockButtonFocus$expectedLayout"] = [DesktopInputFixture]::GetForegroundWindow().ToInt64() -eq $script:receiverHandle
+    }
+    $checks.BodyPassthroughAfterButtonLock = ((Read-Window).Styles -band 0x08080020) -eq 0x08080020
     Send-FixtureHotkey 0x77; $checks.HideHotkey = -not (Read-Window).OverlayVisible
     Send-FixtureHotkey 0x77; $checks.ShowHotkey = (Read-Window).OverlayVisible
     Send-FixtureHotkey 0x78; $layout = Read-Window; $checks.LayoutHotkey = $layout.LayoutMode -and (($layout.Styles -band 0x08000020) -eq 0)
@@ -96,13 +114,41 @@ try {
     [DesktopInputFixture]::mouse_event(4,0,0,0,[UIntPtr]::Zero); Start-Sleep -Milliseconds 400
     $moved = Read-Window
     $checks.LayoutDrag = $moved.Position.X -ne $layout.Position.X -and $moved.Position.Y -ne $layout.Position.Y
-    $cornerX = [int]($moved.Position.X + $moved.Width - 4); $cornerY = [int]($moved.Position.Y + $moved.Height - 4)
-    [DesktopInputFixture]::SetCursorPos($cornerX, $cornerY) | Out-Null
-    [DesktopInputFixture]::mouse_event(2,0,0,0,[UIntPtr]::Zero); Start-Sleep -Milliseconds 150
-    [DesktopInputFixture]::SetCursorPos(($cornerX + 60), ($cornerY + 40)) | Out-Null; Start-Sleep -Milliseconds 150
-    [DesktopInputFixture]::mouse_event(4,0,0,0,[UIntPtr]::Zero); Start-Sleep -Milliseconds 400
-    $resized = Read-Window
-    $checks.LayoutResize = $resized.Width -gt $moved.Width -and $resized.Height -gt $moved.Height
+    foreach ($edge in @('SouthEast', 'South', 'East', 'NorthWest', 'North', 'West', 'NorthEast', 'SouthWest')) {
+        $sizing = Read-Window
+        $west = $edge.Contains('West'); $east = $edge.Contains('East')
+        $north = $edge.Contains('North'); $south = $edge.Contains('South')
+        $localX = if ($west) { 4 } elseif ($east) { $sizing.Width - 4 } else { $sizing.Width / 2 }
+        $localY = if ($north) { 4 } elseif ($south) { $sizing.Height - 4 } else { $sizing.Height / 2 }
+        $edgeX = [int]($sizing.Position.X + $localX * $sizing.RenderScaling)
+        $edgeY = [int]($sizing.Position.Y + $localY * $sizing.RenderScaling)
+        [uint32]$hitPid = 0
+        [DesktopInputFixture]::GetWindowThreadProcessId([DesktopInputFixture]::WindowFromPoint(([long]$edgeY -shl 32) -bor ([long]$edgeX -band 0xffffffffL)), [ref]$hitPid) | Out-Null
+        if ($hitPid -ne $app.Id) { throw "缩放边缘不属于自有字幕窗口：$edge" }
+        $deltaX = if ($west) { -20 } elseif ($east) { 20 } else { 0 }
+        $deltaY = if ($north) { -20 } elseif ($south) { 20 } else { 0 }
+        [DesktopInputFixture]::SetCursorPos($edgeX, $edgeY) | Out-Null
+        [DesktopInputFixture]::mouse_event(2,0,0,0,[UIntPtr]::Zero); Start-Sleep -Milliseconds 150
+        try { [DesktopInputFixture]::SetCursorPos(($edgeX + $deltaX), ($edgeY + $deltaY)) | Out-Null; Start-Sleep -Milliseconds 150 }
+        finally { [DesktopInputFixture]::mouse_event(4,0,0,0,[UIntPtr]::Zero) }
+        Start-Sleep -Milliseconds 400
+        $resized = Read-Window
+        $checks["Resize$edge"] = (($deltaX -eq 0 -or $resized.Width -gt $sizing.Width) -and ($deltaY -eq 0 -or $resized.Height -gt $sizing.Height))
+    }
+    $zoomBefore = Read-Window
+    $zoomX = [int]($zoomBefore.Position.X + 100 * $zoomBefore.RenderScaling)
+    $zoomY = [int]($zoomBefore.Position.Y + 100 * $zoomBefore.RenderScaling)
+    [uint32]$hitPid = 0
+    [DesktopInputFixture]::GetWindowThreadProcessId([DesktopInputFixture]::WindowFromPoint(([long]$zoomY -shl 32) -bor ([long]$zoomX -band 0xffffffffL)), [ref]$hitPid) | Out-Null
+    if ($hitPid -ne $app.Id -or [DesktopInputFixture]::GetForegroundWindow().ToInt64() -notin $script:ownedWindows) { throw '缩放文字输入目标不是自有窗口。' }
+    [DesktopInputFixture]::SetCursorPos($zoomX, $zoomY) | Out-Null
+    [DesktopInputFixture]::keybd_event(0x11, 0, 0, [UIntPtr]::Zero)
+    try { [DesktopInputFixture]::mouse_event(0x0800,0,0,120,[UIntPtr]::Zero) }
+    finally { [DesktopInputFixture]::keybd_event(0x11, 0, 2, [UIntPtr]::Zero) }
+    Start-Sleep -Milliseconds 500
+    $zoomAfter = Read-Window
+    $checks.CtrlWheelZoom = $zoomAfter.Settings.FontSize -eq ($zoomBefore.Settings.FontSize + 2)
+    $checks.ZoomPreservesBounds = $zoomAfter.Width -eq $zoomBefore.Width -and $zoomAfter.Height -eq $zoomBefore.Height -and $zoomAfter.Position.X -eq $zoomBefore.Position.X -and $zoomAfter.Position.Y -eq $zoomBefore.Position.Y
     [DesktopInputFixture]::SetForegroundWindow([IntPtr]$script:receiverHandle) | Out-Null
     Start-Sleep -Milliseconds 300
     Send-FixtureHotkey 0x78; $checks.RestoreClickThrough = -not (Read-Window).LayoutMode

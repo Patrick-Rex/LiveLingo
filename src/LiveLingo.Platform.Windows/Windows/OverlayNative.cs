@@ -13,15 +13,16 @@ public static partial class OverlayNative
     /// <summary>分层窗口扩展样式。</summary>
     public const uint Layered = 0x80000;
 
-    /// <summary>在框架重算样式时保留所需位，不触发递归更新。</summary><param name="styles">框架给出的扩展样式。</param><param name="interactive">布局模式。</param><returns>合并后的样式。</returns>
-    public static uint MergeStyles(uint styles, bool interactive) => interactive ? (styles | Layered) & ~(Transparent | NoActivate) : styles | Layered | Transparent | NoActivate;
+    /// <summary>在框架重算样式时保留所需位，不触发递归更新。</summary><param name="styles">框架给出的扩展样式。</param><param name="interactive">允许鼠标交互。</param><param name="keepInactive">交互按钮仍不激活窗口。</param><returns>合并后的样式。</returns>
+    public static uint MergeStyles(uint styles, bool interactive, bool keepInactive = false)
+        => (interactive ? (styles | Layered) & ~(Transparent | NoActivate) : styles | Layered | Transparent | NoActivate) | (keepInactive ? NoActivate : 0);
 
-    /// <summary>立即应用并刷新窗口样式，始终不抢占前台焦点。</summary><param name="window">有效 HWND。</param><param name="interactive">布局模式。</param>
-    public static void Apply(nint window, bool interactive)
+    /// <summary>立即应用并刷新窗口样式，始终不抢占前台焦点。</summary><param name="window">有效 HWND。</param><param name="interactive">允许鼠标交互。</param><param name="keepInactive">点击也不激活窗口。</param>
+    public static void Apply(nint window, bool interactive, bool keepInactive = false)
     {
         Marshal.SetLastPInvokeError(0);
         var previous = GetWindowLongPtrW(window, -20);
-        var current = MergeStyles(unchecked((uint)previous.ToInt64()), interactive);
+        var current = MergeStyles(unchecked((uint)previous.ToInt64()), interactive, keepInactive);
         Marshal.SetLastPInvokeError(0);
         if (SetWindowLongPtrW(window, -20, (nint)current) == 0 && Marshal.GetLastPInvokeError() != 0) throw new Win32Exception(Marshal.GetLastPInvokeError());
         if (!SetWindowPos(window, new nint(-1), 0, 0, 0, 0, 0x1 | 0x2 | 0x10 | 0x20)) throw new Win32Exception(Marshal.GetLastPInvokeError());

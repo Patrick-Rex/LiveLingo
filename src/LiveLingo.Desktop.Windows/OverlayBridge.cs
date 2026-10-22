@@ -16,6 +16,7 @@ public sealed class OverlayBridge : IDisposable
     private readonly DesktopHotkeys hotkeys;
     private readonly Win32Properties.CustomWndProcHookCallback hook;
     private readonly Win32Properties.CustomWindowStylesCallback styles;
+    private readonly Win32Properties.CustomWindowStylesCallback lockStyles;
     private bool clamping;
     private bool disposed;
 
@@ -24,14 +25,18 @@ public sealed class OverlayBridge : IDisposable
     public OverlayBridge(ControlWindow control, SubtitleWindow overlay, DesktopViewModel model)
     {
         this.control = control; this.overlay = overlay; this.model = model;
-        hotkeys = new(Handle(control)); hook = OnMessage; styles = Merge;
+        hotkeys = new(Handle(control)); hook = OnMessage; styles = Merge; lockStyles = MergeLock;
+        overlay.LayoutLock.DataContext = model;
         Win32Properties.AddWndProcHookCallback(control, hook);
         Win32Properties.AddWindowStylesCallback(overlay, styles);
+        Win32Properties.AddWindowStylesCallback(overlay.LayoutLock, lockStyles);
         model.OverlayChanged += ApplyMode; model.SettingsApplied += ApplySettings;
+        model.AppearanceChanged += overlay.ApplyAppearance;
         overlay.ScalingChanged += OnScreenChanged;
         if (overlay.Screens is { } screens) screens.Changed += OnScreenChanged;
         overlay.PositionChanged += OnPositionChanged;
         overlay.SizeChanged += OnSizeChanged;
+        overlay.LayoutUpdated += OnLayoutUpdated;
         ApplySettings(model.CurrentSettings); ApplyMode();
     }
 
@@ -57,11 +62,33 @@ public sealed class OverlayBridge : IDisposable
     {
         overlay.SetInteractive(model.LayoutMode);
         OverlayNative.Apply(Handle(overlay), model.LayoutMode);
-        if (model.OverlayVisible) overlay.Show(); else overlay.Hide();
+        if (model.OverlayVisible)
+        {
+            overlay.Show(); overlay.UpdateLayout(); PositionLock();
+            if (!overlay.LayoutLock.IsVisible) overlay.LayoutLock.Show(overlay);
+            OverlayNative.Apply(Handle(overlay.LayoutLock), true, true);
+        }
+        else { overlay.LayoutLock.Hide(); overlay.Hide(); }
     }
 
     /// <summary>合并框架重算的样式；回调内不执行原生样式写入。</summary><param name="style">普通样式。</param><param name="extended">扩展样式。</param><returns>完整样式。</returns>
     private (uint style, uint exStyle) Merge(uint style, uint extended) => (style, OverlayNative.MergeStyles(extended, model.LayoutMode));
+
+    /// <summary>使右上角按钮保持可点且不抢焦点，不解除字幕正文穿透。</summary><param name="style">普通样式。</param><param name="extended">扩展样式。</param><returns>按钮窗口样式。</returns>
+    private (uint style, uint exStyle) MergeLock(uint style, uint extended) => (style, OverlayNative.MergeStyles(extended, true, true));
+
+    /// <summary>布局或 DPI 改变后重新贴合按钮，不以固定物理像素推算位置。</summary><param name="sender">字幕窗。</param><param name="args">布局通知。</param>
+    private void OnLayoutUpdated(object? sender, EventArgs args) => PositionLock();
+
+    /// <summary>把独立命中区域放在字幕预留位置，正文穿透时仍能原地解锁。</summary>
+    private void PositionLock()
+    {
+        if (disposed) return;
+        var anchor = overlay.FindControl<Border>("LockAnchor")!;
+        if (anchor.Bounds.Width <= 0) return;
+        var position = anchor.PointToScreen(default);
+        if (overlay.LayoutLock.Position != position) overlay.LayoutLock.Position = position;
+    }
 
     /// <summary>只处理已登记热键；命令自身负责互斥与错误。</summary>
     /// <param name="window">HWND。</param><param name="message">原生消息。</param><param name="wParam">消息参数。</param><param name="lParam">消息参数。</param><param name="handled">是否已处理。</param><returns>消息结果。</returns>
@@ -81,10 +108,10 @@ public sealed class OverlayBridge : IDisposable
     /// <summary>重新获取有效屏幕，不缓存可能已拔出的 Screen。</summary><param name="sender">屏幕来源。</param><param name="args">变化。</param>
     private void OnScreenChanged(object? sender, EventArgs args) => Clamp();
     /// <summary>位置变化后保存像素坐标，不重复乘 DPI。</summary><param name="sender">字幕窗。</param><param name="args">变化。</param>
-    private void OnPositionChanged(object? sender, PixelPointEventArgs args) => Remember();
+    private void OnPositionChanged(object? sender, PixelPointEventArgs args) { Remember(); PositionLock(); }
     /// <summary>尺寸变化后保存 DIP。</summary><param name="sender">字幕窗。</param><param name="args">变化。</param>
     private void OnSizeChanged(object? sender, SizeChangedEventArgs args) => Remember();
-    /// <summary>保存当前布局，只有用户明确保存才落盘。</summary>
+    /// <summary>记录当前布局，由视图模型合并连续变化后自动落盘。</summary>
     private void Remember() => model.RememberBounds(overlay.Position.X, overlay.Position.Y, overlay.Width, overlay.Height);
 
     /// <summary>把当前布局放回实际工作区，保留负坐标屏幕。</summary>
@@ -108,9 +135,13 @@ public sealed class OverlayBridge : IDisposable
     {
         if (disposed) return; disposed = true;
         hotkeys.Dispose(); model.OverlayChanged -= ApplyMode; model.SettingsApplied -= ApplySettings;
+        model.AppearanceChanged -= overlay.ApplyAppearance;
         overlay.ScalingChanged -= OnScreenChanged;
         if (overlay.Screens is { } screens) screens.Changed -= OnScreenChanged;
         overlay.PositionChanged -= OnPositionChanged; overlay.SizeChanged -= OnSizeChanged;
+        overlay.LayoutUpdated -= OnLayoutUpdated;
         Win32Properties.RemoveWndProcHookCallback(control, hook); Win32Properties.RemoveWindowStylesCallback(overlay, styles);
+        Win32Properties.RemoveWindowStylesCallback(overlay.LayoutLock, lockStyles);
+        overlay.LayoutLock.Close();
     }
 }

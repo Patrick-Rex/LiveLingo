@@ -4,12 +4,29 @@
         WindowDecorations="None" Background="Transparent" TransparencyLevelHint="Transparent"
         Topmost="True" ShowActivated="False" ShowInTaskbar="False">
   <Border Name="Surface" Background="#BF101720" CornerRadius="12" Padding="18,10" BorderThickness="1" BorderBrush="#395267">
-    <Grid RowDefinitions="Auto,*" RowSpacing="6">
-      <Grid ColumnDefinitions="*,Auto"><TextBlock Text="{Binding Status}" FontSize="11" Foreground="#A9BBCB" TextTrimming="CharacterEllipsis" /><TextBlock Grid.Column="1" Text="{Binding Backlog}" FontSize="11" Foreground="#9EDFC7" /></Grid>
-      <ScrollViewer Name="SubtitleScroll" Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+    <Grid RowDefinitions="Auto,Auto,Auto,*" RowSpacing="6">
+      <Grid ColumnDefinitions="*,104" ColumnSpacing="8" MinHeight="40">
+        <Grid Name="LayoutToolbar" IsVisible="False">
+          <Border Name="MoveHandle" Background="Transparent" Cursor="SizeAll" MinHeight="40">
+            <TextBlock Text="拖动此处移动 · 拖动边缘缩放" TextWrapping="Wrap" VerticalAlignment="Center" FontSize="12" Foreground="#9EDFC7" />
+          </Border>
+        </Grid>
+        <TextBlock Text="字幕已锁定 · 正文鼠标穿透" IsVisible="{Binding !LayoutMode}" FontSize="11" Foreground="#A9BBCB" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+        <Border Name="LockAnchor" Grid.Column="1" Height="40" />
+      </Grid>
+      <Grid Name="ReadingToolbar" Grid.Row="1" IsVisible="False" ColumnDefinitions="Auto,Auto,*" ColumnSpacing="8">
+        <ComboBox Name="DisplayModeSelector" ItemsSource="{Binding DisplayModes}" SelectedIndex="{Binding DisplayModeIndex}" MinWidth="92" Padding="6,4" FontSize="12" AutomationProperties.Name="浮窗显示语言" />
+        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
+          <Button Name="DecreaseFontButton" Content="A−" Command="{Binding DecreaseSubtitleFontCommand}" Padding="8,4" AutomationProperties.Name="缩小双语字幕" />
+          <Button Name="IncreaseFontButton" Content="A+" Command="{Binding IncreaseSubtitleFontCommand}" Padding="8,4" AutomationProperties.Name="放大双语字幕" />
+        </StackPanel>
+        <Button Name="ResumeFollowingButton" Grid.Column="2" IsVisible="{Binding IsReviewing}" Content="回到最新" Command="{Binding ResumeFollowingCommand}" HorizontalAlignment="Right" Padding="6,4" FontSize="12" />
+      </Grid>
+      <Grid Name="StatusBar" Grid.Row="2" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8"><TextBlock Text="{Binding Status}" FontSize="11" Foreground="#A9BBCB" TextTrimming="CharacterEllipsis" /><TextBlock Grid.Column="1" Text="回看中" IsVisible="{Binding IsReviewing}" FontSize="11" Foreground="#9EDFC7" /><TextBlock Grid.Column="2" Text="{Binding Backlog}" FontSize="11" Foreground="#9EDFC7" /></Grid>
+      <ScrollViewer Name="SubtitleScroll" Grid.Row="3" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
         <ItemsControl ItemsSource="{Binding OverlayRows}">
           <ItemsControl.ItemTemplate><DataTemplate DataType="vm:SubtitleRow">
-            <StackPanel Spacing="4" Margin="0,6"><TextBlock Text="{Binding Source}" TextWrapping="Wrap" FontSize="18" Foreground="#C4D2DF" /><TextBlock Classes="translation" Text="{Binding Translation}" TextWrapping="Wrap" FontWeight="SemiBold" Foreground="White" /><TextBlock Text="{Binding Detail}" FontSize="10" Foreground="#A9BBCB" /></StackPanel>
+            <StackPanel Spacing="4" Margin="0,6"><TextBlock Classes="source" IsVisible="{DynamicResource SourceVisible}" FontSize="{DynamicResource SourceFontSize}" Text="{Binding Source}" TextWrapping="Wrap" Foreground="#C4D2DF" /><TextBlock Classes="translation" IsVisible="{DynamicResource TranslationVisible}" FontSize="{DynamicResource TranslationFontSize}" Text="{Binding Translation}" TextWrapping="Wrap" FontWeight="SemiBold" Foreground="White" /><TextBlock Text="{Binding Detail}" FontSize="10" Foreground="#A9BBCB" /></StackPanel>
           </DataTemplate></ItemsControl.ItemTemplate>
         </ItemsControl>
       </ScrollViewer>

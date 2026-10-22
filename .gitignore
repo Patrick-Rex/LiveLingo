@@ -19,7 +19,6 @@ TestResults/
 /.agents/
 /.specify/
 /specs/
-/AGENTS.md
 /docs/*
 !/docs/README.md
 !/docs/packaging.md

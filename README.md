@@ -4,6 +4,8 @@ Windows 本地实时双语字幕工具。采集指定应用的声音，使用 Qw
 
 音频采集和模型推理在本机进行。首次准备依赖和模型需要联网。
 
+M0–M4 首版里程碑已完成，项目进入持续迭代；当前能力与支持范围以本文和使用指南为准。
+
 ## 功能
 
 - 采集指定应用及其子进程的音频，支持目标重启、设备变化与睡眠恢复处理。
@@ -43,6 +45,10 @@ Windows 本地实时双语字幕工具。采集指定应用的声音，使用 Qw
 | Ctrl+Alt+F8 | 显示 / 隐藏字幕 |
 | Ctrl+Alt+F9 | 进入 / 退出布局模式 |
 
+点击悬浮字幕右上角“解锁拖动”进入布局模式，拖动顶部移动，四边四角调整窗口大小；A− / A+ 或 Ctrl+滚轮即时缩放双语文字，普通滚轮查看长句。运行中也能调整，点击同一位置的“锁定位置”恢复正文鼠标穿透，右上角按钮仍可点击；控制窗不再提供重复布局开关；位置、尺寸、字号、背景和显示模式即时生效，连续调整结束后自动保存。
+
+浮窗默认自动跟随最新内容。布局模式中向上滚动回看或操作滚动条后暂停跟随，保留当前阅读的两块并继续接收修订与撤销；点击浮窗或控制窗的“回到最新”恢复。退出布局模式仍保留回看状态，新会话恢复跟随。控制窗及浮窗布局工具条可即时切换双语／仅中文／仅原文，控制窗历史仍保留双语；显示模式自动保存。控制窗分为会话历史、字幕外观、模型与路径、快捷键四页。模型、路径和快捷键停止后点击底部“保存运行设置”；未保存时可“撤销修改”，开始翻译前须先处理这些修改。
+
 完整步骤见 [安装与模型准备](packaging/USER-GUIDE.md)。Ollama 是 TranslateGemma 的运行引擎；识别和翻译使用不同模型。
 
 ## 从源码构建
@@ -54,10 +60,10 @@ Windows 本地实时双语字幕工具。采集指定应用的声音，使用 Qw
 dotnet restore LiveLingo.slnx --locked-mode
 dotnet build LiveLingo.slnx -c Release --no-restore --disable-build-servers -clp:ErrorsOnly
 dotnet test --solution LiveLingo.slnx -c Release --no-build --no-progress
-./scripts/New-LiveLingoPackage.ps1 -Version 0.1.0
+./scripts/New-LiveLingoPackage.ps1 -Version 0.1.1
 ```
 
-安装包输出到 `D:\Soft Ware\LiveLingo\packages`。版本号用于压缩包，安装目录统一为 `app\desktop`。详见 [打包流程](docs/packaging.md)。
+安装包输出到 `D:\Soft Ware\LiveLingo\packages`。0.1.1 为命令示例，按本次实际版本替换；同版本包不覆盖。版本号用于压缩包和包清单，安装目录统一为 `app\desktop`。完整的打包、包测试、备份、安装替换、核对与回退步骤见 [交付说明](docs/packaging.md)。构建或打包成功不会自动替换已安装程序。
 
 检查完整编译警告时，使用 `dotnet build LiveLingo.slnx -c Release --no-restore --disable-build-servers -t:Rebuild -warnaserror`；强制重建避免增量构建漏报，并将警告视为失败。测试取消约定见 [测试说明](tests/README.md)。
 

@@ -4,4 +4,4 @@
 
 SubtitlePipeline 管理字幕处理与积压，过期结果由身份屏障拒收。正常识别窗口30秒，对齐失败时默认最多回退到120秒；截断生成不进入字幕。取消与模型冷启动都有共同时间预算。
 
-DesktopSettingsStore 以同目录原子替换保存版本化设置，损坏文件保留；WaveReplaySource 提供连续 PCM 转换和按墙钟回放。测试及构建见 [测试说明](../../tests/README.md)。
+DesktopSettingsStore 以同目录原子替换保存版本化设置，损坏文件保留；旧版设置缺少 DisplayMode 时默认双语，存储层原子保存完整设置，App 层分别管理字幕自动保存和运行设置手动保存，非法枚举值拒绝加载且保留原文件。WaveReplaySource 提供连续 PCM 转换和按墙钟回放。测试及构建见 [测试说明](../../tests/README.md)。

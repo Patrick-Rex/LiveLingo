@@ -1,5 +1,16 @@
 namespace LiveLingo.Core.Desktop;
 
+/// <summary>控制浮窗呈现的语言，不改变识别、翻译或完整历史。</summary>
+public enum SubtitleDisplayMode
+{
+    /// <summary>同时显示原文与中文。</summary>
+    Bilingual,
+    /// <summary>只显示中文及其等待或修订状态。</summary>
+    TranslationOnly,
+    /// <summary>只显示原文及字幕状态。</summary>
+    SourceOnly
+}
+
 /// <summary>保存可版本化的本地模型、资源和字幕布局设置；运行中保持不可变。</summary>
 public sealed record DesktopSettings
 {
@@ -33,6 +44,8 @@ public sealed record DesktopSettings
     public double FontSize { get; init; } = 28;
     /// <summary>获取背景不透明度。</summary>
     public double BackgroundOpacity { get; init; } = 0.75;
+    /// <summary>获取浮窗语言显示方式；旧配置默认双语。</summary>
+    public SubtitleDisplayMode DisplayMode { get; init; } = SubtitleDisplayMode.Bilingual;
     /// <summary>获取启停快捷键，统一使用 Ctrl+Alt 加功能键。</summary>
     public int StartKey { get; init; } = 7;
     /// <summary>获取字幕显隐快捷键。</summary>
@@ -46,6 +59,7 @@ public sealed record DesktopSettings
     {
         if (SchemaVersion != 1 || TranslationModel is not ("translategemma:4b" or "translategemma:12b") || AsrLanguage is not ("auto" or "Japanese"))
             throw new ArgumentException("设置版本、模型或语言不受支持。");
+        if (!Enum.IsDefined(DisplayMode)) throw new ArgumentException("字幕显示模式不受支持。");
         foreach (var path in new[] { PythonPath, ModelPath, OllamaModelsPath, DataPath, CachePath }) ValidateDataPath(path);
         if (string.IsNullOrWhiteSpace(OllamaPath) || !Path.IsPathFullyQualified(OllamaPath)) throw new ArgumentException("Ollama 需要绝对路径。");
         if (!double.IsFinite(OverlayWidth) || OverlayWidth is < 320 or > 3840 || !double.IsFinite(OverlayHeight) || OverlayHeight is < 120 or > 2160 ||

@@ -6,6 +6,34 @@ namespace LiveLingo.Runtime.Tests.Storage;
 /// <summary>验证真实文件原子设置保存和损坏保护，不启动模型。</summary>
 public sealed class DesktopSettingsStoreTests
 {
+    /// <summary>旧配置缺省双语，新模式可往返保存，非法模式保留原文件并报错。</summary><returns>设置兼容验证任务。</returns>
+    [Fact]
+    public async Task DisplayModeSupportsExistingSettingsAndRejectsUnknownValues()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "desktop-settings-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "settings.json"); var store = new DesktopSettingsStore(path);
+        try
+        {
+            await store.SaveAsync(new(), TestContext.Current.CancellationToken);
+            var legacy = System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken))!.AsObject();
+            Assert.True(legacy.Remove("DisplayMode"));
+            await File.WriteAllTextAsync(path, legacy.ToJsonString(), TestContext.Current.CancellationToken);
+            var old = await store.LoadAsync(TestContext.Current.CancellationToken);
+            Assert.Null(old.Error); Assert.Equal(SubtitleDisplayMode.Bilingual, old.Settings.DisplayMode);
+            foreach (var mode in Enum.GetValues<SubtitleDisplayMode>())
+            {
+                await store.SaveAsync(new() { DisplayMode = mode }, TestContext.Current.CancellationToken);
+                Assert.Equal(mode, (await store.LoadAsync(TestContext.Current.CancellationToken)).Settings.DisplayMode);
+            }
+            legacy["DisplayMode"] = 99;
+            var invalid = legacy.ToJsonString();
+            await File.WriteAllTextAsync(path, invalid, TestContext.Current.CancellationToken);
+            Assert.NotNull((await store.LoadAsync(TestContext.Current.CancellationToken)).Error);
+            Assert.Equal(invalid, await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken));
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
     /// <summary>缺失使用默认值；损坏原文件保留，明确保存才替换。</summary><returns>实际文件验证任务。</returns>
     [Fact]
     public async Task MissingAndCorruptSettingsRemainRecoverable()
