@@ -5,12 +5,11 @@ Builds the Windows x64 delivery ZIP from production outputs and an explicit setu
 [CmdletBinding()]
 param(
     [ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version = '0.1.0',
-    [string]$OutputDirectory = 'D:\Soft Ware\LiveLingo\packages'
+    [string]$OutputDirectory = (Join-Path $PSScriptRoot '../artifacts/packages')
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'Enter-Development.ps1')
 $repo = Split-Path $PSScriptRoot -Parent
-if ($OutputDirectory -notmatch '^[D-Zd-z]:\\') { throw 'Package output must be on a non-C local drive.' }
 $OutputDirectory = [IO.Path]::GetFullPath($OutputDirectory)
 $name = "LiveLingo-$Version-win-x64"
 $archive = Join-Path $OutputDirectory "$name.zip"
@@ -43,7 +42,12 @@ try {
     $index = [Collections.Generic.List[string]]::new()
     $index.Add('# Third-party packages')
     foreach ($library in $assets.libraries.PSObject.Properties | Where-Object { $_.Value.type -eq 'package' }) {
-        $package = Join-Path $env:NUGET_PACKAGES $library.Value.path
+        $package = $null
+        foreach ($folder in $assets.packageFolders.PSObject.Properties.Name) {
+            $candidate = Join-Path $folder $library.Value.path
+            if (Test-Path -LiteralPath $candidate -PathType Container) { $package = $candidate; break }
+        }
+        if (-not $package) { throw "Restored package not found: $($library.Name)" }
         $nuspec = @(Get-ChildItem -LiteralPath $package -Filter '*.nuspec')[0]
         [xml]$metadata = Get-Content -LiteralPath $nuspec.FullName -Raw
         $index.Add("- $($library.Name): $($metadata.package.metadata.license.InnerText) $($metadata.package.metadata.licenseUrl)")

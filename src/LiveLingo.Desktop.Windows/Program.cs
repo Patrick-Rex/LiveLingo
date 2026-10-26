@@ -24,7 +24,18 @@ internal static class Program
         }
         var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { ContentRootPath = AppContext.BaseDirectory, Args = [] });
         builder.Logging.ClearProviders();
-        builder.Services.AddSingleton(new DesktopSession(AppContext.BaseDirectory));
+        var verifyIndex = Array.IndexOf(args, "--verify");
+        string? verificationData = null;
+        if (verifyIndex >= 0)
+        {
+            if (verifyIndex + 1 >= args.Length || !Path.IsPathFullyQualified(args[verifyIndex + 1]) ||
+                args[verifyIndex + 1].StartsWith("C:", StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException("验证需要非 C 盘的绝对路径。");
+            verificationData = args[verifyIndex + 1] + ".data";
+        }
+        var history = new DesktopHistory(verificationData);
+        builder.Services.AddSingleton(history);
+        builder.Services.AddSingleton(new DesktopSession(AppContext.BaseDirectory, history));
         builder.Services.AddSingleton<IDesktopSession>(services => services.GetRequiredService<DesktopSession>());
         builder.Services.AddSingleton<IDesktopSettingsStore>(new DesktopSettingsStore(settingsPath));
         using var host = builder.Build();

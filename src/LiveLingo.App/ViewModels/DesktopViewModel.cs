@@ -39,6 +39,42 @@ public sealed partial class DesktopViewModel : ObservableObject
     public string[] Languages { get; } = ["auto", "Japanese"];
     /// <summary>获取与字幕显示模式数值顺序一致的本地化选项。</summary>
     public string[] DisplayModes { get; } = ["双语", "仅中文", "仅原文"];
+    /// <summary>获取与桌面主题数值顺序一致的显示名称。</summary>
+    public string[] Themes { get; } = ["跟随系统", "浅色", "深色"];
+    /// <summary>获取可选历史保留天数，零表示永久保留。</summary>
+    public int[] HistoryRetentionOptions { get; } = [7, 30, 90, 0];
+    /// <summary>获取保留期选择器的人类可读名称。</summary>
+    public string[] HistoryRetentionLabels { get; } = ["7 天", "30 天", "90 天", "永久"];
+    /// <summary>将保留期显示选项映射到待应用的天数，零仅作为持久化值。</summary>
+    public int HistoryRetentionIndex
+    {
+        get => Array.IndexOf(HistoryRetentionOptions, HistoryRetentionDays);
+        set { if (!closing && value >= 0 && value < HistoryRetentionOptions.Length) HistoryRetentionDays = HistoryRetentionOptions[value]; }
+    }
+    /// <summary>获取或设置即时生效并自动保存的桌面主题。</summary>
+    public int ThemeIndex
+    {
+        get => (int)settings.Theme;
+        set
+        {
+            if (closing || !Enum.IsDefined((DesktopTheme)value) || value == ThemeIndex) return;
+            settings = settings with { Theme = (DesktopTheme)value };
+            OnPropertyChanged(); PreviewAppearance();
+        }
+    }
+    /// <summary>获取或设置当前一级页面；页面切换保留设置草稿。</summary>
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(IsLivePage)), NotifyPropertyChangedFor(nameof(IsHistoryPage)), NotifyPropertyChangedFor(nameof(IsSettingsPage))]
+    public partial int SelectedPageIndex { get; set; }
+    /// <summary>获取实时翻译页是否可见。</summary>
+    public bool IsLivePage => SelectedPageIndex == 0;
+    /// <summary>获取历史记录页是否可见。</summary>
+    public bool IsHistoryPage => SelectedPageIndex == 1;
+    /// <summary>获取设置页是否可见。</summary>
+    public bool IsSettingsPage => SelectedPageIndex == 2;
+    /// <summary>获取或设置设置页当前分类。</summary>
+    [ObservableProperty] public partial int SelectedSettingsIndex { get; set; }
+    /// <summary>获取已生效的模型和识别策略摘要。</summary>
+    public string RuntimeSummary => $"{settings.TranslationModel} · {(settings.AsrLanguage == "auto" ? "自动识别语言" : "日语")}";
     /// <summary>获取或设置浮窗显示模式；忽略选择控件初始化的空选项。</summary>
     public int DisplayModeIndex
     {
@@ -47,7 +83,7 @@ public sealed partial class DesktopViewModel : ObservableObject
         {
             if (closing || !Enum.IsDefined((SubtitleDisplayMode)value) || value == DisplayModeIndex) return;
             settings = settings with { DisplayMode = (SubtitleDisplayMode)value };
-            OnPropertyChanged(); PreviewAppearance();
+            OnPropertyChanged(); OnPropertyChanged(nameof(PreviewSourceVisible)); OnPropertyChanged(nameof(PreviewTranslationVisible)); PreviewAppearance();
         }
     }
     /// <summary>获取可用功能键编号。</summary>
@@ -74,11 +110,11 @@ public sealed partial class DesktopViewModel : ObservableObject
     /// <summary>获取模型、资源路径或快捷键是否尚未手动提交。</summary>
     public bool HasPendingSettings => ReadSettings() != settings;
     /// <summary>获取运行配置的待保存提示。</summary>
-    public string PendingSettingsText => HasPendingSettings ? "有未保存的运行设置，请保存或撤销后开始" : "运行设置无待保存修改";
+    public string PendingSettingsText => HasPendingSettings ? "有待应用的设置，请应用或撤销后开始" : "设置已同步";
     /// <summary>获取独立于会话状态的手动保存结果。</summary>
     [ObservableProperty] public partial string SettingsSaveMessage { get; set; } = "";
     /// <summary>获取字幕即时预览与持久化结果。</summary>
-    [ObservableProperty] public partial string AppearanceSaveMessage { get; set; } = "字幕调整后自动保存";
+    [ObservableProperty] public partial string AppearanceSaveMessage { get; set; } = "主题和字幕外观自动保存";
     /// <summary>获取字幕保存是否需要用户重试。</summary>
     [ObservableProperty] public partial bool AppearanceSaveFailed { get; set; }
     /// <summary>获取运行状态，不隐藏实际错误或积压。</summary>
@@ -90,7 +126,15 @@ public sealed partial class DesktopViewModel : ObservableObject
     /// <summary>获取未识别音频的秒数。</summary>
     [ObservableProperty] public partial string Backlog { get; set; } = "积压 0.0 秒";
     /// <summary>获取完整有效字幕历史，不按文本删除真实重复。</summary>
-    [ObservableProperty] public partial IReadOnlyList<SubtitleRow> History { get; set; } = [];
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(HasLiveHistory))] public partial IReadOnlyList<SubtitleRow> History { get; set; } = [];
+    /// <summary>获取实时页是否已收到有效字幕。</summary>
+    public bool HasLiveHistory => History.Count > 0;
+    /// <summary>获取合成字幕预览是否显示原文。</summary>
+    public bool PreviewSourceVisible => settings.DisplayMode != SubtitleDisplayMode.TranslationOnly;
+    /// <summary>获取合成字幕预览是否显示译文。</summary>
+    public bool PreviewTranslationVisible => settings.DisplayMode != SubtitleDisplayMode.SourceOnly;
+    /// <summary>获取与实际浮窗一致的原文字号。</summary>
+    public double PreviewSourceFontSize => FontSize * 18 / 28;
     /// <summary>获取字幕窗最近两块或回看锁定身份的当前有效版本。</summary>
     [ObservableProperty] public partial IReadOnlyList<SubtitleRow> OverlayRows { get; set; } = [];
     /// <summary>获取是否跟随最新字幕；暂停时只更新当前阅读身份的权威版本。</summary>
@@ -123,7 +167,7 @@ public sealed partial class DesktopViewModel : ObservableObject
     /// <summary>获取缓存目录输入。</summary>
     [ObservableProperty] public partial string CachePath { get; set; } = new DesktopSettings().CachePath;
     /// <summary>获取待应用中文字号。</summary>
-    [ObservableProperty] public partial double FontSize { get; set; } = 28;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(PreviewSourceFontSize))] public partial double FontSize { get; set; } = 28;
     /// <summary>获取待应用背景不透明度。</summary>
     [ObservableProperty] public partial double BackgroundOpacity { get; set; } = 0.75;
     /// <summary>获取启停功能键。</summary>
@@ -132,6 +176,8 @@ public sealed partial class DesktopViewModel : ObservableObject
     [ObservableProperty] public partial int VisibilityKey { get; set; } = 8;
     /// <summary>获取布局功能键。</summary>
     [ObservableProperty] public partial int LayoutKey { get; set; } = 9;
+    /// <summary>获取或设置待明确应用的历史保留天数。</summary>
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(HistoryRetentionIndex))] public partial int HistoryRetentionDays { get; set; } = 30;
 
     /// <summary>读取设置并枚举目标；损坏文件不会在初始化时被覆盖。</summary><returns>初始化完成任务。</returns>
     public async Task InitializeAsync()
@@ -139,6 +185,8 @@ public sealed partial class DesktopViewModel : ObservableObject
         var result = await store.LoadAsync(lifetime.Token);
         settings = result.Settings; persistedSettings = settings; loadingSettings = true;
         OnPropertyChanged(nameof(DisplayModeIndex));
+        OnPropertyChanged(nameof(PreviewSourceVisible)); OnPropertyChanged(nameof(PreviewTranslationVisible));
+        OnPropertyChanged(nameof(ThemeIndex)); OnPropertyChanged(nameof(RuntimeSummary));
         LoadRuntimeInputs();
         FontSize = settings.FontSize; BackgroundOpacity = settings.BackgroundOpacity;
         loadingSettings = false; initialized = true; allowAutoSave = result.Error is null;
@@ -202,6 +250,7 @@ public sealed partial class DesktopViewModel : ObservableObject
                 persistedSettings = next; settings = CopyAppearance(next, settings); allowAutoSave = true;
                 SettingsSaveMessage = "运行设置已保存"; Error = "";
                 NotifyPendingSettings(); SettingsApplied?.Invoke(settings);
+                OnPropertyChanged(nameof(RuntimeSummary));
             }
             finally { saveGate.Release(); }
             ScheduleAppearanceSave();
@@ -225,6 +274,7 @@ public sealed partial class DesktopViewModel : ObservableObject
         PythonPath = settings.PythonPath; ModelPath = settings.ModelPath; OllamaPath = settings.OllamaPath;
         OllamaModelsPath = settings.OllamaModelsPath; DataPath = settings.DataPath; CachePath = settings.CachePath;
         StartKey = settings.StartKey; VisibilityKey = settings.VisibilityKey; LayoutKey = settings.LayoutKey;
+        HistoryRetentionDays = settings.HistoryRetentionDays;
     }
 
     /// <inheritdoc />
@@ -232,7 +282,7 @@ public sealed partial class DesktopViewModel : ObservableObject
     {
         base.OnPropertyChanged(e);
         if (e.PropertyName is nameof(TranslationModel) or nameof(AsrLanguage) or nameof(PythonPath) or nameof(ModelPath) or
-            nameof(OllamaPath) or nameof(OllamaModelsPath) or nameof(DataPath) or nameof(CachePath) or nameof(StartKey) or nameof(VisibilityKey) or nameof(LayoutKey))
+            nameof(OllamaPath) or nameof(OllamaModelsPath) or nameof(DataPath) or nameof(CachePath) or nameof(StartKey) or nameof(VisibilityKey) or nameof(LayoutKey) or nameof(HistoryRetentionDays))
         {
             SettingsSaveMessage = ""; NotifyPendingSettings();
         }
@@ -266,7 +316,7 @@ public sealed partial class DesktopViewModel : ObservableObject
     {
         if (!initialized || closing || !allowAutoSave) return;
         appearanceVersion++;
-        AppearanceSaveFailed = false; AppearanceSaveMessage = "字幕已生效，等待自动保存…";
+        AppearanceSaveFailed = false; AppearanceSaveMessage = "外观已生效，等待自动保存…";
         if (appearanceSaveTask.IsCompleted) appearanceSaveTask = AutoSaveAppearanceAsync();
     }
 
@@ -285,7 +335,7 @@ public sealed partial class DesktopViewModel : ObservableObject
             }
         }
         catch (OperationCanceledException) when (closing) { }
-        catch (Exception error) { AppearanceSaveFailed = true; AppearanceSaveMessage = "字幕保存失败：" + error.Message; }
+        catch (Exception error) { AppearanceSaveFailed = true; AppearanceSaveMessage = "外观保存失败：" + error.Message; }
     }
 
     /// <summary>重新安排一次字幕保存；不覆盖加载失败的原始配置。</summary>
@@ -299,7 +349,7 @@ public sealed partial class DesktopViewModel : ObservableObject
         {
             var next = CopyAppearance(persistedSettings, settings);
             if (next != persistedSettings) { await store.SaveAsync(next, cancellationToken); persistedSettings = next; }
-            AppearanceSaveFailed = false; AppearanceSaveMessage = "字幕设置已自动保存";
+            AppearanceSaveFailed = false; AppearanceSaveMessage = "外观已自动保存";
         }
         finally { saveGate.Release(); }
     }
@@ -307,7 +357,7 @@ public sealed partial class DesktopViewModel : ObservableObject
     /// <summary>仅复制字幕字段，不改变运行配置或快捷键。</summary><param name="target">保留运行字段的配置。</param><param name="source">字幕外观与布局来源。</param><returns>合并后的不可变配置。</returns>
     private static DesktopSettings CopyAppearance(DesktopSettings target, DesktopSettings source) => target with
     {
-        FontSize = source.FontSize, BackgroundOpacity = source.BackgroundOpacity, DisplayMode = source.DisplayMode,
+        Theme = source.Theme, FontSize = source.FontSize, BackgroundOpacity = source.BackgroundOpacity, DisplayMode = source.DisplayMode,
         OverlayX = source.OverlayX, OverlayY = source.OverlayY, OverlayWidth = source.OverlayWidth, OverlayHeight = source.OverlayHeight
     };
 
@@ -315,6 +365,12 @@ public sealed partial class DesktopViewModel : ObservableObject
     [RelayCommand] private void ToggleOverlay() { if (closing) return; OverlayVisible = !OverlayVisible; OverlayChanged?.Invoke(); }
     /// <summary>请求临时交互模式；常规模式恢复原生穿透。</summary>
     [RelayCommand] private void ToggleLayout() { if (closing) return; LayoutMode = !LayoutMode; OverlayVisible = true; OverlayChanged?.Invoke(); }
+
+    /// <summary>从待应用提示直接进入设置，保留所有编辑输入。</summary>
+    [RelayCommand] private void OpenSettings() { if (!closing) SelectedPageIndex = 2; }
+
+    /// <summary>从实时页的运行摘要进入运行环境分类。</summary>
+    [RelayCommand] private void OpenRuntimeSettings() { if (closing) return; SelectedSettingsIndex = 2; SelectedPageIndex = 2; }
 
     /// <summary>手动回看时保留当前阅读身份，不让新块替换正在阅读的内容。</summary>
     public void PauseFollowing() { if (!closing) FollowLatest = false; }
@@ -388,6 +444,6 @@ public sealed partial class DesktopViewModel : ObservableObject
     {
         TranslationModel = TranslationModel, AsrLanguage = AsrLanguage, PythonPath = PythonPath, ModelPath = ModelPath,
         OllamaPath = OllamaPath, OllamaModelsPath = OllamaModelsPath, DataPath = DataPath, CachePath = CachePath,
-        StartKey = StartKey, VisibilityKey = VisibilityKey, LayoutKey = LayoutKey
+        StartKey = StartKey, VisibilityKey = VisibilityKey, LayoutKey = LayoutKey, HistoryRetentionDays = HistoryRetentionDays
     };
 }

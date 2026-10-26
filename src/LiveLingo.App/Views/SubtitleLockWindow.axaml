@@ -1,10 +1,17 @@
 <Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:LiveLingo.App.ViewModels" x:Class="LiveLingo.App.Views.SubtitleLockWindow" x:DataType="vm:DesktopViewModel"
-        Title="LiveLingo 字幕锁定" Width="104" Height="40" CanResize="False"
+        Title="LiveLingo 字幕锁定" Width="40" Height="40" CanResize="False"
         WindowDecorations="None" Background="Transparent" TransparencyLevelHint="Transparent"
-        Topmost="True" ShowActivated="False" ShowInTaskbar="False">
-  <Button Name="LayoutLockButton" Content="{Binding LayoutActionText}" Command="{Binding ToggleLayoutCommand}"
-          HorizontalAlignment="Stretch" VerticalAlignment="Stretch" HorizontalContentAlignment="Center"
-          Padding="8,4" FontSize="12" Background="#263747" Foreground="#9EDFC7"
-          ToolTip.Tip="解锁后拖动顶部移动、拖动边缘缩放；锁定后字幕正文鼠标穿透" />
+        RequestedThemeVariant="Dark" Topmost="True" ShowActivated="False" ShowInTaskbar="False">
+  <Button Name="LayoutLockButton" Command="{Binding ToggleLayoutCommand}" MinWidth="32" MinHeight="32"
+          HorizontalAlignment="Stretch" VerticalAlignment="Stretch" HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+          Padding="11" CornerRadius="8" Background="#263747" Foreground="#DCE6EF"
+          AutomationProperties.Name="{Binding LayoutActionText}" ToolTip.Tip="{Binding LayoutActionText}">
+    <Grid Width="16" Height="16" IsHitTestVisible="False">
+      <Path Name="LockedIcon" IsVisible="{Binding !LayoutMode}" Stroke="#DCE6EF" StrokeThickness="1.5"
+            Data="M4,7 V4.5 A4,4 0 0 1 12,4.5 V7 M3,7 H13 V15 H3 Z M8,10 V12" />
+      <Path Name="UnlockedIcon" IsVisible="{Binding LayoutMode}" Stroke="#DCE6EF" StrokeThickness="1.5"
+            Data="M4,7 V4.5 A4,4 0 0 1 12,4.5 M3,7 H13 V15 H3 Z M8,10 V12" />
+    </Grid>
+  </Button>
 </Window>

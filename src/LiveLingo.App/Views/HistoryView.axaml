@@ -1,0 +1,87 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:LiveLingo.App.ViewModels" x:Class="LiveLingo.App.Views.HistoryView" x:DataType="vm:HistoryViewModel">
+  <UserControl.Styles>
+    <Style Selector="ListBoxItem"><Setter Property="HorizontalContentAlignment" Value="Stretch" /></Style>
+  </UserControl.Styles>
+  <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="12">
+    <Grid ColumnDefinitions="*,Auto,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="8" RowSpacing="12">
+      <TextBlock Grid.ColumnSpan="3" Text="历史记录" FontSize="24" FontWeight="SemiBold" />
+      <TextBox Grid.Row="1" Text="{Binding Search}" Watermark="按应用名称查找会话" AutomationProperties.Name="查找会话" />
+      <Button Grid.Row="1" Grid.Column="1" Content="查找" Command="{Binding SearchSessionsCommand}" IsEnabled="{Binding Ready}" />
+      <Button Grid.Row="1" Grid.Column="2" Content="刷新" Command="{Binding RefreshCommand}" IsEnabled="{Binding Ready}" />
+    </Grid>
+    <StackPanel Grid.Row="1" Spacing="4">
+      <TextBlock Text="{Binding SaveMessage}" IsVisible="{Binding HasSaveError}" Foreground="{DynamicResource DesktopDanger}" TextWrapping="Wrap" />
+      <Button Content="重试保存记录" Command="{Binding RetrySaveCommand}" IsVisible="{Binding CanRetry}" />
+      <TextBlock Text="{Binding Message}" IsVisible="{Binding HasMessage}" FontSize="12" TextWrapping="Wrap" />
+    </StackPanel>
+    <Grid Grid.Row="2" ColumnDefinitions="210,*" ColumnSpacing="16">
+      <Grid RowDefinitions="*,Auto,Auto" RowSpacing="8">
+        <ListBox Name="ArchiveSessions" Classes="transcript" ItemsSource="{Binding Sessions}" SelectedItem="{Binding SelectedSession}"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                 AutomationProperties.Name="历史会话">
+          <ListBox.ItemTemplate>
+            <DataTemplate DataType="vm:HistorySessionItem">
+              <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8" Margin="0,4">
+                <CheckBox IsChecked="{Binding IsChecked}" IsEnabled="{Binding CanDelete}" AutomationProperties.Name="选择会话用于删除" />
+                <StackPanel Grid.Column="1" Spacing="4">
+                  <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                  <TextBlock Text="{Binding Detail}" FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource DesktopSecondaryText}" />
+                </StackPanel>
+              </Grid>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+        <TextBlock IsVisible="{Binding IsEmpty}" Text="还没有记录。开始一次翻译后，会自动保存在这里。" TextWrapping="Wrap" Margin="12" VerticalAlignment="Center" Foreground="{DynamicResource DesktopSecondaryText}" />
+        <StackPanel Grid.Row="1" Spacing="6">
+          <TextBlock Text="{Binding SessionPageText}" FontSize="12" />
+          <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding HasSessionPages}"><Button Content="上一页" Command="{Binding PreviousSessionsCommand}" IsEnabled="{Binding Ready}" /><Button Content="下一页" Command="{Binding NextSessionsCommand}" IsEnabled="{Binding Ready}" /></StackPanel>
+          <TextBlock Text="{Binding SessionSelectionText}" FontSize="12" />
+        </StackPanel>
+        <StackPanel Grid.Row="2" Spacing="8">
+          <Button Content="删除选中会话" Classes="danger" Command="{Binding DeleteSessionsCommand}" IsEnabled="{Binding CanDeleteSessions}" />
+          <Button Content="清空已结束记录" Classes="danger" Command="{Binding ClearHistoryCommand}" IsEnabled="{Binding Ready}" />
+        </StackPanel>
+      </Grid>
+      <Grid Grid.Column="1" RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="8">
+        <StackPanel Spacing="4"><TextBlock Text="{Binding DocumentTitle}" FontSize="18" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding DocumentTitle}" /><TextBlock Text="{Binding DocumentDetail}" FontSize="12" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding DocumentDetail}" Foreground="{DynamicResource DesktopSecondaryText}" /></StackPanel>
+        <TextBox Grid.Row="1" Text="{Binding TextSearch}" Watermark="在本场原文和译文中查找" AutomationProperties.Name="查找双语正文" />
+        <WrapPanel Grid.Row="2" Orientation="Horizontal">
+          <Button Content="复制" Command="{Binding CopyCommand}" IsEnabled="{Binding CanRead}" Margin="0,0,8,4" ToolTip.Tip="有选择时复制选中条目，否则复制整场" />
+          <Button Content="导出 TXT" Command="{Binding ExportTextCommand}" IsEnabled="{Binding CanRead}" Margin="0,0,8,4" />
+          <Button Content="导出 Markdown" Command="{Binding ExportMarkdownCommand}" IsEnabled="{Binding CanRead}" Margin="0,0,0,4" />
+        </WrapPanel>
+        <ListBox Grid.Row="3" Name="ArchiveEntries" Classes="transcript" ItemsSource="{Binding Entries}"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="历史双语正文">
+          <ListBox.ItemTemplate>
+            <DataTemplate DataType="vm:HistoryEntryItem">
+              <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8" Margin="0,8">
+                <CheckBox IsChecked="{Binding IsChecked}" VerticalAlignment="Top" AutomationProperties.Name="选择记录" />
+                <StackPanel Grid.Column="1" Spacing="6">
+                  <TextBlock Text="{Binding StatusText}" FontSize="12" Foreground="{DynamicResource DesktopSecondaryText}" />
+                  <SelectableTextBlock Text="{Binding Source}" TextWrapping="Wrap" Foreground="{DynamicResource DesktopSecondaryText}" />
+                  <SelectableTextBlock Text="{Binding Translation}" FontSize="18" TextWrapping="Wrap" />
+                  <Expander Header="详情" FontSize="12"><TextBlock Text="{Binding Detail}" TextWrapping="Wrap" /></Expander>
+                </StackPanel>
+              </Grid>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+        <StackPanel Grid.Row="4" Spacing="8">
+          <TextBlock Text="{Binding EntryPageText}" FontSize="12" />
+          <WrapPanel IsVisible="{Binding HasEntryPages}">
+            <Button Content="上一页" Command="{Binding PreviousEntriesCommand}" Margin="0,0,8,4" />
+            <Button Content="下一页" Command="{Binding NextEntriesCommand}" Margin="0,0,8,4" />
+          </WrapPanel>
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <Button Content="选择…">
+              <Button.Flyout><MenuFlyout><MenuItem Header="选择本页" Command="{Binding SelectPageCommand}" /><MenuItem Header="取消全部选择" Command="{Binding ClearSelectionCommand}" /></MenuFlyout></Button.Flyout>
+            </Button>
+            <Button Content="删除所选" Classes="danger" Command="{Binding DeleteEntriesCommand}" IsEnabled="{Binding CanDeleteEntries}" />
+          </StackPanel>
+        </StackPanel>
+      </Grid>
+    </Grid>
+    <TextBlock Grid.Row="3" Text="{Binding Location}" FontSize="12" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Location}" Foreground="{DynamicResource DesktopSecondaryText}" />
+  </Grid>
+</UserControl>

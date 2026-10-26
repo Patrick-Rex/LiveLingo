@@ -33,7 +33,6 @@ public partial class SubtitleWindow : Window
         subtitleScroll.LayoutUpdated += FollowTail;
         PointerMoved += UpdateCursor;
         this.FindControl<Border>("MoveHandle")!.PointerPressed += Move;
-        this.FindControl<Grid>("StatusBar")!.PointerPressed += Move;
         SetInteractive(false);
     }
 
@@ -53,6 +52,10 @@ public partial class SubtitleWindow : Window
         interactive = enabled; CanResize = enabled;
         this.FindControl<Grid>("LayoutToolbar")!.IsVisible = enabled;
         this.FindControl<Grid>("ReadingToolbar")!.IsVisible = enabled;
+        this.FindControl<Grid>("ReviewToolbar")!.IsVisible = enabled;
+        Grid.SetRow(subtitleScroll, enabled ? 1 : 0);
+        Grid.SetRowSpan(subtitleScroll, enabled ? 1 : 2);
+        subtitleScroll.Margin = enabled ? default : new Thickness(0, 0, 40, 0);
         this.FindControl<Border>("Surface")!.BorderBrush = new SolidColorBrush(Color.Parse(enabled ? "#9EDFC7" : "#395267"));
         Cursor = Cursor.Default;
         cursorType = StandardCursorType.Arrow;
@@ -69,7 +72,7 @@ public partial class SubtitleWindow : Window
         BeginResizeDrag(edge, args);
     }
 
-    /// <summary>只从明确的拖动条或状态行移动窗口，保留按钮与正文滚动交互。</summary><param name="sender">拖动区域。</param><param name="args">当前指针事件。</param>
+    /// <summary>只从明确的拖动条移动窗口，保留按钮与正文滚动交互。</summary><param name="sender">拖动区域。</param><param name="args">当前指针事件。</param>
     private void Move(object? sender, PointerPressedEventArgs args)
     {
         if (!interactive || args.Handled || !args.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;

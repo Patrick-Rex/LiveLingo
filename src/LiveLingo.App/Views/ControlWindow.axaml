@@ -1,109 +1,67 @@
 <Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:vm="using:LiveLingo.App.ViewModels" xmlns:core="using:LiveLingo.Core.Desktop"
-        x:Class="LiveLingo.App.Views.ControlWindow" x:DataType="vm:DesktopViewModel"
-        Title="LiveLingo" Width="960" Height="760" MinWidth="760" MinHeight="600" Background="#101720">
-  <Window.Styles>
-    <Style Selector="TextBlock.caption"><Setter Property="Foreground" Value="#94A9BD" /><Setter Property="FontSize" Value="12" /><Setter Property="TextWrapping" Value="Wrap" /></Style>
-    <Style Selector="TextBlock.section"><Setter Property="FontSize" Value="18" /><Setter Property="FontWeight" Value="SemiBold" /></Style>
-    <Style Selector="Button"><Setter Property="Padding" Value="16,9" /></Style>
-    <Style Selector="TextBox"><Setter Property="MinHeight" Value="34" /></Style>
-    <Style Selector="TabItem"><Setter Property="Padding" Value="16,10" /><Setter Property="FontSize" Value="15" /></Style>
-    <Style Selector="TextBlock.saveStatus"><Setter Property="Foreground" Value="#9EDFC7" /></Style>
-    <Style Selector="TextBlock.saveStatus.error"><Setter Property="Foreground" Value="#FFBC99" /></Style>
-  </Window.Styles>
-  <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="24" RowSpacing="16">
-    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
-      <StackPanel Spacing="4"><TextBlock Text="LiveLingo" FontSize="26" FontWeight="SemiBold" Foreground="#F1F6FC" /><TextBlock Text="本地实时翻译 · 字幕可修订" Classes="caption" /></StackPanel>
-      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-        <Button Content="{Binding OverlayToggleText}" Command="{Binding ToggleOverlayCommand}" />
-        <Button Name="SessionButton" Content="{Binding SessionButtonText}" IsEnabled="{Binding CanToggle}" Command="{Binding ToggleCommand}" Background="#226658" Foreground="White" MinWidth="112" />
-      </StackPanel>
-    </Grid>
-    <Border Grid.Row="1" Background="#1A2735" CornerRadius="10" Padding="16">
-      <StackPanel Spacing="8">
-        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
-          <TextBlock Text="采集应用" VerticalAlignment="Center" />
-          <ComboBox Grid.Column="1" ItemsSource="{Binding Targets}" SelectedItem="{Binding SelectedTarget}" IsEnabled="{Binding CanEdit}" HorizontalAlignment="Stretch" AutomationProperties.Name="采集应用根进程">
-            <ComboBox.ItemTemplate><DataTemplate DataType="core:DesktopTarget"><TextBlock Text="{Binding Label}" /></DataTemplate></ComboBox.ItemTemplate>
-          </ComboBox>
-          <Button Grid.Column="2" Content="刷新应用" Command="{Binding RefreshCommand}" IsEnabled="{Binding CanEdit}" />
-        </Grid>
-        <TextBlock Text="包括所选应用的子进程；浏览器可能包含多个标签页。首次启动需要加载模型。" Classes="caption" />
-        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12"><TextBlock Text="{Binding Status}" TextWrapping="Wrap" /><TextBlock Grid.Column="1" Text="{Binding Backlog}" Foreground="#9EDFC7" /></Grid>
-        <TextBlock Text="{Binding Error}" IsVisible="{Binding HasError}" Foreground="#FFBC99" TextWrapping="Wrap" />
-      </StackPanel>
-    </Border>
-    <TabControl Name="SettingsTabs" Grid.Row="2" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
-      <TabItem Header="会话历史">
-        <Grid RowDefinitions="Auto,*" RowSpacing="10" Margin="0,14,0,0">
-          <Grid ColumnDefinitions="*,Auto"><TextBlock Text="本次会话 · 完整双语字幕" VerticalAlignment="Center" /><Button Grid.Column="1" Content="浮窗回到最新" IsVisible="{Binding IsReviewing}" Command="{Binding ResumeFollowingCommand}" /></Grid>
-          <ListBox Name="HistoryList" Grid.Row="1" ItemsSource="{Binding History}" Background="#15202C" BorderThickness="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-            <ListBox.Styles><Style Selector="ListBoxItem"><Setter Property="HorizontalContentAlignment" Value="Stretch" /></Style></ListBox.Styles>
-            <ListBox.ItemTemplate><DataTemplate DataType="vm:SubtitleRow">
-              <StackPanel Spacing="6" Margin="10"><TextBlock Text="{Binding Detail}" Classes="caption" /><TextBlock Text="{Binding Source}" TextWrapping="Wrap" Foreground="#ADBCCC" /><TextBlock Text="{Binding Translation}" TextWrapping="Wrap" FontSize="19" Foreground="#F1F6FC" /></StackPanel>
-            </DataTemplate></ListBox.ItemTemplate>
-          </ListBox>
-        </Grid>
-      </TabItem>
-      <TabItem Header="字幕外观">
-        <ScrollViewer>
-          <StackPanel Spacing="18" Margin="4,16,12,16">
-            <StackPanel Spacing="4"><TextBlock Text="字幕外观" Classes="section" /><TextBlock Text="调整立即生效并自动保存，翻译过程中也可修改。" Classes="caption" /></StackPanel>
-            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12"><TextBlock Text="{Binding AppearanceSaveMessage}" Classes="saveStatus" Classes.error="{Binding AppearanceSaveFailed}" TextWrapping="Wrap" VerticalAlignment="Center" /><Button Grid.Column="1" Content="重试保存字幕" IsVisible="{Binding AppearanceSaveFailed}" Command="{Binding RetryAppearanceSaveCommand}" /></Grid>
-            <Grid ColumnDefinitions="140,*" ColumnSpacing="16"><TextBlock Text="显示语言" VerticalAlignment="Center" /><ComboBox Name="DisplayModeSelector" Grid.Column="1" ItemsSource="{Binding DisplayModes}" SelectedIndex="{Binding DisplayModeIndex}" Width="160" HorizontalAlignment="Left" AutomationProperties.Name="浮窗显示语言" /></Grid>
-            <Grid ColumnDefinitions="140,*,136" ColumnSpacing="16">
-              <TextBlock Text="中文字号" VerticalAlignment="Center" />
-              <Slider Name="FontSizeSlider" Grid.Column="1" Minimum="16" Maximum="64" Value="{Binding FontSize}" VerticalAlignment="Center" AutomationProperties.Name="中文字号" />
-              <NumericUpDown Grid.Column="2" Minimum="16" Maximum="64" Increment="2" FormatString="0" Value="{Binding FontSize}" AutomationProperties.Name="中文字号数值" />
-            </Grid>
-            <Grid ColumnDefinitions="140,*,90" ColumnSpacing="16"><TextBlock Text="背景不透明度" VerticalAlignment="Center" /><Slider Name="OpacitySlider" Grid.Column="1" Minimum="0.1" Maximum="1" Value="{Binding BackgroundOpacity}" VerticalAlignment="Center" AutomationProperties.Name="背景不透明度" /><TextBlock Grid.Column="2" Text="{Binding BackgroundOpacity, StringFormat={}{0:P0}}" VerticalAlignment="Center" /></Grid>
-            <Border Background="#1A2735" CornerRadius="8" Padding="14">
-              <StackPanel Spacing="10">
-                <TextBlock Text="在悬浮字幕右上角点击“解锁拖动”，拖动顶部移动、边缘缩放；调整后点击“锁定位置”。位置和大小自动保存，也可用布局快捷键切换。" Classes="caption" />
-                <Button Content="回到最新字幕" IsVisible="{Binding IsReviewing}" Command="{Binding ResumeFollowingCommand}" />
-                <TextBlock Text="解锁后用 A− / A+ 或 Ctrl+滚轮缩放文字。手动回看暂停跟随，点击“回到最新”恢复。" Classes="caption" />
-              </StackPanel>
-            </Border>
-          </StackPanel>
-        </ScrollViewer>
-      </TabItem>
-      <TabItem Header="模型与路径">
-        <ScrollViewer>
-          <StackPanel Spacing="12" Margin="4,16,12,16">
-            <StackPanel Spacing="4"><TextBlock Text="模型与路径" Classes="section" /><TextBlock Text="停止翻译后修改，点击底部“保存运行设置”确认；字幕外观另行自动保存。" Classes="caption" /></StackPanel>
-            <StackPanel Name="RuntimeInputs" Spacing="12" IsEnabled="{Binding CanEdit}">
-              <Grid ColumnDefinitions="*,*" ColumnSpacing="16">
-                <StackPanel Spacing="6"><TextBlock Text="翻译模型" /><ComboBox ItemsSource="{Binding Models}" SelectedItem="{Binding TranslationModel}" HorizontalAlignment="Stretch" /></StackPanel>
-                <StackPanel Grid.Column="1" Spacing="6"><TextBlock Text="识别语言" /><ComboBox ItemsSource="{Binding Languages}" SelectedItem="{Binding AsrLanguage}" HorizontalAlignment="Stretch" /></StackPanel>
-              </Grid>
-              <TextBlock Text="Python 可执行文件" /><TextBox Text="{Binding PythonPath}" AutomationProperties.Name="Python 路径" />
-              <TextBlock Text="Qwen 模型目录" /><TextBox Text="{Binding ModelPath}" />
-              <TextBlock Text="Ollama 可执行文件" /><TextBox Text="{Binding OllamaPath}" />
-              <TextBlock Text="Ollama 模型目录" /><TextBox Text="{Binding OllamaModelsPath}" />
-              <TextBlock Text="数据目录（非 C 盘）" /><TextBox Text="{Binding DataPath}" />
-              <TextBlock Text="缓存目录（非 C 盘）" /><TextBox Text="{Binding CachePath}" />
-            </StackPanel>
-          </StackPanel>
-        </ScrollViewer>
-      </TabItem>
-      <TabItem Header="快捷键">
-        <ScrollViewer>
-          <StackPanel Spacing="20" Margin="4,16,12,16">
-            <StackPanel Spacing="4"><TextBlock Text="全局快捷键" Classes="section" /><TextBlock Text="停止后修改并保存。三个快捷键须不同，支持 Ctrl+Alt+F1–F11。" Classes="caption" /></StackPanel>
-            <Grid RowDefinitions="Auto,Auto,Auto" ColumnDefinitions="180,Auto,100" RowSpacing="16" ColumnSpacing="12" IsEnabled="{Binding CanEdit}">
-              <TextBlock Text="开始 / 停止翻译" VerticalAlignment="Center" /><TextBlock Grid.Column="1" Text="Ctrl + Alt + F" VerticalAlignment="Center" /><ComboBox Grid.Column="2" ItemsSource="{Binding FunctionKeys}" SelectedItem="{Binding StartKey}" HorizontalAlignment="Stretch" />
-              <TextBlock Grid.Row="1" Text="显示 / 隐藏字幕" VerticalAlignment="Center" /><TextBlock Grid.Row="1" Grid.Column="1" Text="Ctrl + Alt + F" VerticalAlignment="Center" /><ComboBox Grid.Row="1" Grid.Column="2" ItemsSource="{Binding FunctionKeys}" SelectedItem="{Binding VisibilityKey}" HorizontalAlignment="Stretch" />
-              <TextBlock Grid.Row="2" Text="调整位置和大小" VerticalAlignment="Center" /><TextBlock Grid.Row="2" Grid.Column="1" Text="Ctrl + Alt + F" VerticalAlignment="Center" /><ComboBox Grid.Row="2" Grid.Column="2" ItemsSource="{Binding FunctionKeys}" SelectedItem="{Binding LayoutKey}" HorizontalAlignment="Stretch" />
-            </Grid>
-          </StackPanel>
-        </ScrollViewer>
-      </TabItem>
-    </TabControl>
-    <Border Grid.Row="3" BorderBrush="#395267" BorderThickness="0,1,0,0" Padding="0,12,0,0">
-      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-        <StackPanel Spacing="4" VerticalAlignment="Center"><TextBlock Text="{Binding PendingSettingsText}" Classes="caption" /><TextBlock Text="{Binding SettingsSaveMessage}" TextWrapping="Wrap" /><TextBlock Text="{Binding AppearanceSaveMessage}" IsVisible="{Binding AppearanceSaveFailed}" Foreground="#FFBC99" TextWrapping="Wrap" /></StackPanel>
-        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center" IsEnabled="{Binding CanEdit}"><Button Content="撤销修改" Command="{Binding RevertSettingsCommand}" IsEnabled="{Binding HasPendingSettings}" /><Button Name="SaveSettingsButton" Content="保存运行设置" Command="{Binding SaveCommand}" /></StackPanel>
+        xmlns:vm="using:LiveLingo.App.ViewModels" xmlns:core="using:LiveLingo.Core.Desktop" xmlns:views="using:LiveLingo.App.Views"
+        x:Class="LiveLingo.App.Views.ControlWindow" x:DataType="vm:DesktopViewModel" Classes="desktop"
+        Title="LiveLingo" Width="960" Height="760" MinWidth="760" MinHeight="600">
+  <Window.Styles><StyleInclude Source="avares://LiveLingo.App/Themes/DesktopTheme.axaml" /></Window.Styles>
+  <Grid ColumnDefinitions="164,*">
+    <Border Background="{DynamicResource DesktopSurface}" BorderBrush="{DynamicResource DesktopBorder}" BorderThickness="0,0,1,0" Padding="12,24">
+      <Grid RowDefinitions="Auto,*,Auto" RowSpacing="28">
+        <StackPanel Margin="12,0" Spacing="6"><TextBlock Text="LiveLingo" FontSize="22" FontWeight="SemiBold" /><TextBlock Text="本地实时翻译" Classes="caption" /></StackPanel>
+        <ListBox Name="MainNavigation" Grid.Row="1" Classes="navigation" SelectedIndex="{Binding SelectedPageIndex}" VerticalAlignment="Top" AutomationProperties.Name="主要页面">
+          <ListBoxItem Content="实时翻译" /><ListBoxItem Content="历史记录" /><ListBoxItem Content="设置" />
+        </ListBox>
+        <TextBlock Grid.Row="2" Margin="12,0" Text="音频、翻译留在本机" Classes="caption" />
       </Grid>
     </Border>
+    <Grid Grid.Column="1" Margin="24" RowDefinitions="Auto,Auto,*" RowSpacing="12">
+      <Border Classes="card" IsVisible="{Binding HasPendingSettings}" Padding="12">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12"><TextBlock Text="{Binding PendingSettingsText}" TextWrapping="Wrap" VerticalAlignment="Center" Foreground="{DynamicResource DesktopWarning}" /><Button Grid.Column="1" Content="前往设置" Command="{Binding OpenSettingsCommand}" /></Grid>
+      </Border>
+      <StackPanel Grid.Row="1" Spacing="8">
+        <Border Classes="card" IsVisible="{Binding HasError}" Padding="12"><TextBlock Text="{Binding Error}" Foreground="{DynamicResource DesktopDanger}" TextWrapping="Wrap" /></Border>
+        <Border Classes="card" IsVisible="{Binding HistorySaveFailed}" Padding="12"><Grid ColumnDefinitions="*,Auto" ColumnSpacing="8"><TextBlock Text="{Binding HistorySaveMessage}" TextWrapping="Wrap" Foreground="{DynamicResource DesktopDanger}" VerticalAlignment="Center" /><Button Grid.Column="1" Content="重试保存记录" Command="{Binding Archive.RetrySaveCommand}" IsVisible="{Binding Archive.CanRetry}" /></Grid></Border>
+      </StackPanel>
+      <Grid Grid.Row="2">
+        <Grid Name="LivePage" IsVisible="{Binding IsLivePage}" RowDefinitions="Auto,Auto,*" RowSpacing="16">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel Spacing="4"><TextBlock Text="实时翻译" Classes="pageTitle" /><TextBlock Text="选择正在播放声音的应用" Classes="caption" /></StackPanel>
+            <Button Name="SessionButton" Grid.Column="1" Content="{Binding SessionButtonText}" IsEnabled="{Binding CanToggle}" Command="{Binding ToggleCommand}" Classes="primary" MinWidth="112" VerticalAlignment="Center" />
+          </Grid>
+          <Border Grid.Row="1" Classes="card">
+            <StackPanel Spacing="12">
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                <ComboBox ItemsSource="{Binding Targets}" SelectedItem="{Binding SelectedTarget}" IsEnabled="{Binding CanEdit}" HorizontalAlignment="Stretch" AutomationProperties.Name="采集应用根进程">
+                  <ComboBox.ItemTemplate><DataTemplate DataType="core:DesktopTarget"><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" /></DataTemplate></ComboBox.ItemTemplate>
+                </ComboBox>
+                <Button Grid.Column="1" Content="刷新" Command="{Binding RefreshCommand}" IsEnabled="{Binding CanEdit}" AutomationProperties.Name="刷新采集应用" />
+              </Grid>
+              <TextBlock Text="包括应用的子进程；浏览器可能包含多个标签页。" Classes="caption" />
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8"><TextBlock Text="{Binding RuntimeSummary}" Classes="caption" VerticalAlignment="Center" /><Button Grid.Column="1" Content="更改" Command="{Binding OpenRuntimeSettingsCommand}" AutomationProperties.Name="更改模型与识别语言" /></Grid>
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12"><TextBlock Text="{Binding Status}" TextWrapping="Wrap" /><TextBlock Grid.Column="1" Text="{Binding Backlog}" Classes="caption" /></Grid>
+            </StackPanel>
+          </Border>
+          <Grid Grid.Row="2" RowDefinitions="Auto,*" RowSpacing="10">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+              <TextBlock Text="当前会话" Classes="section" VerticalAlignment="Center" />
+              <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8"><Button Content="回到最新" IsVisible="{Binding IsReviewing}" Command="{Binding ResumeFollowingCommand}" /><Button Content="{Binding OverlayToggleText}" Command="{Binding ToggleOverlayCommand}" /></StackPanel>
+            </Grid>
+            <Border Grid.Row="1" Classes="card" Padding="0">
+              <Grid>
+                <StackPanel IsVisible="{Binding !HasLiveHistory}" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="24" Spacing="8">
+                  <TextBlock Text="等待语音开始" FontSize="18" HorizontalAlignment="Center" /><TextBlock Text="开始翻译后，原文与译文会显示在这里。&#10;字幕可能随上下文继续修订。" Classes="caption" TextAlignment="Center" />
+                </StackPanel>
+                <ListBox Name="HistoryList" Classes="transcript" ItemsSource="{Binding History}" IsVisible="{Binding HasLiveHistory}" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                  <ListBox.ItemTemplate><DataTemplate DataType="vm:SubtitleRow">
+                    <StackPanel Spacing="8"><TextBlock Text="{Binding StatusText}" Classes="caption" /><TextBlock Text="{Binding Source}" TextWrapping="Wrap" Foreground="{DynamicResource DesktopSecondaryText}" /><TextBlock Text="{Binding Translation}" TextWrapping="Wrap" FontSize="19" /><Expander Header="详细信息" HorizontalAlignment="Stretch"><TextBlock Text="{Binding Detail}" Classes="caption" /></Expander></StackPanel>
+                  </DataTemplate></ListBox.ItemTemplate>
+                </ListBox>
+              </Grid>
+            </Border>
+          </Grid>
+        </Grid>
+        <Grid IsVisible="{Binding IsHistoryPage}"><views:HistoryView Name="ArchivePage" DataContext="{Binding Archive}" /></Grid>
+        <views:SettingsView Name="SettingsPanel" IsVisible="{Binding IsSettingsPage}" />
+      </Grid>
+    </Grid>
   </Grid>
 </Window>

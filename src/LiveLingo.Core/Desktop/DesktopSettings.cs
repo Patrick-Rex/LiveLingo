@@ -1,4 +1,17 @@
+using System.Text.Json.Serialization;
+
 namespace LiveLingo.Core.Desktop;
+
+/// <summary>控制桌面界面使用系统、浅色或深色主题。</summary>
+public enum DesktopTheme
+{
+    /// <summary>跟随操作系统外观。</summary>
+    System,
+    /// <summary>使用浅色界面。</summary>
+    Light,
+    /// <summary>使用深色界面。</summary>
+    Dark
+}
 
 /// <summary>控制浮窗呈现的语言，不改变识别、翻译或完整历史。</summary>
 public enum SubtitleDisplayMode
@@ -14,8 +27,17 @@ public enum SubtitleDisplayMode
 /// <summary>保存可版本化的本地模型、资源和字幕布局设置；运行中保持不可变。</summary>
 public sealed record DesktopSettings
 {
+    /// <summary>初始化桌面默认设置，并让旧 JSON 缺省保留期采用三十天。</summary>
+    /// <param name="historyRetentionDays">历史保留天数；零表示永久保留。</param>
+    [JsonConstructor]
+    public DesktopSettings(int historyRetentionDays = 30) => HistoryRetentionDays = historyRetentionDays;
+
     /// <summary>获取文件契约主版本。</summary>
     public int SchemaVersion { get; init; } = 1;
+    /// <summary>获取桌面主题；旧配置默认跟随系统。</summary>
+    public DesktopTheme Theme { get; init; } = DesktopTheme.System;
+    /// <summary>获取历史保留天数；零表示永久保留，旧配置默认三十天。</summary>
+    public int HistoryRetentionDays { get; init; } = 30;
     /// <summary>获取明确选择的翻译模型。</summary>
     public string TranslationModel { get; init; } = "translategemma:12b";
     /// <summary>获取识别语言策略。</summary>
@@ -60,6 +82,8 @@ public sealed record DesktopSettings
         if (SchemaVersion != 1 || TranslationModel is not ("translategemma:4b" or "translategemma:12b") || AsrLanguage is not ("auto" or "Japanese"))
             throw new ArgumentException("设置版本、模型或语言不受支持。");
         if (!Enum.IsDefined(DisplayMode)) throw new ArgumentException("字幕显示模式不受支持。");
+        if (!Enum.IsDefined(Theme)) throw new ArgumentException("界面主题不受支持。");
+        if (HistoryRetentionDays is not (0 or 7 or 30 or 90)) throw new ArgumentException("历史保留期须为永久、7、30 或 90 天。");
         foreach (var path in new[] { PythonPath, ModelPath, OllamaModelsPath, DataPath, CachePath }) ValidateDataPath(path);
         if (string.IsNullOrWhiteSpace(OllamaPath) || !Path.IsPathFullyQualified(OllamaPath)) throw new ArgumentException("Ollama 需要绝对路径。");
         if (!double.IsFinite(OverlayWidth) || OverlayWidth is < 320 or > 3840 || !double.IsFinite(OverlayHeight) || OverlayHeight is < 120 or > 2160 ||

@@ -1,6 +1,6 @@
 # Process-local model caches; never change the user's persistent environment.
-. (Join-Path $PSScriptRoot 'Enter-Development.ps1')
 $modelCacheRoot = 'D:\Soft Ware\LiveLingo\cache'
+. (Join-Path $PSScriptRoot 'Enter-Development.ps1') -CacheRoot $modelCacheRoot
 $env:UV_CACHE_DIR = Join-Path $modelCacheRoot 'uv'
 $env:PIP_CACHE_DIR = Join-Path $modelCacheRoot 'pip'
 $env:HF_HOME = Join-Path $modelCacheRoot 'huggingface'

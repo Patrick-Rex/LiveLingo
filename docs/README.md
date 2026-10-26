@@ -7,6 +7,8 @@ M0–M4 首版里程碑已完成，项目进入持续迭代。本入口维护公
 - [源码打包、备份、安装替换与回退](packaging.md)
 - [贡献指南](../CONTRIBUTING.md)
 - [测试运行方式](../tests/README.md)
+- [桌面界面、设置与历史模块](../src/LiveLingo.App/README.md)
+- [桌面界面规范](../src/LiveLingo.App/UI-DESIGN.md)
 - [Python 运行配置](../runtime-profiles/README.md)
 - [模型准备与评测工具](../tools/model_eval/README.md)
 - [采集与管道诊断工具](../tools/LiveLingo.Probe/README.md)

@@ -7,7 +7,7 @@
 | 内容 | 默认位置及用途 |
 | --- | --- |
 | 源码与构建输出 | 仓库及各项目 bin/obj；构建成功不会替换正在使用的程序 |
-| 发布包 | D:\Soft Ware\LiveLingo\packages；ZIP 与同名 .zip.sha256 |
+| 发布包 | 仓库 artifacts/packages，可用 -OutputDirectory 覆盖；ZIP 与同名 .zip.sha256 |
 | 正式安装 | D:\Soft Ware\LiveLingo\app\desktop |
 | 用户设置 | D:\Soft Ware\LiveLingo\data\settings.json；使用 --settings 时以实际路径为准 |
 | 模型、Python 环境及缓存 | models、runtimes、cache 和独立的 Ollama 权重目录；不随程序替换 |
@@ -16,16 +16,18 @@
 
 ## 2. 从源码验证并打包
 
-使用 PowerShell 7、Git 和 global.json 指定的 .NET SDK。运行机器需要 Windows 11 x64、.NET 10 x64 Runtime 10.0.12 或更高的 10.0 修订版，以及已准备的模型环境；程序按依赖运行时方式发布，包不包含 .NET Runtime。
+使用 PowerShell 7、Git 和 .NET 10 稳定 SDK（10.0.100 起，global.json 允许后续功能带及补丁）。运行机器需要 Windows 11 x64、.NET 10.0 x64 Runtime（兼容各稳定补丁版本，建议使用最新维护版本），以及已准备的模型环境；程序按依赖运行时方式发布，包不包含 .NET Runtime。
 
-以下命令在仓库根、同一 PowerShell 7 终端顺序执行。0.1.1 只是下一次打包的示例版本，不表示已发布；按本次实际版本修改。同版本 ZIP 或校验文件存在时脚本拒绝覆盖，可选新版本或新的非 C 盘输出目录，保留可回退旧包。
+以下命令在仓库根、同一 PowerShell 7 终端顺序执行。0.1.1 只是下一次打包的示例版本，不表示已发布；按本次实际版本修改。同版本 ZIP 或校验文件存在时脚本拒绝覆盖，可选新版本或新的可写输出目录，保留可回退旧包。源码与打包允许在 C 盘；只有正式安装及其回归测试仍要求非 C 本地盘，示例临时根按本机实际盘符修改。
 
 ```powershell
 $ErrorActionPreference = 'Stop'
-Set-Location -LiteralPath 'D:\Code Build\Repos\Patrick-Rex\LiveLingo'
 $packageVersion = '0.1.1'
-$packageOutput = 'D:\Soft Ware\LiveLingo\packages'
-. ./scripts/Enter-Development.ps1
+$packageOutput = Join-Path $PWD 'artifacts/packages'
+$installTestRoot = 'D:\Soft Ware\LiveLingo\cache\tmp'
+New-Item -ItemType Directory -Path $installTestRoot -Force | Out-Null
+$env:TEMP = $installTestRoot
+$env:TMP = $installTestRoot
 git status --short
 
 # 发布前按改动范围验证；下面是完整 .NET 回归示例。
@@ -44,16 +46,16 @@ if ($LASTEXITCODE -ne 0) { throw 'Tests failed.' }
 
 ./scripts/New-LiveLingoPackage.ps1 -Version $packageVersion -OutputDirectory $packageOutput
 $archive = Join-Path $packageOutput "LiveLingo-$packageVersion-win-x64.zip"
-./scripts/Test-LiveLingoPackage.ps1 -Archive $archive
+./scripts/Test-LiveLingoPackage.ps1 -Archive $archive -TemporaryRoot $installTestRoot
 ```
 
 测试还须有实际通过数量，零测试不能算通过；检查范围见 [测试说明](../tests/README.md)。纯文档修改无需运行上述业务构建或测试；需要生成新分发包时，打包脚本会自行执行生产项目还原与发布。涉及原生交互、采集或模型路径的变更，按实际影响补充相应检查，安装包测试不能替代它们。
 
-New-LiveLingoPackage.ps1 内部使用 locked restore 和 `dotnet publish -c Release -r win-x64 --self-contained false`，只发布生产工程；不启用裁剪、AOT 或单文件。暂存位于仓库忽略的 artifacts/packaging/唯一目录，完成后清理。不要向已有安装目录直接执行 Publish-LiveLingo.ps1；它要求空输出目录，正式替换使用安装器。
+New-LiveLingoPackage.ps1 内部使用 locked restore 和 `dotnet publish -c Release -r win-x64 --self-contained false`，只发布生产工程；不启用裁剪、AOT 或单文件。NuGet 使用本机配置及已有环境变量；如需指定开发缓存，预先执行 `. ./scripts/Enter-Development.ps1 -CacheRoot <可写绝对路径>`。第三方许可从还原结果记录的包目录收集，不要求设置 NUGET_PACKAGES。暂存位于仓库忽略的 artifacts/packaging/唯一目录，完成后清理。Publish-LiveLingo.ps1 默认输出到仓库 artifacts/publish/desktop，可用 -OutputDirectory 覆盖；它要求空输出目录，正式替换使用安装器。
 
 包内包含 desktop 程序、worker、cu130 profile/哈希锁、必要依赖准备脚本、用户指南和第三方许可。根目录含 Install.ps1、manifest.json、README.md、LICENSE、NOTICE。模型、虚拟环境、录音、测试、历史报告、缓存和 PDB 不入包。ZIP 校验覆盖整个归档，manifest 逐项校验 desktop 下的应用文件。
 
-Test-LiveLingoPackage.ps1 在独立非 C 盘临时目录执行 10 项检查，覆盖 ZIP/应用哈希、损坏/额外文件/越界路径拒绝、C 盘拒绝、首次安装、拒绝隐式覆盖、显式替换保留设置及安装文件一致性，完成后清理。它不会替换正式安装，也不会启动 GPU 模型。
+Test-LiveLingoPackage.ps1 在 -TemporaryRoot 指定的非 C 本地盘下创建独立临时目录（省略时使用当前 TEMP），执行 10 项检查，覆盖 ZIP/应用哈希、损坏/额外文件/越界路径拒绝、C 盘拒绝、首次安装、拒绝隐式覆盖、显式替换保留设置及安装文件一致性，完成后清理。它不会替换正式安装，也不会启动 GPU 模型。
 
 ## 3. 关闭程序并留存回退资料
 

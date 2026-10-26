@@ -12,6 +12,8 @@ M0–M4 首版里程碑已完成，项目进入持续迭代；当前能力与支
 - 连续音频缓存、重叠识别和字幕版本控制，显示草稿、修订及积压状态。
 - 支持 TranslateGemma 4B / 12B；默认 Qwen 自动语言识别和 TranslateGemma 12B。
 - 双语字幕置顶、鼠标穿透、布局调整，以及可配置的全局快捷键。
+- 实时翻译、历史记录和设置三个页面，支持跟随系统、浅色和深色主题。
+- 本地保存每次翻译会话，支持查找、复制、TXT / Markdown 导出，以及结束后确认删除和保留期清理。
 - 关闭程序时停止采集并回收程序启动的模型进程。
 
 ## 系统要求
@@ -19,7 +21,7 @@ M0–M4 首版里程碑已完成，项目进入持续迭代；当前能力与支
 | 项目 | 要求 |
 | --- | --- |
 | 操作系统 | Windows 11 x64，build 22000 或更高 |
-| 应用运行时 | .NET 10 x64 Runtime，10.0.12 或更新的 10.0 修订版 |
+| 应用运行时 | .NET 10.0 x64 Runtime，兼容各稳定补丁版本，建议使用最新维护版本 |
 | ASR 环境 | Python 3.13.2，独立 PyTorch 2.10.0+cu130 环境 |
 | GPU | 支持该 CUDA 配置的 NVIDIA GPU；目前主要适配 RTX 50系显卡 |
 | 翻译引擎 | Ollama 和已准备的 TranslateGemma 权重 |
@@ -37,7 +39,7 @@ M0–M4 首版里程碑已完成，项目进入持续迭代；当前能力与支
 ./Install.ps1 -ReplaceExisting
 ```
 
-默认程序位置为 `D:\Soft Ware\LiveLingo\app\desktop\LiveLingo.Desktop.Windows.exe`。准备好模型与依赖后，在控制窗确认路径、选择发声应用，再点击开始。
+默认程序位置为 `D:\Soft Ware\LiveLingo\app\desktop\LiveLingo.Desktop.Windows.exe`。准备好模型与依赖后，在“设置 → 运行环境”确认模型和路径并应用，再到“实时翻译”选择发声应用、点击开始。
 
 | 默认快捷键 | 功能 |
 | --- | --- |
@@ -45,25 +47,35 @@ M0–M4 首版里程碑已完成，项目进入持续迭代；当前能力与支
 | Ctrl+Alt+F8 | 显示 / 隐藏字幕 |
 | Ctrl+Alt+F9 | 进入 / 退出布局模式 |
 
-点击悬浮字幕右上角“解锁拖动”进入布局模式，拖动顶部移动，四边四角调整窗口大小；A− / A+ 或 Ctrl+滚轮即时缩放双语文字，普通滚轮查看长句。运行中也能调整，点击同一位置的“锁定位置”恢复正文鼠标穿透，右上角按钮仍可点击；控制窗不再提供重复布局开关；位置、尺寸、字号、背景和显示模式即时生效，连续调整结束后自动保存。
+点击悬浮字幕右上角的小锁进入布局模式，解锁后显示紧凑拖动条、语言和字号控件。拖动顶部移动，四边四角调整窗口大小；A− / A+ 或 Ctrl+滚轮即时缩放双语文字，普通滚轮查看长句。再次点击小锁恢复正文鼠标穿透；小锁保留独立的40×40 DIP命中区，提示和无障碍名称随锁态变化。位置、尺寸、字号、背景和显示模式即时生效并自动保存，运行中也可调整。
 
-浮窗默认自动跟随最新内容。布局模式中向上滚动回看或操作滚动条后暂停跟随，保留当前阅读的两块并继续接收修订与撤销；点击浮窗或控制窗的“回到最新”恢复。退出布局模式仍保留回看状态，新会话恢复跟随。控制窗及浮窗布局工具条可即时切换双语／仅中文／仅原文，控制窗历史仍保留双语；显示模式自动保存。控制窗分为会话历史、字幕外观、模型与路径、快捷键四页。模型、路径和快捷键停止后点击底部“保存运行设置”；未保存时可“撤销修改”，开始翻译前须先处理这些修改。
+浮窗默认自动跟随最新内容。布局模式中向上滚动回看或操作滚动条后暂停跟随，保留当前阅读的两块并继续接收修订与撤销；点击浮窗或实时页的“回到最新”恢复。重新锁定保留回看状态，新会话恢复跟随。“设置 → 字幕外观”和浮窗布局工具条可切换双语／仅中文／仅原文，历史仍保留双语。
+
+设置分为常规、字幕外观、运行环境、快捷键四个内部分组。主题与字幕外观即时生效并自动保存；模型、语言、路径、快捷键和历史保留期停止后点击设置页底部“应用设置”，或用“撤销”放弃未应用输入。切页保留草稿，有待应用设置时不能开始翻译；外观自动保存不会带入运行草稿。
+
+历史记录默认保存于数据目录的 `history` 子目录，保留30天，可改为7天、90天或永久。运行中可阅读、复制和导出，结束后可确认删除选中条目、选中会话或全部已结束记录。无条目选择时复制、导出整场，有选择时只处理选中条目；导出固定点击时的内容，保存对话框取消不生成文件。历史保存失败会持续提示并提供重试。
 
 完整步骤见 [安装与模型准备](packaging/USER-GUIDE.md)。Ollama 是 TranslateGemma 的运行引擎；识别和翻译使用不同模型。
 
 ## 从源码构建
 
-需要 .NET SDK 10.0.401、PowerShell 7 和 Git。默认开发缓存使用 `D:\Soft Ware\LiveLingo\cache`，请先确认该盘可写。
+需要 Windows 11 x64、.NET 10 SDK（10.0.100 起的稳定功能带及补丁版本）、PowerShell 7 和 Git。源码可放在任意可写目录。`global.json` 使用 `latestFeature`，不要求安装特定的 10.0.4xx SDK，也不自动跨到 .NET 11 或预览版。
+
+普通还原、构建无需先执行环境脚本。NuGet 使用本机配置，默认包缓存为 `%USERPROFILE%\.nuget\packages`；已有 `NUGET_PACKAGES` 等环境变量保持有效。可选的环境脚本默认保留这些设置，显式指定 `-CacheRoot <本机可写绝对路径>` 时才将 NuGet、解包与临时缓存重定向到该目录，仅影响当前终端及其子进程。
 
 ```powershell
-. ./scripts/Enter-Development.ps1
 dotnet restore LiveLingo.slnx --locked-mode
 dotnet build LiveLingo.slnx -c Release --no-restore --disable-build-servers -clp:ErrorsOnly
+# 存储测试需要非 C 盘临时目录；先按 tests/README.md 设置 TEMP/TMP。
 dotnet test --solution LiveLingo.slnx -c Release --no-build --no-progress
 ./scripts/New-LiveLingoPackage.ps1 -Version 0.1.1
 ```
 
-安装包输出到 `D:\Soft Ware\LiveLingo\packages`。0.1.1 为命令示例，按本次实际版本替换；同版本包不覆盖。版本号用于压缩包和包清单，安装目录统一为 `app\desktop`。完整的打包、包测试、备份、安装替换、核对与回退步骤见 [交付说明](docs/packaging.md)。构建或打包成功不会自动替换已安装程序。
+安装包默认输出到仓库的 `artifacts/packages`，可用 `-OutputDirectory` 覆盖；直接执行发布脚本默认输出到 `artifacts/publish/desktop`。0.1.1 为命令示例，按本次实际版本替换；同版本包不覆盖。版本号用于压缩包和包清单，安装目录统一为 `app\desktop`。完整的打包、包测试、备份、安装替换、核对与回退步骤见 [交付说明](docs/packaging.md)。构建或打包成功不会自动替换已安装程序。
+
+Windows 目标框架中的 `10.0.26100.0` 是编译 API 基线，最低运行平台由 `SupportedOSPlatformVersion=10.0.22000.0` 声明，因此支持 Windows 11 各后续版本。NuGet 库仍按集中版本和依赖锁还原，不随本机 SDK 补丁改变。
+
+从旧配置迁移时，先关闭曾执行旧环境脚本的终端，再开新终端执行 `dotnet restore LiveLingo.slnx --locked-mode --force`，重新生成含本机缓存路径的中间文件。若仍出现旧路径，使用 `dotnet nuget locals global-packages --list` 核对缓存位置，并检查自己设置的 `NUGET_PACKAGES` 或用户级 NuGet 配置。
 
 检查完整编译警告时，使用 `dotnet build LiveLingo.slnx -c Release --no-restore --disable-build-servers -t:Rebuild -warnaserror`；强制重建避免增量构建漏报，并将警告视为失败。测试取消约定见 [测试说明](tests/README.md)。
 
@@ -89,7 +101,7 @@ dotnet test --solution LiveLingo.slnx -c Release --no-build --no-progress
 - 首次可读中文通常以3–6秒为目标，冷启动、长句和积压可能增加延迟。
 - 普通识别窗口30秒，对齐失败时最多扩展到120秒；无法继续处理时显示限制和积压。
 - 物理混合DPI、显示器拔插及独占全屏的完整兼容性仍需验证。
-- 当前脚本默认使用D盘布局；暂不支持跨平台安装、自动更新或签名安装向导。
+- 模型准备与正式安装脚本仍默认使用D盘布局；源码构建与打包不依赖该布局。暂不支持跨平台安装、自动更新或签名安装向导。
 
 ## 贡献
 

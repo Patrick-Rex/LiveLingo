@@ -24,6 +24,10 @@ public static class DesktopInputFixture {
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     /// <summary>Activate our independently launched receiver.</summary><param name="window">Owned receiver.</param><returns>Success.</returns>
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr window);
+    /// <summary>Join only the fixture thread to the foreground input queue while activating its owned receiver.</summary><param name="first">Fixture thread.</param><param name="second">Foreground thread.</param><param name="attach">Attach or release.</param><returns>Success.</returns>
+    [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint first, uint second, bool attach);
+    /// <summary>Read the input-driving fixture thread.</summary><returns>Thread ID.</returns>
+    [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
     /// <summary>Position pointer over verified receiver bounds.</summary><param name="x">Pixel x.</param><param name="y">Pixel y.</param><returns>Success.</returns>
     [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
     /// <summary>Send a mouse event at the verified receiver.</summary><param name="flags">Flags.</param><param name="x">Unused.</param><param name="y">Unused.</param><param name="data">Unused.</param><param name="extra">Unused.</param>
@@ -42,6 +46,18 @@ function Read-Json([string]$Path) {
     try { $reader.ReadToEnd() | ConvertFrom-Json } finally { $reader.Dispose() }
 }
 function Read-Window { Read-Json (Join-Path $OutputDirectory 'window.json') }
+function Set-OwnedForeground([long]$Handle) {
+    if ($Handle -notin $script:ownedWindows) { throw '拒绝激活非自有窗口。' }
+    [uint32]$foregroundPid = 0
+    $foregroundThread = [DesktopInputFixture]::GetWindowThreadProcessId([DesktopInputFixture]::GetForegroundWindow(), [ref]$foregroundPid)
+    $fixtureThread = [DesktopInputFixture]::GetCurrentThreadId()
+    $attached = $false
+    try {
+        if ($foregroundThread -ne 0 -and $foregroundThread -ne $fixtureThread) { $attached = [DesktopInputFixture]::AttachThreadInput($fixtureThread, $foregroundThread, $true) }
+        [DesktopInputFixture]::SetForegroundWindow([IntPtr]$Handle) | Out-Null
+    }
+    finally { if ($attached) { [DesktopInputFixture]::AttachThreadInput($fixtureThread, $foregroundThread, $false) | Out-Null } }
+}
 function Send-FixtureHotkey([byte]$Key) {
     if ([DesktopInputFixture]::GetForegroundWindow().ToInt64() -notin $script:ownedWindows) { throw '前台不是自有测试窗口，拒绝发送按键。' }
     [DesktopInputFixture]::keybd_event(0x11, 0, 0, [UIntPtr]::Zero)
@@ -63,7 +79,7 @@ try {
     $script:receiverHandle = [long]$receiverState.Handle
     $script:ownedWindows = @($script:receiverHandle, [long]$readyState.Control, [long]$readyState.Overlay, [long]$readyState.LayoutLock)
     [DesktopInputFixture]::ShowWindow([IntPtr]$script:receiverHandle, 5) | Out-Null
-    [DesktopInputFixture]::SetForegroundWindow([IntPtr]$script:receiverHandle) | Out-Null
+    Set-OwnedForeground $script:receiverHandle
     [IO.File]::WriteAllText((Join-Path $OutputDirectory 'command.txt'), 'position:120,250,950,230')
     Start-Sleep -Milliseconds 900
     $before = Read-Window
@@ -108,9 +124,10 @@ try {
     Send-FixtureHotkey 0x77; $checks.HideHotkey = -not (Read-Window).OverlayVisible
     Send-FixtureHotkey 0x77; $checks.ShowHotkey = (Read-Window).OverlayVisible
     Send-FixtureHotkey 0x78; $layout = Read-Window; $checks.LayoutHotkey = $layout.LayoutMode -and (($layout.Styles -band 0x08000020) -eq 0)
-    [DesktopInputFixture]::SetCursorPos(400, 265) | Out-Null
+    $moveX = [int]$layout.MovePoint.X; $moveY = [int]$layout.MovePoint.Y
+    [DesktopInputFixture]::SetCursorPos($moveX, $moveY) | Out-Null
     [DesktopInputFixture]::mouse_event(2,0,0,0,[UIntPtr]::Zero); Start-Sleep -Milliseconds 150
-    [DesktopInputFixture]::SetCursorPos(520, 325) | Out-Null; Start-Sleep -Milliseconds 150
+    [DesktopInputFixture]::SetCursorPos(($moveX + 120), ($moveY + 60)) | Out-Null; Start-Sleep -Milliseconds 150
     [DesktopInputFixture]::mouse_event(4,0,0,0,[UIntPtr]::Zero); Start-Sleep -Milliseconds 400
     $moved = Read-Window
     $checks.LayoutDrag = $moved.Position.X -ne $layout.Position.X -and $moved.Position.Y -ne $layout.Position.Y
@@ -149,12 +166,12 @@ try {
     $zoomAfter = Read-Window
     $checks.CtrlWheelZoom = $zoomAfter.Settings.FontSize -eq ($zoomBefore.Settings.FontSize + 2)
     $checks.ZoomPreservesBounds = $zoomAfter.Width -eq $zoomBefore.Width -and $zoomAfter.Height -eq $zoomBefore.Height -and $zoomAfter.Position.X -eq $zoomBefore.Position.X -and $zoomAfter.Position.Y -eq $zoomBefore.Position.Y
-    [DesktopInputFixture]::SetForegroundWindow([IntPtr]$script:receiverHandle) | Out-Null
+    Set-OwnedForeground $script:receiverHandle
     Start-Sleep -Milliseconds 300
     Send-FixtureHotkey 0x78; $checks.RestoreClickThrough = -not (Read-Window).LayoutMode
     [IO.File]::WriteAllText((Join-Path $OutputDirectory 'receiver-fullscreen.request'), '')
     Start-Sleep -Milliseconds 600
-    [DesktopInputFixture]::SetForegroundWindow([IntPtr]$script:receiverHandle) | Out-Null
+    Set-OwnedForeground $script:receiverHandle
     Start-Sleep -Milliseconds 300
     [uint32]$hitPid = 0
     [DesktopInputFixture]::GetWindowThreadProcessId([DesktopInputFixture]::WindowFromPoint(([long]350 -shl 32) -bor 500), [ref]$hitPid) | Out-Null

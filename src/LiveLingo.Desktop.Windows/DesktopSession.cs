@@ -4,6 +4,7 @@ using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using LiveLingo.Core.Desktop;
+using LiveLingo.Core.History;
 using LiveLingo.Core.Sessions;
 using LiveLingo.Platform.Windows.Audio;
 using LiveLingo.Platform.Windows.Power;
@@ -16,7 +17,8 @@ namespace LiveLingo.Desktop.Windows;
 
 /// <summary>组合已验证的进程树采集及字幕流水线；只终止本会话创建的模型 Job。</summary>
 /// <param name="contentRoot">包含固定 Python 代码和 profile 的发布根。</param>
-public sealed class DesktopSession(string contentRoot) : IDesktopSession
+/// <param name="history">本机历史库与退出冲刷。</param>
+public sealed class DesktopSession(string contentRoot, DesktopHistory? history = null) : IDesktopSession
 {
     private readonly SemaphoreSlim lifecycle = new(1);
     private readonly object updates = new();
@@ -28,7 +30,7 @@ public sealed class DesktopSession(string contentRoot) : IDesktopSession
 
     /// <inheritdoc />
     public event Action<DesktopUpdate>? Updated;
-    /// <summary>获取显式验证时的原始完整快照；普通模式不写入正文。</summary>
+    /// <summary>获取显式验证时的原始完整快照；产品档案另由独立记录器保存。</summary>
     public event Action<PipelineSnapshot>? PipelineUpdated;
     /// <summary>获取上次运行登记的自有进程，用于结束后核验。</summary>
     public TargetIdentity[] LastOwned { get; private set; } = [];
@@ -88,8 +90,10 @@ public sealed class DesktopSession(string contentRoot) : IDesktopSession
         var temporary = new List<string>();
         LocalPipelineModels? models = null;
         ContinuousAudioStore? store = null;
+        IHistoryRecorder? recorder = null;
         try
         {
+            recorder = history?.Begin(id, target, settings);
             var environment = PrepareEnvironment(settings);
             var profilePath = Path.Combine(contentRoot, "runtime-profiles", "win-x64-cu130", "profile.json");
             using var profile = JsonDocument.Parse(await File.ReadAllBytesAsync(profilePath, token).ConfigureAwait(false));
@@ -118,6 +122,7 @@ public sealed class DesktopSession(string contentRoot) : IDesktopSession
                 return store = new ContinuousAudioStore(new FileAudioSpillStore(path), options.MemorySamples, options.SpillSamples, options.MaximumLeaseSamples);
             }, models, snapshot =>
             {
+                recorder?.Offer(snapshot.Subtitles);
                 lock (updates) { latest = snapshot; Publish(id, true); }
                 foreach (var process in owned) process.ObserveMembers();
                 PipelineUpdated?.Invoke(snapshot);
@@ -138,6 +143,7 @@ public sealed class DesktopSession(string contentRoot) : IDesktopSession
             if (RemainingOwned.Length != 0) LastError = "仍有自有进程未退出。";
             RemainingTemporary = temporary.Where(Directory.Exists).ToArray();
             if (RemainingTemporary.Length != 0) LastError = "本会话音频临时目录未清理。";
+            if (recorder is not null) await history!.CompleteAsync(recorder, LastError).ConfigureAwait(false);
             lock (updates) Publish(id, false);
         }
     }

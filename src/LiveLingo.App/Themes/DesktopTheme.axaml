@@ -1,0 +1,68 @@
+<Styles xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Styles.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Light">
+          <SolidColorBrush x:Key="DesktopBackground" Color="#F4F6F8" />
+          <SolidColorBrush x:Key="DesktopSurface" Color="#FFFFFF" />
+          <SolidColorBrush x:Key="DesktopSubtleSurface" Color="#EAF0F4" />
+          <SolidColorBrush x:Key="DesktopBorder" Color="#D1D9E0" />
+          <SolidColorBrush x:Key="DesktopText" Color="#17232E" />
+          <SolidColorBrush x:Key="DesktopSecondaryText" Color="#506173" />
+          <SolidColorBrush x:Key="DesktopAccent" Color="#176D5A" />
+          <SolidColorBrush x:Key="DesktopAccentForeground" Color="#FFFFFF" />
+          <SolidColorBrush x:Key="DesktopDanger" Color="#A32929" />
+          <SolidColorBrush x:Key="DesktopWarning" Color="#825000" />
+          <SolidColorBrush x:Key="DesktopSuccess" Color="#176D5A" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Dark">
+          <SolidColorBrush x:Key="DesktopBackground" Color="#111920" />
+          <SolidColorBrush x:Key="DesktopSurface" Color="#1A2631" />
+          <SolidColorBrush x:Key="DesktopSubtleSurface" Color="#233442" />
+          <SolidColorBrush x:Key="DesktopBorder" Color="#3A5060" />
+          <SolidColorBrush x:Key="DesktopText" Color="#F0F5FA" />
+          <SolidColorBrush x:Key="DesktopSecondaryText" Color="#B0C0CE" />
+          <SolidColorBrush x:Key="DesktopAccent" Color="#87D8BE" />
+          <SolidColorBrush x:Key="DesktopAccentForeground" Color="#102B23" />
+          <SolidColorBrush x:Key="DesktopDanger" Color="#FFAEAE" />
+          <SolidColorBrush x:Key="DesktopWarning" Color="#F3CB87" />
+          <SolidColorBrush x:Key="DesktopSuccess" Color="#87D8BE" />
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+      <SolidColorBrush x:Key="SubtitlePreviewBackground" Color="#111820" />
+      <SolidColorBrush x:Key="SubtitlePreviewText" Color="#F5F8FC" />
+      <SolidColorBrush x:Key="SubtitlePreviewSecondaryText" Color="#B8C9D8" />
+    </ResourceDictionary>
+  </Styles.Resources>
+  <Style Selector="Window.desktop">
+    <Setter Property="Background" Value="{DynamicResource DesktopBackground}" />
+    <Setter Property="Foreground" Value="{DynamicResource DesktopText}" />
+    <Setter Property="FontSize" Value="14" />
+  </Style>
+  <Style Selector="TextBlock.caption">
+    <Setter Property="Foreground" Value="{DynamicResource DesktopSecondaryText}" />
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+  <Style Selector="TextBlock.pageTitle"><Setter Property="FontSize" Value="24" /><Setter Property="FontWeight" Value="SemiBold" /></Style>
+  <Style Selector="TextBlock.section"><Setter Property="FontSize" Value="18" /><Setter Property="FontWeight" Value="SemiBold" /></Style>
+  <Style Selector="TextBlock.saveStatus"><Setter Property="Foreground" Value="{DynamicResource DesktopSuccess}" /><Setter Property="TextWrapping" Value="Wrap" /></Style>
+  <Style Selector="TextBlock.saveStatus.error"><Setter Property="Foreground" Value="{DynamicResource DesktopDanger}" /></Style>
+  <Style Selector="Border.card">
+    <Setter Property="Background" Value="{DynamicResource DesktopSurface}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource DesktopBorder}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="Padding" Value="16" />
+  </Style>
+  <Style Selector="Button"><Setter Property="MinHeight" Value="36" /><Setter Property="Padding" Value="12,7" /></Style>
+  <Style Selector="Button.primary"><Setter Property="Background" Value="{DynamicResource DesktopAccent}" /><Setter Property="Foreground" Value="{DynamicResource DesktopAccentForeground}" /></Style>
+  <Style Selector="Button.danger"><Setter Property="Foreground" Value="{DynamicResource DesktopDanger}" /></Style>
+  <Style Selector="TextBox"><Setter Property="MinHeight" Value="36" /></Style>
+  <Style Selector="ComboBox"><Setter Property="MinHeight" Value="36" /></Style>
+  <Style Selector="ListBox.navigation"><Setter Property="Background" Value="Transparent" /><Setter Property="BorderThickness" Value="0" /></Style>
+  <Style Selector="ListBox.navigation ListBoxItem"><Setter Property="MinHeight" Value="44" /><Setter Property="Margin" Value="0,2" /><Setter Property="Padding" Value="12,8" /></Style>
+  <Style Selector="ListBox.transcript"><Setter Property="Background" Value="{DynamicResource DesktopSurface}" /><Setter Property="BorderThickness" Value="0" /></Style>
+  <Style Selector="ListBox.transcript ListBoxItem"><Setter Property="HorizontalContentAlignment" Value="Stretch" /><Setter Property="Padding" Value="16,12" /></Style>
+  <Style Selector="TabItem"><Setter Property="Padding" Value="12,10" /><Setter Property="FontSize" Value="14" /></Style>
+</Styles>

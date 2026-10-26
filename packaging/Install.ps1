@@ -58,7 +58,7 @@ if ($VerifyOnly) { Write-Output "Verified=$($manifest.version); Files=$($manifes
 if ($env:OS -ne 'Windows_NT' -or -not [Environment]::Is64BitProcess -or [Environment]::OSVersion.Version.Build -lt 22000) { throw 'Windows 11 x64 and 64-bit PowerShell are required.' }
 $dotnet = Get-Command dotnet -ErrorAction Stop
 $frameworks = & $dotnet.Source --list-runtimes
-if ($LASTEXITCODE -ne 0 -or -not ($frameworks | Where-Object { $_ -match '^Microsoft.NETCore.App (10\.0\.\d+) ' -and [version]$Matches[1] -ge [version]'10.0.12' })) { throw '.NET 10 x64 runtime 10.0.12 or newer servicing update is required.' }
+if ($LASTEXITCODE -ne 0 -or -not ($frameworks | Where-Object { $_ -match '^Microsoft.NETCore.App 10\.0\.\d+ ' })) { throw '.NET 10.0 x64 runtime is required; any stable servicing version is accepted.' }
 if ($ApplicationRoot -notmatch '^[D-Zd-z]:\\') { throw 'ApplicationRoot must be an absolute local path on a non-C drive.' }
 $root = [IO.Path]::GetFullPath($ApplicationRoot).TrimEnd('\')
 if ([IO.Path]::GetFileName($root) -ne 'app') { throw 'ApplicationRoot must be named app; installation is always app\desktop.' }

@@ -2,10 +2,16 @@
 .SYNOPSIS
 Exercises package integrity, installation and replacement in a disposable non-C directory.
 #>
-param([Parameter(Mandatory)][string]$Archive)
+param(
+    [Parameter(Mandatory)][string]$Archive,
+    [string]$TemporaryRoot = $env:TEMP
+)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'Enter-Development.ps1')
-$tempRoot = (Resolve-Path -LiteralPath $env:TEMP).ProviderPath
+if ($TemporaryRoot -notmatch '^[D-Zd-z]:\\') { throw 'Installation tests require -TemporaryRoot on a writable non-C local drive.' }
+New-Item -ItemType Directory -Path $TemporaryRoot -Force | Out-Null
+$tempRoot = (Resolve-Path -LiteralPath $TemporaryRoot).ProviderPath.TrimEnd('\')
+if ($tempRoot.EndsWith(':')) { $tempRoot += '\' }
 $work = Join-Path $tempRoot ('package-test-' + [guid]::NewGuid().ToString('N'))
 $checks = [Collections.Generic.List[string]]::new()
 

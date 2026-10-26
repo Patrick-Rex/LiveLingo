@@ -9,6 +9,49 @@ namespace LiveLingo.App.Tests;
 /// <summary>验证 UI 会话屏障、完整投影和命令竞态；不伪装成原生设备验收。</summary>
 public sealed class DesktopBehaviorTests
 {
+    /// <summary>主题立即保存，但尚未应用的保留期、模型和路径不会被自动带入配置。</summary><returns>主题隔离与生命周期验证任务。</returns>
+    [Fact]
+    public async Task ThemeAutoSaveExcludesPendingRetentionAndRuntimeInputs()
+    {
+        var store = new FakeStore();
+        var vm = new DesktopViewModel(new FakeSession(), store, action => action());
+        await vm.InitializeAsync();
+        vm.TranslationModel = "translategemma:4b"; vm.HistoryRetentionDays = 7;
+        var changes = new List<DesktopSettings>(); vm.AppearanceChanged += changes.Add;
+        vm.ThemeIndex = (int)DesktopTheme.Dark;
+        Assert.Equal(DesktopTheme.Dark, Assert.Single(changes).Theme);
+        Assert.Equal(30, changes[0].HistoryRetentionDays);
+        var saved = await store.SaveCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.Equal(DesktopTheme.Dark, saved.Theme); Assert.Equal(30, saved.HistoryRetentionDays);
+        Assert.Equal("translategemma:12b", saved.TranslationModel); Assert.True(vm.HasPendingSettings);
+        vm.RevertSettingsCommand.Execute(null);
+        Assert.Equal(30, vm.HistoryRetentionDays); Assert.Equal((int)DesktopTheme.Dark, vm.ThemeIndex); Assert.False(vm.HasPendingSettings);
+        await vm.CloseAsync();
+        vm.ThemeIndex = (int)DesktopTheme.Light;
+        Assert.Equal((int)DesktopTheme.Dark, vm.ThemeIndex); Assert.Single(changes);
+    }
+
+    /// <summary>页面切换保留未应用输入，保留期只有明确应用后才进入后续外观保存。</summary><returns>导航与应用语义验证任务。</returns>
+    [Fact]
+    public async Task NavigationPreservesDraftAndExplicitApplyCommitsRetention()
+    {
+        var store = new FakeStore();
+        var vm = new DesktopViewModel(new FakeSession(), store, action => action());
+        await vm.InitializeAsync();
+        Assert.True(vm.IsLivePage);
+        vm.OpenRuntimeSettingsCommand.Execute(null);
+        Assert.True(vm.IsSettingsPage); Assert.Equal(2, vm.SelectedSettingsIndex);
+        vm.HistoryRetentionDays = 90; vm.TranslationModel = "translategemma:4b";
+        vm.SelectedPageIndex = 1;
+        Assert.True(vm.IsHistoryPage); Assert.Equal(90, vm.HistoryRetentionDays); Assert.False(vm.CanToggle);
+        vm.OpenSettingsCommand.Execute(null); Assert.True(vm.IsSettingsPage);
+        await vm.SaveCommand.ExecuteAsync(null);
+        Assert.False(vm.HasPendingSettings); Assert.Equal(90, Assert.Single(store.Writes).HistoryRetentionDays);
+        Assert.Contains("translategemma:4b", vm.RuntimeSummary);
+        vm.ThemeIndex = (int)DesktopTheme.Light; await vm.CloseAsync();
+        Assert.Equal(90, store.Writes.Last().HistoryRetentionDays); Assert.Equal(DesktopTheme.Light, store.Writes.Last().Theme);
+    }
+
     /// <summary>运行中的字幕保存失败独立显示，重试成功不改变会话状态。</summary><returns>失败反馈与重试检查任务。</returns>
     [Fact]
     public async Task AppearanceSaveFailureCanBeRetriedWithoutStoppingSession()
@@ -234,6 +277,8 @@ public sealed class DesktopBehaviorTests
         Assert.Throws<ArgumentException>(() => (new DesktopSettings() with { CachePath = @"C:\bad" }).Validate());
         Assert.Throws<ArgumentException>(() => (new DesktopSettings() with { FontSize = double.NaN }).Validate());
         Assert.Throws<ArgumentException>(() => (new DesktopSettings() with { StartKey = 8 }).Validate());
+        Assert.Throws<ArgumentException>(() => (new DesktopSettings() with { Theme = (DesktopTheme)99 }).Validate());
+        Assert.Throws<ArgumentException>(() => (new DesktopSettings() with { HistoryRetentionDays = 1 }).Validate());
     }
 
     /// <summary>构造具有真实身份和精确源版本的完整重复块。</summary><returns>初始字幕。</returns>

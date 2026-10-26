@@ -5,6 +5,7 @@ using Avalonia.Styling;
 using Avalonia.Themes.Fluent;
 using Avalonia.Threading;
 using LiveLingo.App.ViewModels;
+using LiveLingo.App.Services;
 using LiveLingo.App.Views;
 using LiveLingo.Core.Desktop;
 using Microsoft.Extensions.DependencyInjection;
@@ -25,9 +26,12 @@ public sealed class DesktopApplication(IHost host, string[] arguments) : Applica
     private Task? verification;
     private DesktopVerification? verifier;
     private int requestedExit;
+    private DesktopHistory? history;
+    private bool historyNotificationPending;
+    private readonly object historyNotifications = new();
 
     /// <inheritdoc />
-    public override void Initialize() { RequestedThemeVariant = ThemeVariant.Dark; Styles.Add(new FluentTheme()); }
+    public override void Initialize() { RequestedThemeVariant = ThemeVariant.Default; Styles.Add(new FluentTheme()); }
 
     /// <inheritdoc />
     public override void OnFrameworkInitializationCompleted()
@@ -37,12 +41,50 @@ public sealed class DesktopApplication(IHost host, string[] arguments) : Applica
             desktop = lifetime; desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
             model = new(host.Services.GetRequiredService<IDesktopSession>(), host.Services.GetRequiredService<IDesktopSettingsStore>(), action => Dispatcher.UIThread.Post(action));
             var control = new ControlWindow { DataContext = model };
+            model.Archive = new HistoryViewModel(new HistoryInteraction(control));
+            history = host.Services.GetRequiredService<DesktopHistory>();
+            history.Changed += QueueHistoryChanged;
+            model.SettingsApplied += ApplySettings;
+            model.AppearanceChanged += ApplyTheme;
             var overlay = new SubtitleWindow { DataContext = model };
             desktop.MainWindow = control;
             control.Closing += OnClosing; overlay.Closing += OnClosing; desktop.ShutdownRequested += OnShutdownRequested;
             control.Opened += (_, _) => { initialization = InitializeAsync(control, overlay); };
         }
         base.OnFrameworkInitializationCompleted();
+    }
+
+    /// <summary>应用已确认的偏好并切换档案目录，运行草稿不会触发此入口。</summary><param name="settings">已应用配置。</param>
+    private void ApplySettings(DesktopSettings settings) { ApplyTheme(settings); history!.Configure(settings); ApplyHistoryState(); }
+
+    /// <summary>主窗口主题独立于字幕背景，跟随系统或明确用户选择。</summary><param name="settings">当前偏好。</param>
+    private void ApplyTheme(DesktopSettings settings) => RequestedThemeVariant = settings.Theme switch
+    { DesktopTheme.Light => ThemeVariant.Light, DesktopTheme.Dark => ThemeVariant.Dark, _ => ThemeVariant.Default };
+
+    /// <summary>合并后台保存状态，最多排队一个UI通知。</summary>
+    private void QueueHistoryChanged()
+    {
+        lock (historyNotifications)
+        {
+            if (historyNotificationPending || cleaned) return;
+            historyNotificationPending = true;
+        }
+        Dispatcher.UIThread.Post(() =>
+        {
+            lock (historyNotifications) historyNotificationPending = false;
+            if (!cleaned) ApplyHistoryState();
+        });
+    }
+
+    /// <summary>更新历史库和持续失败提示，成功状态不干扰当前阅读位置。</summary>
+    private void ApplyHistoryState()
+    {
+        if (history is null || model?.Archive is not { } archive) return;
+        if (history.Store is { } store) archive.Attach(store, history.Location);
+        var recorder = history.FailedRecorder;
+        archive.SetSaveStatus(recorder, recorder?.Status);
+        model.HistorySaveMessage = recorder?.Status.Error ?? history.MaintenanceError ?? "";
+        model.HistorySaveFailed = model.HistorySaveMessage.Length != 0;
     }
 
     /// <summary>窗口创建后接通原生策略；所有异常保持控制窗可见。</summary><param name="control">控制窗。</param><param name="overlay">字幕窗。</param><returns>初始化及显式验证任务。</returns>
@@ -54,7 +96,7 @@ public sealed class DesktopApplication(IHost host, string[] arguments) : Applica
             await host.StartAsync(); await model!.InitializeAsync();
             if (arguments.Length != 0)
             {
-                verifier = new DesktopVerification(arguments);
+                verifier = new DesktopVerification(arguments, history);
                 verification = verifier.RunAsync(model, host.Services.GetRequiredService<DesktopSession>(), control, overlay, exit => { requestedExit = exit; RequestClose(); });
             }
         }
@@ -80,12 +122,22 @@ public sealed class DesktopApplication(IHost host, string[] arguments) : Applica
         {
             if (initialization is not null) await initialization;
             if (verification is { IsCompleted: false } && verifier is { Finished: false }) { verifier.Cancel(); await verification; exit = requestedExit; }
-            if (model is not null) await model.CloseAsync();
+            if (model is not null)
+            {
+                var archiveClosing = model.Archive?.CloseAsync() ?? Task.CompletedTask;
+                try { await model.CloseAsync(); }
+                finally { await archiveClosing.WaitAsync(TimeSpan.FromSeconds(2)); }
+            }
         }
         catch (Exception error) { exit = 1; if (model is not null) model.Error = "退出失败：" + error.Message; }
         finally
         {
             bridge?.Dispose();
+            if (history is not null)
+            {
+                history.Changed -= QueueHistoryChanged;
+                try { await history.DisposeAsync(); } catch (Exception) { exit = 1; }
+            }
             try { await host.StopAsync(TimeSpan.FromSeconds(10)); } catch (Exception) { exit = 1; }
             cleaned = true; desktop?.TryShutdown(exit);
         }

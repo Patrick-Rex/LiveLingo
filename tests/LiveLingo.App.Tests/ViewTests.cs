@@ -1,4 +1,5 @@
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
@@ -9,6 +10,7 @@ using Avalonia.Styling;
 using Avalonia.Themes.Fluent;
 using LiveLingo.App.ViewModels;
 using LiveLingo.App.Views;
+using LiveLingo.Core.Subtitles;
 
 [assembly: AvaloniaTestApplication(typeof(LiveLingo.App.Tests.TestApplication))]
 
@@ -26,6 +28,95 @@ public sealed class TestApplication : Application
 /// <summary>加载实际 AXAML 与中日文本，验证框架布局和生命周期。</summary>
 public sealed class ViewTests
 {
+    /// <summary>锁定时正文避开独立锁按钮且无诊断噪声，解锁工具在最小宽度内保持独立命中。</summary>
+    /// <param name="width">以 DIP 表示的字幕窗口宽度。</param>
+    [AvaloniaTheory, InlineData(320.0), InlineData(420.0), InlineData(1000.0)]
+    public void CompactOverlayKeepsBodyAndControlsSeparate(double width)
+    {
+        var vm = new DesktopViewModel(new FakeSession(), new FakeStore(), action => action())
+        {
+            Status = "运行状态不应进入字幕正文",
+            OverlayRows = [new(new(new(Guid.NewGuid(), 1), new(0, 16000), 1, 1, "長い原文。", "完整译文。", 1,
+                SubtitlePhase.Final, TranslationState.Complete, null, BoundaryDecision.Pending))]
+        };
+        var overlay = new SubtitleWindow { DataContext = vm, Width = width, Height = 260 };
+        try
+        {
+            overlay.Show(); overlay.UpdateLayout();
+            var scroll = overlay.FindControl<ScrollViewer>("SubtitleScroll")!;
+            var anchor = overlay.FindControl<Border>("LockAnchor")!;
+            var scrollTop = scroll.TranslatePoint(default, overlay)!.Value;
+            var anchorTop = anchor.TranslatePoint(default, overlay)!.Value;
+            Assert.Equal(scrollTop.Y, anchorTop.Y, 1);
+            Assert.True(scrollTop.X + scroll.Bounds.Width <= anchorTop.X);
+            Assert.Equal(40, anchor.Bounds.Width); Assert.Equal(40, anchor.Bounds.Height);
+            Assert.False(overlay.FindControl<Grid>("LayoutToolbar")!.IsEffectivelyVisible);
+            Assert.False(overlay.FindControl<Button>("ResumeFollowingButton")!.IsEffectivelyVisible);
+            Assert.Equal(ThemeVariant.Dark, overlay.RequestedThemeVariant);
+            var text = overlay.GetVisualDescendants().OfType<TextBlock>().Where(x => x.IsEffectivelyVisible).Select(x => x.Text).ToArray();
+            Assert.Contains("已定稿", text);
+            Assert.DoesNotContain(text, x => x is not null && (x.Contains("源 v", StringComparison.Ordinal) || x.Contains(vm.Status, StringComparison.Ordinal)));
+
+            overlay.SetInteractive(true); overlay.UpdateLayout();
+            var handle = overlay.FindControl<Border>("MoveHandle")!;
+            var selector = overlay.FindControl<ComboBox>("DisplayModeSelector")!;
+            var increase = overlay.FindControl<Button>("IncreaseFontButton")!;
+            var handleStart = handle.TranslatePoint(default, overlay)!.Value;
+            var selectorStart = selector.TranslatePoint(default, overlay)!.Value;
+            var increaseStart = increase.TranslatePoint(default, overlay)!.Value;
+            Assert.True(handle.Bounds.Width >= 32);
+            Assert.True(handleStart.X + handle.Bounds.Width <= selectorStart.X);
+            Assert.True(increaseStart.X + increase.Bounds.Width <= anchorTop.X);
+            Assert.True(scroll.TranslatePoint(default, overlay)!.Value.Y >= anchorTop.Y + anchor.Bounds.Height);
+            Assert.True(increase.Bounds.Width >= 32 && increase.Bounds.Height >= 32);
+            Assert.False(overlay.FindControl<Button>("ResumeFollowingButton")!.IsEffectivelyVisible);
+        }
+        finally { overlay.Close(); }
+    }
+
+    /// <summary>读取状态以对应翻译版本为准，失败、待译和陈旧译文不能冒充完整定稿。</summary>
+    /// <param name="phase">权威字幕阶段。</param><param name="translationState">权威翻译状态。</param>
+    /// <param name="translation">可能缺失的译文。</param><param name="translatedRevision">译文对应源版本。</param><param name="expected">预期短状态。</param>
+    [Theory]
+    [InlineData(SubtitlePhase.Draft, TranslationState.None, null, null, "草稿 · 等待中文")]
+    [InlineData(SubtitlePhase.Revised, TranslationState.Pending, null, null, "更新中 · 等待中文")]
+    [InlineData(SubtitlePhase.Revised, TranslationState.Complete, "译文", 2L, "更新中")]
+    [InlineData(SubtitlePhase.Final, TranslationState.Complete, "译文", 2L, "已定稿")]
+    [InlineData(SubtitlePhase.Final, TranslationState.Pending, "译文", 1L, "更新中 · 中文待更新")]
+    [InlineData(SubtitlePhase.Final, TranslationState.Pending, "译文", 2L, "更新中")]
+    [InlineData(SubtitlePhase.Final, TranslationState.Failed, "旧译文", 1L, "翻译未完成")]
+    public void SubtitleStatusDoesNotHideIncompleteTranslation(SubtitlePhase phase, TranslationState translationState, string? translation,
+        long? translatedRevision, string expected)
+    {
+        var row = new SubtitleRow(new(new(Guid.NewGuid(), 1), new(0, 16000), 2, 3, "原文", translation, translatedRevision,
+            phase, translationState, null, BoundaryDecision.Pending));
+        Assert.Equal(expected, row.StatusText);
+        var history = new HistoryEntryItem(new(1, row.Segment), () => { });
+        Assert.Equal(expected, history.StatusText);
+        Assert.Contains("源 v2 / 字幕 v3", row.Detail);
+    }
+
+    /// <summary>主窗口明暗主题切换会更新实际画刷，字幕窗口始终使用独立的深色阅读背景。</summary>
+    [AvaloniaFact]
+    public void MainThemeChangesWithoutChangingSubtitleAppearance()
+    {
+        var vm = new DesktopViewModel(new FakeSession(), new FakeStore(), action => action());
+        var control = new ControlWindow { DataContext = vm };
+        var overlay = new SubtitleWindow { DataContext = vm };
+        try
+        {
+            control.RequestedThemeVariant = ThemeVariant.Light; control.Show(); overlay.Show(); control.UpdateLayout();
+            var lightBackground = Assert.IsType<Avalonia.Media.SolidColorBrush>(control.Background).Color;
+            var overlayBackground = Assert.IsType<Avalonia.Media.SolidColorBrush>(overlay.FindControl<Border>("Surface")!.Background).Color;
+            control.RequestedThemeVariant = ThemeVariant.Dark; control.UpdateLayout();
+            var darkBackground = Assert.IsType<Avalonia.Media.SolidColorBrush>(control.Background).Color;
+            Assert.NotEqual(lightBackground, darkBackground);
+            Assert.Equal(overlayBackground, Assert.IsType<Avalonia.Media.SolidColorBrush>(overlay.FindControl<Border>("Surface")!.Background).Color);
+            Assert.Equal(ThemeVariant.Dark, overlay.ActualThemeVariant);
+        }
+        finally { overlay.Close(); control.Close(); }
+    }
+
     /// <summary>字幕右上角同一按钮完成解锁和重新锁定，控制窗没有重复开关，关闭字幕同时关闭按钮。</summary>
     [AvaloniaFact]
     public void SubtitleLockIsAvailableInBothModesAndClosesWithOverlay()
@@ -41,12 +132,16 @@ public sealed class ViewTests
             var button = overlay.LayoutLock.FindControl<Button>("LayoutLockButton")!;
             overlay.LayoutLock.UpdateLayout();
             var point = button.TranslatePoint(new Point(button.Bounds.Width / 2, button.Bounds.Height / 2), overlay.LayoutLock)!.Value;
-            Assert.Equal("解锁拖动", button.Content); Assert.False(overlay.CanResize);
+            Assert.Equal("解锁拖动", AutomationProperties.GetName(button)); Assert.False(overlay.CanResize);
+            Assert.Equal("解锁拖动", ToolTip.GetTip(button));
+            Assert.True(button.Bounds.Width >= 32 && button.Bounds.Height >= 32);
+            Assert.True(overlay.LayoutLock.FindControl<Avalonia.Controls.Shapes.Path>("LockedIcon")!.IsVisible);
             overlay.LayoutLock.MouseDown(point, MouseButton.Left); overlay.LayoutLock.MouseUp(point, MouseButton.Left);
-            Assert.True(vm.LayoutMode); Assert.True(overlay.CanResize); Assert.Equal("锁定位置", button.Content);
+            Assert.True(vm.LayoutMode); Assert.True(overlay.CanResize); Assert.Equal("锁定位置", AutomationProperties.GetName(button));
+            Assert.True(overlay.LayoutLock.FindControl<Avalonia.Controls.Shapes.Path>("UnlockedIcon")!.IsVisible);
             overlay.LayoutLock.MouseDown(point, MouseButton.Left); overlay.LayoutLock.MouseUp(point, MouseButton.Left);
             Assert.False(vm.LayoutMode); Assert.False(overlay.CanResize); Assert.True(button.IsEffectivelyVisible);
-            control.Show(); control.FindControl<TabControl>("SettingsTabs")!.SelectedIndex = 1; control.UpdateLayout();
+            control.Show(); control.FindControl<ListBox>("MainNavigation")!.SelectedIndex = 2; control.UpdateLayout();
             Assert.DoesNotContain(control.GetVisualDescendants().OfType<Button>(), x => x.Command == vm.ToggleLayoutCommand);
             var anchor = overlay.FindControl<Border>("LockAnchor")!;
             var edge = anchor.TranslatePoint(new Point(anchor.Bounds.Width, anchor.Bounds.Height), overlay)!.Value;
@@ -56,7 +151,7 @@ public sealed class ViewTests
         finally { vm.OverlayChanged -= apply; control.Close(); overlay.Close(); }
     }
 
-    /// <summary>最小控制窗仍保留主操作和保存栏，运行时字幕可调而运行配置禁用。</summary><returns>界面初始化与清理任务。</returns>
+    /// <summary>最小控制窗的实时入口与设置职责分离，运行时字幕可调而运行配置禁用。</summary><returns>界面初始化与清理任务。</returns>
     [AvaloniaFact]
     public async Task ControlTabsKeepActionsVisibleAndAppearanceEditableWhileRunning()
     {
@@ -64,22 +159,31 @@ public sealed class ViewTests
         var control = new ControlWindow { DataContext = vm, Width = 760, Height = 600 };
         try
         {
-            control.Show(); await vm.ToggleCommand.ExecuteAsync(null);
-            var tabs = control.FindControl<TabControl>("SettingsTabs")!;
-            var save = control.FindControl<Button>("SaveSettingsButton")!;
+            control.Show(); await vm.ToggleCommand.ExecuteAsync(null); control.UpdateLayout();
+            var navigation = control.FindControl<ListBox>("MainNavigation")!;
+            var settings = control.FindControl<UserControl>("SettingsPanel")!;
+            var tabs = settings.FindControl<TabControl>("SettingsTabs")!;
+            var save = settings.FindControl<Button>("SaveSettingsButton")!;
             var start = control.FindControl<Button>("SessionButton")!;
+            Assert.True(start.IsEffectivelyVisible); Assert.Equal("停止翻译", start.Content);
+            Assert.False(settings.IsEffectivelyVisible);
+            Assert.True(!save.IsEffectivelyVisible || TopLevel.GetTopLevel(save) is null);
+            navigation.SelectedIndex = 2; control.UpdateLayout();
             for (var index = 0; index < 4; index++)
             {
                 tabs.SelectedIndex = index; control.UpdateLayout();
                 var point = save.TranslatePoint(new Point(0, save.Bounds.Height), control)!.Value;
                 Assert.InRange(point.Y, 1, control.Bounds.Height);
-                Assert.True(start.IsEffectivelyVisible); Assert.Equal("停止翻译", start.Content);
+                Assert.False(start.IsEffectivelyVisible); Assert.True(save.IsEffectivelyVisible);
             }
             tabs.SelectedIndex = 1; control.UpdateLayout();
-            var slider = control.FindControl<Slider>("FontSizeSlider")!;
+            var slider = settings.FindControl<Slider>("FontSizeSlider")!;
             Assert.True(slider.IsEffectivelyEnabled); slider.Value = 36; Assert.Equal(36, vm.CurrentSettings.FontSize);
+            var fontInput = settings.FindControl<NumericUpDown>("FontSizeInput")!;
+            Assert.Equal(36m, fontInput.Value);
+            Assert.True(fontInput.GetVisualDescendants().OfType<TextBox>().Single().Bounds.Width >= 40);
             tabs.SelectedIndex = 2; control.UpdateLayout();
-            Assert.False(control.FindControl<StackPanel>("RuntimeInputs")!.IsEffectivelyEnabled); Assert.False(save.IsEffectivelyEnabled);
+            Assert.False(settings.FindControl<StackPanel>("RuntimeInputs")!.IsEffectivelyEnabled); Assert.False(save.IsEffectivelyEnabled);
         }
         finally { control.Close(); await vm.CloseAsync(); }
     }
@@ -174,7 +278,10 @@ public sealed class ViewTests
             overlay.Show(); control.Show(); overlay.SetInteractive(true); overlay.UpdateLayout();
             var source = overlay.GetVisualDescendants().OfType<TextBlock>().Single(x => x.Classes.Contains("source"));
             var translation = overlay.GetVisualDescendants().OfType<TextBlock>().Single(x => x.Classes.Contains("translation"));
-            var selector = control.FindControl<ComboBox>("DisplayModeSelector")!;
+            control.FindControl<ListBox>("MainNavigation")!.SelectedIndex = 2; control.UpdateLayout();
+            var settings = control.FindControl<UserControl>("SettingsPanel")!;
+            settings.FindControl<TabControl>("SettingsTabs")!.SelectedIndex = 1; control.UpdateLayout();
+            var selector = settings.FindControl<ComboBox>("DisplayModeSelector")!;
             selector.SelectedIndex = 1; overlay.UpdateLayout();
             Assert.False(source.IsVisible); Assert.True(translation.IsVisible); Assert.Equal("等待中文…", translation.Text);
             Assert.Equal(1, overlay.FindControl<ComboBox>("DisplayModeSelector")!.SelectedIndex);

@@ -2,7 +2,7 @@
 
 ## 开发环境
 
-使用 Windows 11 x64、PowerShell 7 和仓库 global.json 指定的 .NET SDK。构建前运行 `. ./scripts/Enter-Development.ps1`，将缓存定向到非 C 盘。模型依赖按 [运行配置](runtime-profiles/README.md) 准备；一般单元测试不加载 GPU 模型。
+使用 Windows 11 x64、PowerShell 7 和 .NET 10 稳定 SDK（10.0.100 起，global.json 允许后续功能带及补丁）。普通构建直接使用本机 NuGet 配置；可选 `. ./scripts/Enter-Development.ps1 -CacheRoot <可写绝对路径>` 将开发缓存重定向到本机选择的目录，不修改全局环境。源码、构建和打包输出不要求特定盘符；模型运行资源仍按 [运行配置](runtime-profiles/README.md) 准备，一般单元测试不加载 GPU 模型。
 
 ## 修改与验证
 

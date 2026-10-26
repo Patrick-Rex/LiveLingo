@@ -7,6 +7,7 @@
     <SupportedOSPlatformVersion>10.0.22000.0</SupportedOSPlatformVersion>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="../../src/LiveLingo.Desktop.Windows/LiveLingo.Desktop.Windows.csproj" />
     <ProjectReference Include="../../tools/LiveLingo.Probe/LiveLingo.Probe.csproj" />
     <ProjectReference Include="../../src/LiveLingo.Platform.Windows/LiveLingo.Platform.Windows.csproj" />
   </ItemGroup>

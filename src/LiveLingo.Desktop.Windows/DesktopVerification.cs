@@ -5,9 +5,12 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
+using Avalonia.Styling;
 using LiveLingo.App.ViewModels;
 using LiveLingo.App.Views;
 using LiveLingo.Core.Desktop;
+using LiveLingo.Core.History;
+using LiveLingo.Core.Subtitles;
 using LiveLingo.Platform.Windows.Processes;
 using LiveLingo.Platform.Windows.Windows;
 using LiveLingo.Runtime.Pipeline;
@@ -25,6 +28,7 @@ public sealed class DesktopVerification
     private PipelineSnapshot? final;
     private long snapshots;
     private readonly CancellationTokenSource stop = new();
+    private readonly DesktopHistory? history;
 
     /// <summary>获取验证是否已完成资源核验，避免统一退出再次取消已释放来源。</summary>
     public bool Finished { get; private set; }
@@ -32,9 +36,10 @@ public sealed class DesktopVerification
     /// <summary>用户关闭窗口时停止验证循环，后续仍执行正常资源核验。</summary>
     public void Cancel() => stop.Cancel();
 
-    /// <summary>验证参数和独占证据目录，不自动覆盖现有运行记录。</summary><param name="arguments">verify、seconds、wave 或 target 参数。</param>
-    public DesktopVerification(string[] arguments)
+    /// <summary>验证参数和独占证据目录，不自动覆盖现有运行记录。</summary><param name="arguments">verify、seconds、wave 或 target 参数。</param><param name="history">已隔离的验证历史库。</param>
+    public DesktopVerification(string[] arguments, DesktopHistory? history = null)
     {
+        this.history = history;
         var options = new Dictionary<string, string>();
         for (var index = 0; index < arguments.Length; index += 2)
         {
@@ -84,6 +89,7 @@ public sealed class DesktopVerification
                 var row = new SubtitleRow(new(new(Guid.NewGuid(), 1), new(0, 16000), 1, 1, "最後まで聞かなければ、行くかどうかは分からない。", "不听到最后，就无法知道是否会去。", 1,
                     Core.Subtitles.SubtitlePhase.Revised, Core.Subtitles.TranslationState.Complete, null, Core.Subtitles.BoundaryDecision.Pending));
                 model.OverlayRows = [row]; model.History = [row];
+                await SeedHistoryAsync(row.Segment);
             }
             await WriteAsync("ready.json", new { Pid = Environment.ProcessId, Control = OverlayBridge.Handle(control).ToInt64(), Overlay = OverlayBridge.Handle(overlay).ToInt64(), LayoutLock = OverlayBridge.Handle(overlay.LayoutLock).ToInt64() });
             var lastCommand = ""; var index = 0;
@@ -111,6 +117,7 @@ public sealed class DesktopVerification
                     overlay.Position, overlay.Width, overlay.Height, overlay.RenderScaling, model.LayoutMode, model.OverlayVisible, model.Status, model.Error,
                     LayoutLock = new { overlay.LayoutLock.Position, overlay.LayoutLock.Width, overlay.LayoutLock.Height, overlay.LayoutLock.RenderScaling, overlay.LayoutLock.IsVisible, Styles = OverlayNative.ReadStyles(OverlayBridge.Handle(overlay.LayoutLock)) },
                     Rows = model.OverlayRows.Count, History = model.History.Count, Settings = model.CurrentSettings,
+                    MovePoint = MovePoint(overlay),
                     Screens = overlay.Screens?.All.Select(x => new { x.DisplayName, x.Scaling, x.Bounds, x.WorkingArea }).ToArray() });
                 if (wave is not null && !model.Active) break;
                 if (targetPid != 0 && started.Elapsed.TotalSeconds >= seconds) break;
@@ -137,26 +144,62 @@ public sealed class DesktopVerification
         }
     }
 
-    /// <summary>在默认与最小尺寸渲染四个控制页，检查滚动区域及固定操作栏，不发送系统输入。</summary><param name="control">当前自有控制窗。</param><returns>布局及截图任务。</returns>
+    /// <summary>在隔离库内建立双语样稿，普通运行不会执行。</summary><param name="segment">合成双语内容。</param><returns>写入任务。</returns>
+    private async Task SeedHistoryAsync(SubtitleSegment segment)
+    {
+        if (history?.Store is not { } store) return;
+        foreach (var app in new[] { "示例视频", "日语学习" })
+        {
+            var id = Guid.NewGuid();
+            var recorder = store.BeginSession(new(id, app, "Japanese", "translategemma:12b", DateTimeOffset.UtcNow));
+            recorder.Offer(new(new(id, 1, 1, 1), 1, false, [segment, segment with { Key = new(Guid.NewGuid(), 1), Range = new(16000, 32000), Source = "はい、はい。", Translation = "是的，是的。" }], []));
+            await recorder.CompleteAsync();
+        }
+    }
+
+    /// <summary>读取实际拖动区的物理中心，避免测试依赖已过时的固定坐标。</summary><param name="overlay">自有字幕窗口。</param><returns>屏幕物理坐标。</returns>
+    private static PixelPoint MovePoint(SubtitleWindow overlay)
+    {
+        var handle = overlay.FindControl<Border>("MoveHandle")!;
+        return handle.PointToScreen(new Point(handle.Bounds.Width / 2, handle.Bounds.Height / 2));
+    }
+
+    /// <summary>渲染明暗主题、默认及最小尺寸的三个页面，不发送系统输入。</summary><param name="control">当前自有控制窗。</param><returns>布局及截图任务。</returns>
     private async Task CaptureControlTabsAsync(ControlWindow control)
     {
-        var tabs = control.FindControl<TabControl>("SettingsTabs")!;
+        var tabs = control.FindControl<ListBox>("MainNavigation")!;
+        var settings = control.FindControl<SettingsView>("SettingsPanel")!.FindControl<TabControl>("SettingsTabs")!;
+        var settingsIndex = settings.SelectedIndex;
         var selected = tabs.SelectedIndex; var width = control.Width; var height = control.Height;
+        var theme = control.RequestedThemeVariant;
         try
         {
+            if (control.DataContext is DesktopViewModel { Archive: { } archive }) await archive.PollAsync();
+            foreach (var variant in new[] { ThemeVariant.Light, ThemeVariant.Dark })
             foreach (var minimum in new[] { false, true })
             {
+                control.RequestedThemeVariant = variant;
                 control.Width = minimum ? control.MinWidth : width; control.Height = minimum ? control.MinHeight : height;
                 for (var index = 0; index < tabs.Items.Count; index++)
                 {
                     tabs.SelectedIndex = index;
                     await Dispatcher.UIThread.InvokeAsync(control.UpdateLayout, DispatcherPriority.Background);
                     using var bitmap = new RenderTargetBitmap(new PixelSize((int)control.Bounds.Width, (int)control.Bounds.Height));
-                    bitmap.Render(control); bitmap.Save(Path.Combine(directory, $"control-{(minimum ? "minimum" : "default")}-tab-{index}.png"), PngBitmapEncoderOptions.Default);
+                    bitmap.Render(control); bitmap.Save(Path.Combine(directory, $"control-{variant.Key}-{(minimum ? "minimum" : "default")}-page-{index}.png"), PngBitmapEncoderOptions.Default);
+                    if (index != 2) continue;
+                    for (var section = 0; section < settings.Items.Count; section++)
+                    {
+                        settings.SelectedIndex = section;
+                        await Dispatcher.UIThread.InvokeAsync(control.UpdateLayout, DispatcherPriority.Background);
+                        using var sectionImage = new RenderTargetBitmap(new PixelSize((int)control.Bounds.Width, (int)control.Bounds.Height));
+                        sectionImage.Render(control);
+                        sectionImage.Save(Path.Combine(directory, $"settings-{variant.Key}-{(minimum ? "minimum" : "default")}-{section}.png"), PngBitmapEncoderOptions.Default);
+                    }
+                    settings.SelectedIndex = settingsIndex;
                 }
             }
         }
-        finally { tabs.SelectedIndex = selected; control.Width = width; control.Height = height; }
+        finally { settings.SelectedIndex = settingsIndex; tabs.SelectedIndex = selected; control.Width = width; control.Height = height; control.RequestedThemeVariant = theme; }
     }
 
     /// <summary>渲染锁定与解锁字幕，并核对真实按钮 HWND 的命中样式、位置及显隐；不模拟鼠标输入。</summary><param name="model">字幕状态。</param><param name="overlay">当前字幕窗。</param><returns>截图和原生状态核验任务。</returns>
