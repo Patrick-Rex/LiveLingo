@@ -9,7 +9,7 @@ Existing applied settings to use for resource locations. This script never rewri
 #requires -Version 5.1
 [CmdletBinding()]
 param(
-    [ValidateSet('Check', 'DotNet', 'Ollama', 'Runtime', 'Models', 'Driver')][string]$Component = 'Check',
+    [ValidateSet('Check', 'DotNet', 'Ollama', 'Runtime', 'Models', 'QwenModel', 'TranslationModel', 'Driver')][string]$Component = 'Check',
     [string]$SettingsPath = 'D:\Soft Ware\LiveLingo\data\settings.json',
     [string]$BasePython = (Join-Path $env:LOCALAPPDATA 'Programs\Python\Python313\python.exe')
 )
@@ -81,7 +81,9 @@ if ($Component -eq 'DotNet') {
 }
 if ($Component -eq 'Ollama') {
     if (-not (Test-Path -LiteralPath $settings.OllamaPath -PathType Leaf)) { Install-WingetPackage 'Ollama.Ollama' }
-    if (-not (Test-Path -LiteralPath $settings.OllamaPath -PathType Leaf)) { throw 'Update the Ollama executable path in LiveLingo settings to the installed location, then retry.' }
+    if (-not (Test-Path -LiteralPath $settings.OllamaPath -PathType Leaf) -and
+        -not (Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'Programs\Ollama\ollama.exe') -PathType Leaf) -and
+        -not (Get-Command ollama -ErrorAction SilentlyContinue)) { throw 'Ollama was not found after installation. Check the installer result.' }
     Write-Output 'OllamaInstalled=True; models are prepared separately.'; return
 }
 if ($Component -eq 'Driver') {
@@ -106,7 +108,8 @@ if ($Component -eq 'Runtime') {
     return
 }
 if ($settings.TranslationModel -notin @('translategemma:12b', 'translategemma:4b')) { throw 'Unsupported translation model.' }
-if (-not (Test-Path -LiteralPath $settings.PythonPath -PathType Leaf) -or -not (Test-Path -LiteralPath $settings.OllamaPath -PathType Leaf)) { throw 'Prepare Runtime and Ollama before Models.' }
+if ($Component -in @('Models', 'QwenModel')) {
+if (-not (Test-Path -LiteralPath $settings.PythonPath -PathType Leaf)) { throw 'Install the Python runtime before the Qwen model.' }
 $prepare = Join-Path $contentRoot 'tools\model_eval\prepare_model.py'
 if (Test-Path -LiteralPath (Join-Path $settings.ModelPath 'asset-manifest.json')) {
     & $settings.PythonPath -c 'import sys; sys.path.insert(0,sys.argv[1]); from prepare_model import verify_model; verify_model(sys.argv[2])' (Split-Path $prepare -Parent) $settings.ModelPath
@@ -116,6 +119,10 @@ if (Test-Path -LiteralPath (Join-Path $settings.ModelPath 'asset-manifest.json')
     & $settings.PythonPath @prepareArguments
 }
 if ($LASTEXITCODE -ne 0) { throw 'Qwen preparation failed; existing assets were preserved. Resolve the reported error before retrying.' }
+if ($Component -eq 'QwenModel') { Write-Output 'QwenReady=True'; return }
+}
+
+if (-not (Test-Path -LiteralPath $settings.OllamaPath -PathType Leaf)) { throw 'Install Ollama before the translation model.' }
 
 # Use only a private, newly created Ollama service; never stop an existing service.
 $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)

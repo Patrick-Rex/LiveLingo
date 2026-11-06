@@ -34,9 +34,7 @@ try {
     $payload = Join-Path $expanded 'desktop'
     dotnet tool run vpk -- pack --packId LiveLingo --packTitle LiveLingo --packAuthors Patrick-Rex --packVersion $Version --packDir $payload --mainExe LiveLingo.Desktop.Windows.exe --runtime win-x64 --channel win-x64 --framework net10.0-x64-runtime --noPortable --outputDir $OutputDirectory
     if ($LASTEXITCODE -ne 0) { throw 'Velopack packaging failed.' }
-    Copy-Item -LiteralPath (Join-Path $repo 'packaging/Install-LiveLingo.ps1') -Destination $OutputDirectory
-    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Install-LiveLingoDependencies.ps1') -Destination $OutputDirectory
-    Copy-Item -LiteralPath (Join-Path $repo 'packaging/USER-GUIDE.md') -Destination (Join-Path $OutputDirectory 'USER-GUIDE.md')
+    # Users download only Setup.exe. Dependency scripts and the guide are inside its payload.
     $lines = Get-ChildItem -LiteralPath $OutputDirectory -File | Where-Object { $_.Extension -in @('.exe', '.nupkg', '.json', '.ps1', '.md') } | Sort-Object Name | ForEach-Object {
         '{0}  {1}' -f (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant(), $_.Name
     }

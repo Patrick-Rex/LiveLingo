@@ -16,7 +16,7 @@
 
 实际文件名以输出为准（默认 win-x64 渠道可能带渠道后缀）；差分验证同时传 `-PreviousPackage <旧full> -DeltaPackage <新delta>`，使用随包原生 Update.exe 在隔离目录还原并逐项比较 SHA-256。完整包与还原包均检查唯一的根应用清单。打包只生成本地产物，不上传。首版无 delta；后续同一输出目录有旧 full 时自动生成差分。保留全包供跨版本回退下载。`-OutputDirectory` 可覆盖输出位置，同版本不覆盖。
 
-发布目录包含 Setup.exe、full/delta nupkg、渠道 JSON/RELEASES、安装脚本、用户指南和 SHA256SUMS。GitHub Release 必须包含 vpk 生成的当前版本 full、delta（若有）和 feed；首次用户还需要 Setup.exe、两个安装脚本及指南。可用下列命令生成 GitHub 草稿，再把安装脚本、指南、SHA256SUMS 一并附上并核对后发布：
+发布目录包含单个 Setup.exe、full/delta nupkg、渠道 JSON/RELEASES 和 SHA256SUMS。普通用户只下载 Setup.exe；依赖脚本与指南位于程序载荷内，发布脚本不再复制为独立下载项。GitHub Release 仍须包含当前版本 full、delta（若有）和 feed，供程序自动更新。可用下列命令生成草稿，再附上 SHA256SUMS 并核对后发布，发布说明以单个 Setup.exe 链接作为安装入口：
 
 ```powershell
 # 事先按 GitHub 授权配置 VPK_TOKEN；命令不把密钥写入仓库。
@@ -27,7 +27,7 @@ CLI 默认创建草稿；程序只读取正式的稳定 Releases。保留历史�
 
 手动上传时只把当前版本 full/delta 写入该 Release 的渠道清单，所有清单引用必须有同名附件；筛选后重新生成 SHA256SUMS，再核对远程附件大小与 SHA-256。应用的公开回退来源使用 latest/download，不跨 Release 查找清单引用。
 
-安装脚本默认安装到 `D:\Soft Ware\LiveLingo\app\LiveLingo`，Velopack 使用 current/packages 布局和稳定启动入口。直接 Setup.exe 使用默认用户目录。旧 ZIP 的 app/desktop 不原地转换；先关闭旧版并独立安装，默认 data/settings.json 与模型保持复用。以下第1–7节只描述旧 ZIP 布局，不用于修改 Velopack 的 current 或 packages。
+Setup.exe 是普通用户唯一安装入口，.NET 缺项由安装器在线补齐，首次使用默认用户目录，明确自定义目录可传 `--installto`。Velopack 使用 current/packages 布局和稳定启动入口。仓库中的安装 PowerShell 保留为高级自动化入口。旧 ZIP 的 app/desktop 不原地转换；先关闭旧版并独立安装，默认 data/settings.json 与模型保持复用。以下第1–7节只描述旧 ZIP 布局，不用于修改 Velopack 的 current 或 packages。
 
 完成托管安装及更新核对、不再需要旧版回退后，可清理旧 desktop、旧 ZIP、解压暂存、验证副本及发布临时目录。仓库启动脚本默认通过托管安装根的 LiveLingo.exe 启动；指定 ApplicationDirectory 时也支持独立发布目录。保留托管安装 packages 中的当前完整包供后续差分还原；模型、Python、共享 Ollama 权重、设置与历史不属于安装残留。
 

@@ -8,4 +8,4 @@ History 提供会话摘要、采集代次内条目身份、固定正文快照和
 
 测试位于 tests/LiveLingo.Core.Tests，统一命令见 [测试说明](../../tests/README.md)。
 
-DesktopMaintenance 定义环境初检结果与更新服务中立契约，不引用 Velopack、网络或平台进程 API；具体安装与检查位于 Windows 宿主。
+DesktopMaintenance 定义带组件标识的环境初检结果、路径发现、用户触发的依赖安装及更新服务中立契约，不引用 Velopack、网络或平台进程 API；具体安装与检查位于 Windows 宿主。

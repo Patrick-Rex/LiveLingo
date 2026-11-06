@@ -15,7 +15,7 @@ M0–M4 首版里程碑已完成，项目进入持续迭代；当前能力与支
 - 实时翻译、历史记录和设置三个页面，支持跟随系统、浅色和深色主题。
 - 本地保存每次翻译会话，支持查找、复制、TXT / Markdown 导出，以及结束后确认删除和保留期清理。
 - 关闭程序时停止采集并回收程序启动的模型进程。
-- 启动检查运行依赖，提供独立安装脚本；从 GitHub Releases 获取用户确认的增量更新。
+- 启动搜索本机环境，缺少依赖时在界面点击安装；发现新版后一次点击完成增量更新和重启。
 
 ## 系统要求
 
@@ -32,19 +32,13 @@ M0–M4 首版里程碑已完成，项目进入持续迭代；当前能力与支
 
 ## 安装与使用
 
-当前稳定发布为 [v0.2.2](https://github.com/Patrick-Rex/LiveLingo/releases/tag/v0.2.2)。从本仓库 [GitHub Releases](https://github.com/Patrick-Rex/LiveLingo/releases/latest) 获取同一版本的 `LiveLingo-win-x64-Setup.exe`、`Install-LiveLingo.ps1` 与 `Install-LiveLingoDependencies.ps1`，放在同一目录，在64位 PowerShell 中运行：
+只需下载一个 [LiveLingo 安装程序](https://github.com/Patrick-Rex/LiveLingo/releases/latest/download/LiveLingo-win-x64-Setup.exe)，双击即可安装并打开程序。缺少 .NET 10 x64 Runtime 时，安装器提示并在线补齐；安装脚本和使用指南已包含在安装包内，不需要另行下载或输入命令。模型、Python 环境、Ollama、驱动和 .NET 均不打进程序包。
 
-```powershell
-./Install-LiveLingo.ps1
-```
+首次安装默认使用 Windows 用户应用目录，从开始菜单启动。大型模型、隔离环境、缓存及数据仍使用非 C 盘；已有 D 盘托管安装可直接在程序内更新。旧 ZIP 迁移和高级安装位置说明见[用户指南](packaging/USER-GUIDE.md)。保留托管安装的 `packages`，后续差分还原需要当前完整包。
 
-脚本通过 winget 补齐 .NET 10 x64 Runtime 后打开安装器；也可直接运行 Setup.exe，由安装器提示并下载缺失的 .NET。模型、Python 环境、Ollama、驱动和 .NET 均不打进程序包。
+启动从已配置路径、常用资源目录、PATH 和 OLLAMA_MODELS 搜索已有环境。在“设置 → 运行环境”点击缺项旁的“安装”，程序执行随包脚本并显示结果，结束后自动复检。驱动按钮打开厂商下载入口。安装中可取消；已有不兼容模型会报错，不自动覆盖。资源位置需要调整时，使用高级路径配置。
 
-脚本默认安装到 `D:\Soft Ware\LiveLingo\app\LiveLingo`，从开始菜单快捷方式启动；仓库的 `scripts/Start-LiveLingo.ps1` 默认使用该目录的稳定启动器。直接运行 Setup.exe 使用 Velopack 默认用户目录，程序文件可以位于该目录；大型模型、隔离环境、缓存及数据仍使用非 C 盘。旧 ZIP 位于 `app\desktop`，建立托管安装并确认更新正常后可删除旧目录、旧 ZIP 和解压暂存；保留托管安装的 `packages`，后续差分还原需要当前完整包。
-
-启动会显示依赖缺项；“设置 → 运行环境”提供重新检查和安装脚本入口。准备完成并应用实际路径后，到“实时翻译”选择发声应用、点击开始。
-
-程序从 GitHub Releases 检查稳定更新，只提示，不自动下载或安装。“设置 → 常规”可下载更新；停止翻译并应用或撤销设置后，点击“退出并安装”。优先使用可用差分，必要时回退完整包，更新保留应用目录之外的模型、设置与历史。
+发现新版本后，主窗口和“设置 → 常规”均提供“下载并更新”。停止翻译并应用或撤销设置后，点击一次即可下载、清理退出、安装并自动重启，优先使用差分。未点击时只提示；失败或取消不会退出，之前下载完但未应用的版本显示“安装并重启”。更新保留应用目录之外的模型、设置与历史。
 
 | 默认快捷键 | 功能 |
 | --- | --- |

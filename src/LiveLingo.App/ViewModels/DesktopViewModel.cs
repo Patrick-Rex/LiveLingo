@@ -104,13 +104,41 @@ public sealed partial class DesktopViewModel : ObservableObject
     /// <summary>获取正在执行的交互操作状态。</summary>
     [ObservableProperty, NotifyPropertyChangedFor(nameof(CanEdit)), NotifyPropertyChangedFor(nameof(CanToggle)), NotifyPropertyChangedFor(nameof(SessionButtonText))] public partial bool Busy { get; set; }
     /// <summary>获取设置与目标是否允许改变。</summary>
-    public bool CanEdit => !Active && !Busy && !closing;
+    public bool CanEdit => !Active && !Busy && !closing && Maintenance?.ExclusiveOperation != true;
     /// <summary>获取主操作是否可执行；未保存运行设置必须先保存或撤销。</summary>
-    public bool CanToggle => initialized && !Busy && !closing && (Active || SelectedTarget is not null && !HasPendingSettings);
+    public bool CanToggle => initialized && !Busy && !closing && Maintenance?.ExclusiveOperation != true && (Active || SelectedTarget is not null && !HasPendingSettings);
     /// <summary>获取符合当前操作状态的主按钮文案。</summary>
     public string SessionButtonText => Busy ? "正在处理…" : Active ? "停止翻译" : "开始翻译";
     /// <summary>获取模型、资源路径或快捷键是否尚未手动提交。</summary>
     public bool HasPendingSettings => ReadSettings() != settings;
+
+    /// <summary>维护操作开始或结束时刷新会话和设置入口。</summary>
+    /// <param name="sender">维护模型。</param><param name="args">变化属性。</param>
+    private void MaintenanceChanged(object? sender, PropertyChangedEventArgs args)
+    {
+        if (args.PropertyName != nameof(MaintenanceViewModel.ExclusiveOperation)) return;
+        OnPropertyChanged(nameof(CanEdit)); OnPropertyChanged(nameof(CanToggle));
+    }
+
+    /// <summary>切换维护模型时绑定互斥状态通知。</summary>
+    /// <param name="oldValue">先前模型。</param><param name="newValue">当前模型。</param>
+    partial void OnMaintenanceChanged(MaintenanceViewModel? oldValue, MaintenanceViewModel? newValue)
+    {
+        if (oldValue is not null) oldValue.PropertyChanged -= MaintenanceChanged;
+        if (newValue is not null) newValue.PropertyChanged += MaintenanceChanged;
+    }
+
+    /// <summary>仅在配置未被编辑且原文件可安全保存时采用已发现环境，不修改数据与缓存位置。</summary>
+    /// <param name="original">扫描开始时的设置。</param><param name="discovered">扫描发现的路径。</param><returns>路径是否已保存。</returns>
+    public async Task<bool> ApplyDiscoveredEnvironmentAsync(DesktopSettings original, DesktopSettings discovered)
+    {
+        if (!CanEdit || HasPendingSettings || settings != original || !allowAutoSave) return false;
+        PythonPath = discovered.PythonPath; ModelPath = discovered.ModelPath;
+        OllamaPath = discovered.OllamaPath; OllamaModelsPath = discovered.OllamaModelsPath;
+        await SaveAsync();
+        return settings.PythonPath == discovered.PythonPath && settings.ModelPath == discovered.ModelPath &&
+            settings.OllamaPath == discovered.OllamaPath && settings.OllamaModelsPath == discovered.OllamaModelsPath;
+    }
     /// <summary>获取运行配置的待保存提示。</summary>
     public string PendingSettingsText => HasPendingSettings ? "有待应用的设置，请应用或撤销后开始" : "设置已同步";
     /// <summary>获取独立于会话状态的手动保存结果。</summary>

@@ -60,7 +60,7 @@ $env:LIVELINGO_TEST_PROBE = (Resolve-Path tools/LiveLingo.Probe/bin/Release/net1
 
 ## 安装引导与增量更新
 
-维护状态测试类 `LiveLingo.App.Tests.MaintenanceTests` 验证启动不下载、明确安装意图、运行限制和关闭取消；`LiveLingo.Windows.Tests.EnvironmentCheckTests` 验证缺失和损坏模型提示。沿用上文 MTP `--filter-class` 命令。
+维护状态测试类 `LiveLingo.App.Tests.MaintenanceTests` 验证启动不下载、一次点击下载后请求安装、失败不重启、待应用设置保护、按缺项安装与关闭取消；`LiveLingo.Windows.Tests.EnvironmentCheckTests` 验证缺失和损坏模型提示。`DependencySetupTests` 验证发现现有程序、保留已有路径，以及真实 PowerShell 的快照传递、错误与取消回收，不安装软件。沿用上文 MTP `--filter-class` 命令；多个类名作为独立参数传入。
 
 `Install-LiveLingoDependencies.ps1 -Component Check` 只报告路径，不安装。`Test-LiveLingoRelease.ps1 -FullPackage <full.nupkg>` 检查必要文件、外部依赖排除及唯一根应用清单；同时提供 `-PreviousPackage <旧full> -DeltaPackage <新delta>` 时，在隔离目录调用随包原生 Update.exe 还原差分并逐项校验内容。第三方 `.nuspec` 必须另存为 `.nuspec.xml`，以覆盖原生还原后清单选择与 CLI ZIP 顺序不同的回归。测试不安装程序、不启动模型，不能代替干净机器缺少 .NET/驱动的真实安装验收。发布命令见 [交付说明](../docs/packaging.md)。
 
@@ -68,4 +68,4 @@ $env:LIVELINGO_TEST_PROBE = (Resolve-Path tools/LiveLingo.Probe/bin/Release/net1
 
 GitHubReleaseSourceTests 验证 API 403/429 回退、检查与下载来源一致、取消及其他错误不触发回退。
 
-`scripts/Start-LiveLingo.ps1` 默认选择托管安装根的 `LiveLingo.exe`；显式 `-ApplicationDirectory` 也支持独立发布目录中的 `LiveLingo.Desktop.Windows.exe`。修改启动入口时分别核对 Windows PowerShell 5.1 与 PowerShell 7 的路径选择；脚本使用 ASCII 提示，兼容无 BOM 文本在 PowerShell 5.1 中的解析。
+`scripts/Start-LiveLingo.ps1` 优先读取当前用户卸载记录中的安装位置，再查默认用户目录，最后兼容既有 D 盘目录；从安装根的 `LiveLingo.exe` 启动。显式 `-ApplicationDirectory` 也支持独立发布目录中的 `LiveLingo.Desktop.Windows.exe`。修改入口时分别核对 Windows PowerShell 5.1 与 PowerShell 7 的路径选择；脚本使用 ASCII 提示，兼容无 BOM 文本在 PowerShell 5.1 中的解析。

@@ -8,7 +8,7 @@ namespace LiveLingo.Desktop.Windows;
 
 /// <summary>检查本地资产和运行环境元数据，不加载模型或启动 Ollama 服务。</summary>
 /// <param name="contentRoot">当前程序内容目录。</param>
-public sealed class DesktopEnvironment(string contentRoot) : IDesktopEnvironment
+public sealed partial class DesktopEnvironment(string contentRoot) : IDesktopEnvironment
 {
     /// <inheritdoc />
     public async Task<IReadOnlyList<EnvironmentCheck>> CheckAsync(DesktopSettings settings, CancellationToken cancellationToken)
@@ -17,16 +17,16 @@ public sealed class DesktopEnvironment(string contentRoot) : IDesktopEnvironment
         cancellationToken.ThrowIfCancellationRequested();
         if (results[0].Ready)
         {
-            results[0] = await ProbeAsync("Python 推理环境", settings.PythonPath,
+            results[0] = (await ProbeAsync("Python 推理环境", settings.PythonPath,
                 ["-I", "-c", "import platform,importlib.metadata as m; assert platform.python_version()=='3.13.2'; assert m.version('torch')=='2.10.0+cu130'; assert m.version('qwen-asr')=='0.0.6'; print('Python 3.13.2 / PyTorch 2.10.0+cu130 / qwen-asr 0.0.6')"],
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken).ConfigureAwait(false)) with { Component = DependencyComponent.Runtime };
         }
         var smi = Path.Combine(Environment.SystemDirectory, "nvidia-smi.exe");
         if (!File.Exists(smi)) smi = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "NVIDIA Corporation", "NVSMI", "nvidia-smi.exe");
         var driver = await ProbeAsync("NVIDIA 驱动", smi, ["--query-gpu=driver_version", "--format=csv,noheader"], cancellationToken).ConfigureAwait(false);
         if (driver.Ready && (string.IsNullOrWhiteSpace(driver.Message) || !driver.Message.Split('\n', StringSplitOptions.RemoveEmptyEntries).All(x => Version.TryParse(x.Trim(), out var version) && version.Major >= 580)))
             driver = new("NVIDIA 驱动", false, "CUDA 13.x 需要 r580 或更新驱动；请运行依赖脚本的 Driver 入口。");
-        results.Add(driver);
+        results.Add(driver with { Component = DependencyComponent.Driver });
         return results;
     }
 
@@ -34,10 +34,10 @@ public sealed class DesktopEnvironment(string contentRoot) : IDesktopEnvironment
     /// <param name="settings">资源路径和所选翻译模型。</param><returns>四项本地资产检查结果。</returns>
     public static IReadOnlyList<EnvironmentCheck> CheckFiles(DesktopSettings settings) =>
     [
-        new("Python 推理环境", File.Exists(settings.PythonPath), File.Exists(settings.PythonPath) ? "已找到解释器，继续检查环境版本。" : "缺少隔离 Python 环境，请运行依赖脚本的 Runtime 入口。"),
-        Inspect("Qwen 模型", () => CheckQwen(settings.ModelPath)),
-        new("Ollama", File.Exists(settings.OllamaPath), File.Exists(settings.OllamaPath) ? "已找到 Ollama 程序。" : "缺少 Ollama，请运行依赖脚本的 Ollama 入口，或在高级路径配置选择已有安装。"),
-        Inspect("TranslateGemma 模型", () => CheckTranslation(settings.OllamaModelsPath, settings.TranslationModel))
+        new("Python 推理环境", File.Exists(settings.PythonPath), File.Exists(settings.PythonPath) ? "已找到解释器，继续检查环境版本。" : "未找到兼容的隔离环境，点击安装准备 Python 和推理依赖。", DependencyComponent.Runtime),
+        Inspect("Qwen 模型", () => CheckQwen(settings.ModelPath)) with { Component = DependencyComponent.QwenModel },
+        new("Ollama", File.Exists(settings.OllamaPath), File.Exists(settings.OllamaPath) ? "已找到 Ollama 程序。" : "未找到 Ollama，点击安装。", DependencyComponent.Ollama),
+        Inspect("TranslateGemma 模型", () => CheckTranslation(settings.OllamaModelsPath, settings.TranslationModel)) with { Component = DependencyComponent.TranslationModel }
     ];
 
     /// <summary>把单个资产的读取失败转为可操作消息。</summary><param name="name">依赖名称。</param><param name="check">本地检查。</param><returns>独立结果。</returns>
@@ -45,7 +45,7 @@ public sealed class DesktopEnvironment(string contentRoot) : IDesktopEnvironment
     {
         try { check(); return new(name, true, "文件与版本初检通过，启动翻译时继续完整校验。"); }
         catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or JsonException or InvalidOperationException or ArgumentException or KeyNotFoundException or FormatException or OverflowException)
-        { return new(name, false, "资产缺失或不完整，请检查配置或运行依赖脚本的 Models 入口。" + error.Message); }
+        { return new(name, false, "资产缺失或不兼容：" + error.Message + " 缺失时可点击安装；已有不兼容资产不会被自动覆盖。"); }
     }
 
     /// <summary>限制清单读取大小，避免意外读取大文件。</summary><param name="path">清单路径。</param><returns>调用方负责释放的文档。</returns>
@@ -131,11 +131,4 @@ public sealed class DesktopEnvironment(string contentRoot) : IDesktopEnvironment
         return result.ToString();
     }
 
-    /// <inheritdoc />
-    public void OpenSetupFolder()
-    {
-        var folder = Path.Combine(contentRoot, "scripts");
-        if (!Directory.Exists(folder)) throw new DirectoryNotFoundException("当前构建未包含安装脚本，请使用正式安装包。");
-        using var process = Process.Start(new ProcessStartInfo(folder) { UseShellExecute = true });
-    }
 }

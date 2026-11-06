@@ -14,9 +14,8 @@
                 <ProgressBar Minimum="0" Maximum="100" Value="{Binding Maintenance.DownloadProgress}" IsVisible="{Binding Maintenance.Updating}" />
                 <WrapPanel Orientation="Horizontal">
                   <Button Margin="0,0,8,8" Content="检查更新" Command="{Binding Maintenance.CheckUpdatesCommand}" IsEnabled="{Binding !Maintenance.Updating}" />
-                  <Button Margin="0,0,8,8" Content="下载更新" Command="{Binding Maintenance.DownloadCommand}" IsEnabled="{Binding Maintenance.CanDownload}" />
-                  <Button Margin="0,0,8,8" Content="取消下载" Command="{Binding Maintenance.DownloadCancelCommand}" IsVisible="{Binding Maintenance.DownloadCommand.IsRunning}" />
-                  <Button Margin="0,0,8,8" Content="退出并安装" Command="{Binding Maintenance.InstallCommand}" IsVisible="{Binding Maintenance.UpdateReady}" />
+                  <Button Margin="0,0,8,8" Content="{Binding Maintenance.UpdateButtonText}" Command="{Binding Maintenance.UpdateCommand}" IsEnabled="{Binding Maintenance.CanUpdate}" />
+                  <Button Margin="0,0,8,8" Content="取消更新" Command="{Binding Maintenance.UpdateCancelCommand}" IsVisible="{Binding Maintenance.UpdateCommand.IsRunning}" />
                 </WrapPanel>
               </StackPanel>
             </Border>
@@ -46,21 +45,23 @@
       </TabItem>
       <TabItem Header="运行环境">
         <ScrollViewer HorizontalScrollBarVisibility="Disabled">
-          <StackPanel Name="RuntimeInputs" Margin="0,20,8,16" Spacing="20" IsEnabled="{Binding CanEdit}">
+          <StackPanel Margin="0,20,8,16" Spacing="20">
             <Border Classes="card">
               <StackPanel Spacing="10">
                 <TextBlock Text="依赖准备" Classes="section" />
                 <TextBlock Text="{Binding Maintenance.EnvironmentMessage}" TextWrapping="Wrap" />
-                <ItemsControl ItemsSource="{Binding Maintenance.EnvironmentChecks}">
-                  <ItemsControl.ItemTemplate><DataTemplate DataType="core:EnvironmentCheck"><StackPanel Margin="0,0,0,10" Spacing="4"><TextBlock Text="{Binding Name}" FontWeight="SemiBold" /><TextBlock Text="{Binding Message}" TextWrapping="Wrap" /></StackPanel></DataTemplate></ItemsControl.ItemTemplate>
+                <ItemsControl ItemsSource="{Binding Maintenance.EnvironmentChecks}" IsEnabled="{Binding !Maintenance.ExclusiveOperation}">
+                  <ItemsControl.ItemTemplate><DataTemplate DataType="core:EnvironmentCheck"><Grid Margin="0,0,0,10" ColumnDefinitions="*,Auto" ColumnSpacing="12"><StackPanel Spacing="4"><TextBlock Text="{Binding Name}" FontWeight="SemiBold" /><TextBlock Text="{Binding Message}" TextWrapping="Wrap" /></StackPanel><Button Grid.Column="1" Content="{Binding ActionText}" IsVisible="{Binding CanInstall}" VerticalAlignment="Center" Command="{Binding $parent[UserControl].((vm:DesktopViewModel)DataContext).Maintenance.InstallDependencyCommand}" CommandParameter="{Binding}" /></Grid></DataTemplate></ItemsControl.ItemTemplate>
                 </ItemsControl>
-                <TextBlock Text="打开脚本目录，在 PowerShell 中运行 Install-LiveLingoDependencies.ps1，按提示选择缺少的组件。模型、Ollama、驱动和 .NET 均独立安装。" Classes="caption" TextWrapping="Wrap" />
-                <StackPanel Orientation="Horizontal" Spacing="8"><Button Content="重新检查" Command="{Binding Maintenance.CheckEnvironmentCommand}" IsEnabled="{Binding !Maintenance.CheckingEnvironment}" /><Button Content="打开安装脚本" Command="{Binding Maintenance.OpenSetupFolderCommand}" /></StackPanel>
+                <TextBlock Text="优先复用本机已有环境。点击安装后按需联网下载，进度在下方显示；显卡驱动使用厂商安装程序。" Classes="caption" TextWrapping="Wrap" />
+                <ScrollViewer MaxHeight="160" HorizontalScrollBarVisibility="Disabled"><TextBlock Text="{Binding Maintenance.InstallationMessage}" TextWrapping="Wrap" /></ScrollViewer>
+                <WrapPanel><Button Margin="0,0,8,8" Content="重新搜索并检查" Command="{Binding Maintenance.CheckEnvironmentCommand}" IsEnabled="{Binding !Maintenance.CheckingEnvironment}" /><Button Margin="0,0,8,8" Content="取消安装" Command="{Binding Maintenance.InstallDependencyCancelCommand}" IsVisible="{Binding Maintenance.InstallingDependency}" /></WrapPanel>
               </StackPanel>
             </Border>
+            <StackPanel Name="RuntimeInputs" Spacing="20" IsEnabled="{Binding CanEdit}">
             <StackPanel Spacing="6"><TextBlock Text="模型与语言" Classes="section" /><TextBlock Text="使用已安装的本地模型，停止翻译后更改并应用。" Classes="caption" /></StackPanel>
-            <Grid ColumnDefinitions="*,*" ColumnSpacing="16"><StackPanel Spacing="6"><TextBlock Text="翻译模型" /><ComboBox ItemsSource="{Binding Models}" SelectedItem="{Binding TranslationModel}" HorizontalAlignment="Stretch" AutomationProperties.Name="翻译模型" /></StackPanel><StackPanel Grid.Column="1" Spacing="6"><TextBlock Text="识别语言" /><ComboBox ItemsSource="{Binding Languages}" SelectedItem="{Binding AsrLanguage}" HorizontalAlignment="Stretch" AutomationProperties.Name="识别语言" /></StackPanel></Grid>
-            <Expander Header="高级路径配置" HorizontalAlignment="Stretch">
+            <Grid ColumnDefinitions="*,*" ColumnSpacing="16" IsEnabled="{Binding CanEdit}"><StackPanel Spacing="6"><TextBlock Text="翻译模型" /><ComboBox ItemsSource="{Binding Models}" SelectedItem="{Binding TranslationModel}" HorizontalAlignment="Stretch" AutomationProperties.Name="翻译模型" /></StackPanel><StackPanel Grid.Column="1" Spacing="6"><TextBlock Text="识别语言" /><ComboBox ItemsSource="{Binding Languages}" SelectedItem="{Binding AsrLanguage}" HorizontalAlignment="Stretch" AutomationProperties.Name="识别语言" /></StackPanel></Grid>
+            <Expander Header="高级路径配置" HorizontalAlignment="Stretch" IsEnabled="{Binding CanEdit}">
               <StackPanel Spacing="12" Margin="0,8">
                 <TextBlock Text="应用新的数据目录会切换历史库，旧记录保留在原目录；模型和设置文件不会自动搬迁。" Classes="caption" />
                 <StackPanel Spacing="6"><TextBlock Text="Python 可执行文件" /><Grid ColumnDefinitions="*,Auto" ColumnSpacing="8"><TextBox Text="{Binding PythonPath}" AutomationProperties.Name="Python 路径" /><Button Grid.Column="1" Content="浏览…" Tag="PythonPath" Click="BrowsePath_Click" AutomationProperties.Name="选择 Python 可执行文件" /></Grid></StackPanel>
@@ -73,6 +74,7 @@
                 <TextBlock Name="PathCheckResult" Classes="caption" Text="检查文件和目录是否存在，不会下载模型或启动服务。" />
               </StackPanel>
             </Expander>
+            </StackPanel>
           </StackPanel>
         </ScrollViewer>
       </TabItem>

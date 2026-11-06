@@ -42,7 +42,8 @@ public sealed class DesktopApplication(IHost host, string[] arguments, string[] 
             desktop = lifetime; desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
             model = new(host.Services.GetRequiredService<IDesktopSession>(), host.Services.GetRequiredService<IDesktopSettingsStore>(), action => Dispatcher.UIThread.Post(action));
             model.Maintenance = new(host.Services.GetRequiredService<IDesktopEnvironment>(), host.Services.GetRequiredService<DesktopUpdates>(),
-                () => model.CurrentSettings, () => model.CanEdit && !model.HasPendingSettings);
+                () => model.CurrentSettings, () => !model.Active && !model.Busy && !model.HasPendingSettings,
+                model.ApplyDiscoveredEnvironmentAsync);
             model.Maintenance.InstallRequested += RequestClose;
             var control = new ControlWindow { DataContext = model };
             model.Archive = new HistoryViewModel(new HistoryInteraction(control));

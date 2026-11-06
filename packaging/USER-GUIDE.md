@@ -1,14 +1,14 @@
 # LiveLingo 安装与使用
 
-Windows 11 x64 本地日语转简体中文字幕。安装脚本默认使用 `D:\Soft Ware\LiveLingo\app\LiveLingo`；旧 ZIP 使用 `app\desktop`，迁移完成后可清理。程序包不包含 .NET、模型、Python 环境、Ollama、驱动、测试录音或测试源码。
+Windows 11 x64 本地日语转简体中文字幕。只需一个 Setup.exe 安装程序；程序包不包含 .NET、模型、Python 环境、Ollama、驱动、测试录音或测试源码。
 
 ## 推荐安装与增量更新
 
-下载同一 GitHub Release 中的 `LiveLingo-win-x64-Setup.exe`、`Install-LiveLingo.ps1` 和 `Install-LiveLingoDependencies.ps1` 到同一目录，运行 `./Install-LiveLingo.ps1`。脚本通过 Microsoft winget 官方源补齐 .NET 10 x64 Runtime，再打开安装器；`-InstallDirectory 'E:\LiveLingo\app\LiveLingo'` 可选其他非 C 盘目录，`-CheckOnly` 不安装。系统缺少 winget 时先安装 Microsoft App Installer，或直接运行 Setup.exe 使用内置 .NET 在线安装提示。
+下载 [LiveLingo-win-x64-Setup.exe](https://github.com/Patrick-Rex/LiveLingo/releases/latest/download/LiveLingo-win-x64-Setup.exe)，双击后自动安装程序本体并启动。缺少 .NET 10 x64 Runtime 时安装器会提示并在线安装，已有兼容运行时直接复用。无需另行下载脚本、清单或 nupkg；Release 的其他附件由更新程序使用。
 
-直接双击 Setup.exe 使用用户本地应用目录；脚本默认使用上述 D 盘布局。Velopack 管理安装根内的 `current`、`packages` 和 `Update.exe`，从开始菜单或安装根的稳定启动程序打开，不手工改动 `current`。程序文件允许使用安装器的用户目录；模型、Python 隔离环境和大型缓存仍须非 C 盘。
+首次双击 Setup.exe 使用用户本地应用目录。高级用户可用 `Setup.exe --installto "D:\Soft Ware\LiveLingo\app\LiveLingo"` 指定程序目录。Velopack 管理安装根内的 `current`、`packages` 和 `Update.exe`，从开始菜单或安装根的稳定启动程序打开，不手工改动 `current`。程序文件允许使用安装器的用户目录；模型、Python 隔离环境和大型缓存仍须非 C 盘。
 
-每次普通启动后台检查稳定更新，断网失败不影响本地翻译。发现版本时主窗口提示，“设置 → 常规”可检查、下载、取消下载、退出并安装。程序不会自动安装已下载更新，停止翻译且应用或撤销设置后才能安装。退出会先清理模型、保存与宿主，再交给更新器；差分不可用或还原失败时更新工具回退完整包。
+每次普通启动后台检查稳定更新，断网失败不影响本地翻译。发现版本后，主窗口或“设置 → 常规”点击一次“下载并更新”，即可下载并自动退出安装、重启。操作前须停止翻译并应用或撤销设置，下载期间暂停开始翻译和编辑运行配置；失败或取消不触发退出。重新启动时不会擅自安装上次留下的包，可点击“安装并重启”继续。退出先清理模型、保存与宿主，再交给更新器；差分不可用或还原失败时回退完整包。
 
 旧 ZIP 版需先退出，运行新安装器建立独立的 `app\LiveLingo` 安装。默认设置、历史和模型路径继续复用；使用自定义 `--settings` 时在新的启动快捷方式保留该参数。程序内更新重启会保留启动参数。确认新安装正常后再处理旧 `desktop`，不要把旧包复制进 `current`。发布产物当前未配置数字签名，SHA-256 仅验证传输完整性。
 
@@ -82,7 +82,11 @@ Write-Output "Installed files match package $($manifest.version)"
 
 普通启动会检查 Python 环境版本、Qwen 清单和文件尺寸、Ollama 可执行文件、所选 TranslateGemma 清单及 blob、NVIDIA r580+ 驱动。检测不启动模型服务；初检通过不等于 GPU 推理已通过，正式开始仍执行完整校验。
 
-在“设置 → 运行环境”打开安装脚本目录，使用64位 PowerShell按缺项运行：
+启动会搜索已配置路径、常用非 C 盘资源目录、PATH、VIRTUAL_ENV 与 OLLAMA_MODELS，找到兼容环境时在空闲且没有设置草稿的情况下复用缺失路径。已有文件和不兼容资产不会被覆盖。缺少的组件旁显示“安装”，点击即可执行包内脚本，界面显示输出，完成后自动重新检查；无需打开终端。先安装对应运行环境再安装模型。驱动通过“打开驱动下载”使用厂商安装程序。
+
+关闭或取消会停止本次安装脚本；未完成可复检后重试。脚本执行策略仅对本次 PowerShell 进程生效，不修改系统配置，也不能覆盖组织策略。已有模型指纹不匹配时保留原文件并显示原因。
+
+以下仅供高级用户排查：随包 `scripts` 目录仍可在64位 PowerShell中按组件执行：
 
 ```powershell
 ./Install-LiveLingoDependencies.ps1                  # 仅显示路径检查和组件选择
