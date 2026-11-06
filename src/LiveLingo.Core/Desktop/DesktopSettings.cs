@@ -27,10 +27,16 @@ public enum SubtitleDisplayMode
 /// <summary>保存可版本化的本地模型、资源和字幕布局设置；运行中保持不可变。</summary>
 public sealed record DesktopSettings
 {
-    /// <summary>初始化桌面默认设置，并让旧 JSON 缺省保留期采用三十天。</summary>
+    /// <summary>初始化桌面默认设置，确保旧 JSON 缺省保留期和 API 配置仍有有效默认对象。</summary>
     /// <param name="historyRetentionDays">历史保留天数；零表示永久保留。</param>
+    /// <param name="asrApi">可选识别 API 配置；旧文件未提供时使用空模型配置。</param>
+    /// <param name="translationApi">可选翻译 API 配置；旧文件未提供时使用空模型配置。</param>
     [JsonConstructor]
-    public DesktopSettings(int historyRetentionDays = 30) => HistoryRetentionDays = historyRetentionDays;
+    public DesktopSettings(int historyRetentionDays = 30, OpenAiApiSettings? asrApi = null, OpenAiApiSettings? translationApi = null)
+    {
+        HistoryRetentionDays = historyRetentionDays;
+        AsrApi = asrApi ?? new(); TranslationApi = translationApi ?? new();
+    }
 
     /// <summary>获取文件契约主版本。</summary>
     public int SchemaVersion { get; init; } = 1;
@@ -38,6 +44,17 @@ public sealed record DesktopSettings
     public DesktopTheme Theme { get; init; } = DesktopTheme.System;
     /// <summary>获取历史保留天数；零表示永久保留，旧配置默认三十天。</summary>
     public int HistoryRetentionDays { get; init; } = 30;
+    /// <summary>获取识别来源；旧设置继续使用本地 Qwen。</summary>
+    public ModelBackend AsrBackend { get; init; }
+    /// <summary>获取翻译来源；旧设置继续使用本地 TranslateGemma。</summary>
+    public ModelBackend TranslationBackend { get; init; }
+    /// <summary>获取独立的识别 API 配置。</summary>
+    public OpenAiApiSettings AsrApi { get; init; } = new();
+    /// <summary>获取独立的翻译 API 配置。</summary>
+    public OpenAiApiSettings TranslationApi { get; init; } = new();
+    /// <summary>获取用于会话记录的所选翻译模型。</summary>
+    [JsonIgnore]
+    public string EffectiveTranslationModel => TranslationBackend == ModelBackend.Local ? TranslationModel : TranslationApi.Model;
     /// <summary>获取明确选择的翻译模型。</summary>
     public string TranslationModel { get; init; } = "translategemma:12b";
     /// <summary>获取识别语言策略。</summary>
@@ -79,13 +96,22 @@ public sealed record DesktopSettings
     /// <exception cref="ArgumentException">配置不满足本地桌面契约。</exception>
     public void Validate()
     {
-        if (SchemaVersion != 1 || TranslationModel is not ("translategemma:4b" or "translategemma:12b") || AsrLanguage is not ("auto" or "Japanese"))
+        if (SchemaVersion != 1 || AsrLanguage is not ("auto" or "Japanese") || !Enum.IsDefined(AsrBackend) || !Enum.IsDefined(TranslationBackend))
             throw new ArgumentException("设置版本、模型或语言不受支持。");
         if (!Enum.IsDefined(DisplayMode)) throw new ArgumentException("字幕显示模式不受支持。");
         if (!Enum.IsDefined(Theme)) throw new ArgumentException("界面主题不受支持。");
         if (HistoryRetentionDays is not (0 or 7 or 30 or 90)) throw new ArgumentException("历史保留期须为永久、7、30 或 90 天。");
-        foreach (var path in new[] { PythonPath, ModelPath, OllamaModelsPath, DataPath, CachePath }) ValidateDataPath(path);
-        if (string.IsNullOrWhiteSpace(OllamaPath) || !Path.IsPathFullyQualified(OllamaPath)) throw new ArgumentException("Ollama 需要绝对路径。");
+        if (AsrApi is null || TranslationApi is null) throw new ArgumentException("API 配置须为对象；未使用时可保留空配置。");
+        ValidateDataPath(DataPath); ValidateDataPath(CachePath);
+        if (AsrBackend == ModelBackend.Local) { ValidateDataPath(PythonPath); ValidateDataPath(ModelPath); }
+        else (AsrApi ?? throw new ArgumentException("缺少识别 API 配置。")).Validate();
+        if (TranslationBackend == ModelBackend.Local)
+        {
+            if (TranslationModel is not ("translategemma:4b" or "translategemma:12b")) throw new ArgumentException("本地翻译模型不受支持。");
+            ValidateDataPath(OllamaModelsPath);
+            if (string.IsNullOrWhiteSpace(OllamaPath) || !Path.IsPathFullyQualified(OllamaPath)) throw new ArgumentException("Ollama 需要绝对路径。");
+        }
+        else (TranslationApi ?? throw new ArgumentException("缺少翻译 API 配置。")).Validate();
         if (!double.IsFinite(OverlayWidth) || OverlayWidth is < 320 or > 3840 || !double.IsFinite(OverlayHeight) || OverlayHeight is < 120 or > 2160 ||
             !double.IsFinite(FontSize) || FontSize is < 16 or > 64 || !double.IsFinite(BackgroundOpacity) || BackgroundOpacity is < 0.1 or > 1)
             throw new ArgumentException("字幕尺寸、字号或背景不透明度超出范围。");

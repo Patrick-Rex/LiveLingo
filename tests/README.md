@@ -69,3 +69,5 @@ $env:LIVELINGO_TEST_PROBE = (Resolve-Path tools/LiveLingo.Probe/bin/Release/net1
 GitHubReleaseSourceTests 验证 API 403/429 回退、检查与下载来源一致、取消及其他错误不触发回退。
 
 `scripts/Start-LiveLingo.ps1` 优先读取当前用户卸载记录中的安装位置，再查默认用户目录，最后兼容既有 D 盘目录；从安装根的 `LiveLingo.exe` 启动。显式 `-ApplicationDirectory` 也支持独立发布目录中的 `LiveLingo.Desktop.Windows.exe`。修改入口时分别核对 Windows PowerShell 5.1 与 PowerShell 7 的路径选择；脚本使用 ASCII 提示，兼容无 BOM 文本在 PowerShell 5.1 中的解析。
+
+模型来源回归：App 的 ModelConfigurationTests 覆盖四种组合、整体 JSON 原子导入、表单切换、草稿/自动保存隔离和 Headless 可见性；Runtime 的 OpenAiApiTests 覆盖请求路径、Bearer、PCM16 WAV、结束状态、HTTP 错误、响应上限、取消与超时，DesktopSettingsStoreTests 覆盖旧设置和 API 字段持久化。Windows 的 EnvironmentCheckTests、ApiSessionTests 与 LocalPipelineModelsTests 覆盖按来源检查、全 API 无本地资产启动与已有本地清理路径。使用上文 MTP --filter-class 指定这些类；假传输与空输入宿主检查不代表真实服务商联调通过。

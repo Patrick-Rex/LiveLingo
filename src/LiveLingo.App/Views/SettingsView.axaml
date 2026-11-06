@@ -53,21 +53,53 @@
                 <ItemsControl ItemsSource="{Binding Maintenance.EnvironmentChecks}" IsEnabled="{Binding !Maintenance.ExclusiveOperation}">
                   <ItemsControl.ItemTemplate><DataTemplate DataType="core:EnvironmentCheck"><Grid Margin="0,0,0,10" ColumnDefinitions="*,Auto" ColumnSpacing="12"><StackPanel Spacing="4"><TextBlock Text="{Binding Name}" FontWeight="SemiBold" /><TextBlock Text="{Binding Message}" TextWrapping="Wrap" /></StackPanel><Button Grid.Column="1" Content="{Binding ActionText}" IsVisible="{Binding CanInstall}" VerticalAlignment="Center" Command="{Binding $parent[UserControl].((vm:DesktopViewModel)DataContext).Maintenance.InstallDependencyCommand}" CommandParameter="{Binding}" /></Grid></DataTemplate></ItemsControl.ItemTemplate>
                 </ItemsControl>
-                <TextBlock Text="优先复用本机已有环境。点击安装后按需联网下载，进度在下方显示；显卡驱动使用厂商安装程序。" Classes="caption" TextWrapping="Wrap" />
+                <TextBlock Text="仅检查已应用配置所选来源。更改来源后先应用设置；本地组件可按需安装，API 配置检查不发送推理请求。" Classes="caption" TextWrapping="Wrap" />
                 <ScrollViewer MaxHeight="160" HorizontalScrollBarVisibility="Disabled"><TextBlock Text="{Binding Maintenance.InstallationMessage}" TextWrapping="Wrap" /></ScrollViewer>
                 <WrapPanel><Button Margin="0,0,8,8" Content="重新搜索并检查" Command="{Binding Maintenance.CheckEnvironmentCommand}" IsEnabled="{Binding !Maintenance.CheckingEnvironment}" /><Button Margin="0,0,8,8" Content="取消安装" Command="{Binding Maintenance.InstallDependencyCancelCommand}" IsVisible="{Binding Maintenance.InstallingDependency}" /></WrapPanel>
               </StackPanel>
             </Border>
             <StackPanel Name="RuntimeInputs" Spacing="20" IsEnabled="{Binding CanEdit}">
-            <StackPanel Spacing="6"><TextBlock Text="模型与语言" Classes="section" /><TextBlock Text="使用已安装的本地模型，停止翻译后更改并应用。" Classes="caption" /></StackPanel>
-            <Grid ColumnDefinitions="*,*" ColumnSpacing="16" IsEnabled="{Binding CanEdit}"><StackPanel Spacing="6"><TextBlock Text="翻译模型" /><ComboBox ItemsSource="{Binding Models}" SelectedItem="{Binding TranslationModel}" HorizontalAlignment="Stretch" AutomationProperties.Name="翻译模型" /></StackPanel><StackPanel Grid.Column="1" Spacing="6"><TextBlock Text="识别语言" /><ComboBox ItemsSource="{Binding Languages}" SelectedItem="{Binding AsrLanguage}" HorizontalAlignment="Stretch" AutomationProperties.Name="识别语言" /></StackPanel></Grid>
+            <StackPanel Spacing="8">
+              <TextBlock Text="模型来源与配置" Classes="section" />
+              <TextBlock Text="识别和翻译分别选择本地或 API；只需准备所选来源。停止后一次应用整体配置。" Classes="caption" TextWrapping="Wrap" />
+              <WrapPanel><ComboBox ItemsSource="{Binding ModelInputModes}" SelectedIndex="{Binding ModelInputMode}" AutomationProperties.Name="模型配置编辑方式" Margin="0,0,8,8" /><Button Content="导入整体 JSON…" Click="ImportModelConfiguration_Click" Margin="0,0,0,8" /></WrapPanel>
+              <TextBlock Text="API 识别会发送音频窗口，API 翻译会发送原文，服务商可能收费。API Key 直接保存在本地设置文件。" Classes="caption" TextWrapping="Wrap" />
+            </StackPanel>
+            <StackPanel Spacing="12" IsVisible="{Binding IsModelJson}">
+              <TextBlock Text="一份 JSON 包含 asr 和 translation；provider 为 local 或 openai，API 使用 base_url、api_key、model。" TextWrapping="Wrap" Classes="caption" />
+              <TextBox Text="{Binding ModelJson}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="280" MaxHeight="520" MaxLength="32768" AutomationProperties.Name="整体模型 JSON 配置" />
+              <TextBlock Text="{Binding ModelJsonError}" TextWrapping="Wrap" />
+            </StackPanel>
+            <StackPanel Spacing="16" IsVisible="{Binding IsModelForm}">
+              <StackPanel Spacing="8">
+                <TextBlock Text="语音识别" Classes="section" />
+                <ComboBox ItemsSource="{Binding ModelBackends}" SelectedIndex="{Binding AsrBackendIndex}" HorizontalAlignment="Stretch" AutomationProperties.Name="语音识别来源" />
+                <TextBlock Text="本地 Qwen3-ASR-1.7B，需要 Python、CUDA 和 Qwen 权重。" IsVisible="{Binding IsLocalAsr}" Classes="caption" TextWrapping="Wrap" />
+                <StackPanel Spacing="6" IsVisible="{Binding IsApiAsr}">
+                  <TextBlock Text="Base URL（含版本前缀，例如 /v1）" /><TextBox Text="{Binding AsrApiBaseUrl}" AutomationProperties.Name="识别 API 地址" />
+                  <TextBlock Text="API 模型" /><TextBox Text="{Binding AsrApiModel}" AutomationProperties.Name="识别 API 模型" />
+                  <TextBlock Text="API Key（服务无需鉴权时可留空）" /><TextBox Text="{Binding AsrApiKey}" PasswordChar="●" AutomationProperties.Name="识别 API Key" />
+                </StackPanel>
+              </StackPanel>
+              <StackPanel Spacing="8">
+                <TextBlock Text="翻译" Classes="section" />
+                <ComboBox ItemsSource="{Binding ModelBackends}" SelectedIndex="{Binding TranslationBackendIndex}" HorizontalAlignment="Stretch" AutomationProperties.Name="翻译来源" />
+                <StackPanel Spacing="6" IsVisible="{Binding IsLocalTranslation}"><TextBlock Text="本地翻译模型（Ollama）" /><ComboBox ItemsSource="{Binding Models}" SelectedItem="{Binding TranslationModel}" HorizontalAlignment="Stretch" AutomationProperties.Name="翻译模型" /></StackPanel>
+                <StackPanel Spacing="6" IsVisible="{Binding IsApiTranslation}">
+                  <TextBlock Text="Base URL（含版本前缀，例如 /v1）" /><TextBox Text="{Binding TranslationApiBaseUrl}" AutomationProperties.Name="翻译 API 地址" />
+                  <TextBlock Text="API 模型" /><TextBox Text="{Binding TranslationApiModel}" AutomationProperties.Name="翻译 API 模型" />
+                  <TextBlock Text="API Key（服务无需鉴权时可留空）" /><TextBox Text="{Binding TranslationApiKey}" PasswordChar="●" AutomationProperties.Name="翻译 API Key" />
+                </StackPanel>
+              </StackPanel>
+              <StackPanel Spacing="6"><TextBlock Text="识别语言" /><ComboBox ItemsSource="{Binding Languages}" SelectedItem="{Binding AsrLanguage}" HorizontalAlignment="Stretch" AutomationProperties.Name="识别语言" /></StackPanel>
+            </StackPanel>
             <Expander Header="高级路径配置" HorizontalAlignment="Stretch" IsEnabled="{Binding CanEdit}">
               <StackPanel Spacing="12" Margin="0,8">
                 <TextBlock Text="应用新的数据目录会切换历史库，旧记录保留在原目录；模型和设置文件不会自动搬迁。" Classes="caption" />
-                <StackPanel Spacing="6"><TextBlock Text="Python 可执行文件" /><Grid ColumnDefinitions="*,Auto" ColumnSpacing="8"><TextBox Text="{Binding PythonPath}" AutomationProperties.Name="Python 路径" /><Button Grid.Column="1" Content="浏览…" Tag="PythonPath" Click="BrowsePath_Click" AutomationProperties.Name="选择 Python 可执行文件" /></Grid></StackPanel>
-                <StackPanel Spacing="6"><TextBlock Text="Qwen 模型目录" /><Grid ColumnDefinitions="*,Auto" ColumnSpacing="8"><TextBox Text="{Binding ModelPath}" AutomationProperties.Name="Qwen 模型目录" /><Button Grid.Column="1" Content="浏览…" Tag="ModelPath" Click="BrowsePath_Click" AutomationProperties.Name="选择 Qwen 模型目录" /></Grid></StackPanel>
-                <StackPanel Spacing="6"><TextBlock Text="Ollama 可执行文件" /><Grid ColumnDefinitions="*,Auto" ColumnSpacing="8"><TextBox Text="{Binding OllamaPath}" AutomationProperties.Name="Ollama 可执行文件" /><Button Grid.Column="1" Content="浏览…" Tag="OllamaPath" Click="BrowsePath_Click" AutomationProperties.Name="选择 Ollama 可执行文件" /></Grid></StackPanel>
-                <StackPanel Spacing="6"><TextBlock Text="Ollama 模型目录" /><Grid ColumnDefinitions="*,Auto" ColumnSpacing="8"><TextBox Text="{Binding OllamaModelsPath}" AutomationProperties.Name="Ollama 模型目录" /><Button Grid.Column="1" Content="浏览…" Tag="OllamaModelsPath" Click="BrowsePath_Click" AutomationProperties.Name="选择 Ollama 模型目录" /></Grid></StackPanel>
+                <StackPanel Spacing="6" IsVisible="{Binding IsLocalAsr}"><TextBlock Text="Python 可执行文件" /><Grid ColumnDefinitions="*,Auto" ColumnSpacing="8"><TextBox Text="{Binding PythonPath}" AutomationProperties.Name="Python 路径" /><Button Grid.Column="1" Content="浏览…" Tag="PythonPath" Click="BrowsePath_Click" AutomationProperties.Name="选择 Python 可执行文件" /></Grid></StackPanel>
+                <StackPanel Spacing="6" IsVisible="{Binding IsLocalAsr}"><TextBlock Text="Qwen 模型目录" /><Grid ColumnDefinitions="*,Auto" ColumnSpacing="8"><TextBox Text="{Binding ModelPath}" AutomationProperties.Name="Qwen 模型目录" /><Button Grid.Column="1" Content="浏览…" Tag="ModelPath" Click="BrowsePath_Click" AutomationProperties.Name="选择 Qwen 模型目录" /></Grid></StackPanel>
+                <StackPanel Spacing="6" IsVisible="{Binding IsLocalTranslation}"><TextBlock Text="Ollama 可执行文件" /><Grid ColumnDefinitions="*,Auto" ColumnSpacing="8"><TextBox Text="{Binding OllamaPath}" AutomationProperties.Name="Ollama 可执行文件" /><Button Grid.Column="1" Content="浏览…" Tag="OllamaPath" Click="BrowsePath_Click" AutomationProperties.Name="选择 Ollama 可执行文件" /></Grid></StackPanel>
+                <StackPanel Spacing="6" IsVisible="{Binding IsLocalTranslation}"><TextBlock Text="Ollama 模型目录" /><Grid ColumnDefinitions="*,Auto" ColumnSpacing="8"><TextBox Text="{Binding OllamaModelsPath}" AutomationProperties.Name="Ollama 模型目录" /><Button Grid.Column="1" Content="浏览…" Tag="OllamaModelsPath" Click="BrowsePath_Click" AutomationProperties.Name="选择 Ollama 模型目录" /></Grid></StackPanel>
                 <StackPanel Spacing="6"><TextBlock Text="数据目录（非 C 盘）" /><Grid ColumnDefinitions="*,Auto" ColumnSpacing="8"><TextBox Text="{Binding DataPath}" AutomationProperties.Name="数据目录" /><Button Grid.Column="1" Content="浏览…" Tag="DataPath" Click="BrowsePath_Click" AutomationProperties.Name="选择数据目录" /></Grid></StackPanel>
                 <StackPanel Spacing="6"><TextBlock Text="缓存目录（非 C 盘）" /><Grid ColumnDefinitions="*,Auto" ColumnSpacing="8"><TextBox Text="{Binding CachePath}" AutomationProperties.Name="缓存目录" /><Button Grid.Column="1" Content="浏览…" Tag="CachePath" Click="BrowsePath_Click" AutomationProperties.Name="选择缓存目录" /></Grid></StackPanel>
                 <Button Name="CheckPathsButton" Content="检查路径" Click="CheckPaths_Click" HorizontalAlignment="Left" />

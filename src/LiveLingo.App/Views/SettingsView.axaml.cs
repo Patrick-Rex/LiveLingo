@@ -56,7 +56,32 @@ public partial class SettingsView : UserControl
         catch (Exception error) { this.FindControl<TextBlock>("PathCheckResult")!.Text = "无法选择路径：" + error.Message; }
     }
 
-    /// <summary>在后台检查当前六个路径的格式及存在性，结果只对应本次输入快照。</summary>
+    /// <summary>一次读取整体模型 JSON 文件，交给视图模型原子解析为待应用草稿。</summary>
+    /// <param name="sender">导入按钮。</param><param name="e">点击事件。</param>
+    private async void ImportModelConfiguration_Click(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not DesktopViewModel vm || !vm.CanEdit || TopLevel.GetTopLevel(this) is not { } top) return;
+        try
+        {
+            var files = await top.StorageProvider.OpenFilePickerAsync(new()
+            {
+                Title = "导入整体模型配置", AllowMultiple = false,
+                FileTypeFilter = [new("JSON 配置") { Patterns = ["*.json"] }]
+            });
+            if (files.Count == 0) return;
+            using var file = files[0];
+            await using var stream = await file.OpenReadAsync();
+            using var reader = new StreamReader(stream, System.Text.Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+            var buffer = new char[32769];
+            var count = await reader.ReadBlockAsync(buffer);
+            if (count > 32768) throw new InvalidDataException("模型配置 JSON 超过 32 Ki 字符。");
+            if (vm.CanEdit) vm.ImportModelConfiguration(new string(buffer, 0, count));
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException)
+        { vm.SettingsSaveMessage = "配置未导入：" + error.Message; }
+    }
+
+    /// <summary>在后台检查所选来源路径的格式及存在性，结果只对应本次输入快照。</summary>
     /// <param name="sender">检查按钮。</param><param name="e">按钮点击事件。</param>
     private async void CheckPaths_Click(object? sender, RoutedEventArgs e)
     {
@@ -65,8 +90,8 @@ public partial class SettingsView : UserControl
         var result = this.FindControl<TextBlock>("PathCheckResult")!;
         (string Label, string Path, bool IsFile, bool AllowSystemDrive)[] paths =
         [
-            ("Python", vm.PythonPath, true, false), ("Qwen 模型", vm.ModelPath, false, false),
-            ("Ollama", vm.OllamaPath, true, true), ("Ollama 模型", vm.OllamaModelsPath, false, false),
+            .. vm.IsLocalAsr ? new[] { ("Python", vm.PythonPath, true, false), ("Qwen 模型", vm.ModelPath, false, false) } : [],
+            .. vm.IsLocalTranslation ? new[] { ("Ollama", vm.OllamaPath, true, true), ("Ollama 模型", vm.OllamaModelsPath, false, false) } : [],
             ("数据", vm.DataPath, false, false), ("缓存", vm.CachePath, false, false)
         ];
         button.IsEnabled = false; result.Text = "正在检查路径…";

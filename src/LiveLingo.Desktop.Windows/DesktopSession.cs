@@ -62,9 +62,12 @@ public sealed class DesktopSession(string contentRoot, DesktopHistory? history =
             if (sessionId == Guid.Empty) throw new ArgumentException("需要新会话身份。");
             if (VerificationInput is null && (WindowsTargets.Query(target.Identity.ProcessId).Identity is not { } actual || !actual.SameInstance(target.Identity)))
                 throw new InvalidOperationException("目标已退出或 PID 已被复用，请刷新选择。");
-            foreach (var path in new[] { settings.PythonPath, settings.OllamaPath, Path.Combine(contentRoot, "runtime-profiles", "win-x64-cu130", "profile.json"), Path.Combine(contentRoot, "workers", "qwen_asr", "service.py"), Path.Combine(contentRoot, "tools", "model_eval", "common.py"), Path.Combine(contentRoot, "tools", "model_eval", "prepare_model.py"), Path.Combine(contentRoot, "tools", "model_eval", "download.py") })
+            foreach (var path in settings.AsrBackend == ModelBackend.Local ? new[] { settings.PythonPath, Path.Combine(contentRoot, "runtime-profiles", "win-x64-cu130", "profile.json"), Path.Combine(contentRoot, "workers", "qwen_asr", "service.py"), Path.Combine(contentRoot, "tools", "model_eval", "common.py"), Path.Combine(contentRoot, "tools", "model_eval", "prepare_model.py"), Path.Combine(contentRoot, "tools", "model_eval", "download.py") } : Array.Empty<string>())
                 if (!File.Exists(path)) throw new FileNotFoundException("运行依赖缺失：" + path, path);
-            foreach (var path in new[] { settings.ModelPath, settings.OllamaModelsPath })
+            if (settings.TranslationBackend == ModelBackend.Local && !File.Exists(settings.OllamaPath))
+                throw new FileNotFoundException("未找到本地 Ollama。", settings.OllamaPath);
+            foreach (var path in (settings.AsrBackend == ModelBackend.Local ? new[] { settings.ModelPath } : []).Concat(
+                settings.TranslationBackend == ModelBackend.Local ? new[] { settings.OllamaModelsPath } : []))
                 if (!Directory.Exists(path)) throw new DirectoryNotFoundException("权重目录缺失：" + path);
             stop?.Dispose(); stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             sequence = 0; latest = null; captureState = VerificationInput is null ? "等待模型" : "显式 WAV 回放"; LastError = null; LastOwned = []; RemainingOwned = [];
@@ -94,13 +97,22 @@ public sealed class DesktopSession(string contentRoot, DesktopHistory? history =
         try
         {
             recorder = history?.Begin(id, target, settings);
-            var environment = PrepareEnvironment(settings);
+            var environment = settings.AsrBackend == ModelBackend.Local || settings.TranslationBackend == ModelBackend.Local
+                ? PrepareEnvironment(settings) : new Dictionary<string, string>();
             var profilePath = Path.Combine(contentRoot, "runtime-profiles", "win-x64-cu130", "profile.json");
-            using var profile = JsonDocument.Parse(await File.ReadAllBytesAsync(profilePath, token).ConfigureAwait(false));
-            var root = profile.RootElement;
-            var expected = new WorkerInformation(root.GetProperty("python").GetString()!, root.GetProperty("torch").GetString()!, root.GetProperty("cuda").GetString()!, root.GetProperty("modelRevision").GetString()!, "");
-            int port;
-            using (var reservation = new TcpListener(IPAddress.Loopback, 0)) { reservation.Start(); port = ((IPEndPoint)reservation.LocalEndpoint).Port; }
+            WorkerInformation? expected = null;
+            if (settings.AsrBackend == ModelBackend.Local)
+            {
+                using var profile = JsonDocument.Parse(await File.ReadAllBytesAsync(profilePath, token).ConfigureAwait(false));
+                var root = profile.RootElement;
+                expected = new(root.GetProperty("python").GetString()!, root.GetProperty("torch").GetString()!, root.GetProperty("cuda").GetString()!, root.GetProperty("modelRevision").GetString()!, "");
+            }
+            var port = 0;
+            if (settings.TranslationBackend == ModelBackend.Local)
+            {
+                using var reservation = new TcpListener(IPAddress.Loopback, 0);
+                reservation.Start(); port = ((IPEndPoint)reservation.LocalEndpoint).Port;
+            }
             var options = new PipelineOptions();
             models = new(epoch =>
             {
@@ -115,7 +127,7 @@ public sealed class DesktopSession(string contentRoot, DesktopHistory? history =
                 owned.Add(connection); return connection;
             }, new Uri($"http://127.0.0.1:{port}/"), expected, options);
             var generation = 0;
-            var pipeline = new SubtitlePipeline(new(id, 1, 1, 1), new(settings.TranslationModel, settings.AsrLanguage), options, () =>
+            var pipeline = new SubtitlePipeline(new(id, 1, 1, 1), new(settings.EffectiveTranslationModel, settings.AsrLanguage, settings.AsrBackend, settings.TranslationBackend, settings.AsrApi, settings.TranslationApi), options, () =>
             {
                 var parent = Path.Combine(settings.DataPath, "pipeline-cache"); Directory.CreateDirectory(parent);
                 var path = Path.Combine(parent, id.ToString("N") + "-" + generation++); temporary.Add(path);

@@ -9,3 +9,5 @@ History 提供会话摘要、采集代次内条目身份、固定正文快照和
 测试位于 tests/LiveLingo.Core.Tests，统一命令见 [测试说明](../../tests/README.md)。
 
 DesktopMaintenance 定义带组件标识的环境初检结果、路径发现、用户触发的依赖安装及更新服务中立契约，不引用 Velopack、网络或平台进程 API；具体安装与检查位于 Windows 宿主。
+
+ModelBackend 为识别和翻译提供各自独立的本地/API 选择，OpenAiApiSettings 使用 base_url、api_key、model。DesktopSettings 只校验所选来源，未使用的 API 默认空配置，旧设置保持双本地；数据和缓存约束始终有效。HistorySessionInfo.AsrModel 可选保存新会话的识别来源和模型，旧记录不追补。

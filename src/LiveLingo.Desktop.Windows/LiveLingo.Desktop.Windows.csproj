@@ -16,6 +16,7 @@
     <Content Include="../../tools/model_eval/common.py;../../tools/model_eval/prepare_model.py;../../tools/model_eval/download.py" Link="tools/model_eval/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="../../runtime-profiles/win-x64-cu130/profile.json" Link="runtime-profiles/win-x64-cu130/profile.json" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="../../runtime-profiles/win-x64-cu130/requirements.lock" Link="runtime-profiles/win-x64-cu130/requirements.lock" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../packaging/model-config.example.json" Link="model-config.example.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <Target Name="ExcludeDistributionSymbols" AfterTargets="ComputeFilesToPublish">
     <ItemGroup>

@@ -9,7 +9,7 @@ public sealed record TranslationInput(PipelineRequest Ticket, string Source);
 /// <summary>返回原始译文与可核实终止状态，不等同于语义质量通过。</summary>
 /// <param name="Input">完整原始调用。</param><param name="Text">原始模型输出。</param><param name="Complete">正常完整生成。</param>
 /// <param name="Reason">终止或失败原因。</param><param name="Elapsed">包含服务开销的单调耗时。</param>
-/// <param name="Digest">启动时校验的权重身份。</param><param name="LoadNanoseconds">服务报告加载耗时。</param>
+/// <param name="Digest">本地校验的权重摘要，或以 api: 前缀标识的服务返回模型；后者不是权重证明。</param><param name="LoadNanoseconds">服务报告加载耗时。</param>
 /// <param name="EvaluationNanoseconds">服务报告生成耗时。</param><param name="OutputTokens">服务报告输出数量。</param>
 /// <param name="PromptEvaluationNanoseconds">服务报告输入计算耗时；未提供保持空值。</param><param name="InputTokens">服务报告输入数量。</param>
 public sealed record TranslationResult(TranslationInput Input, string Text, bool Complete, string Reason,

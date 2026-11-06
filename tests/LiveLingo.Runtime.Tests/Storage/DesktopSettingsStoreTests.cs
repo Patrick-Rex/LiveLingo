@@ -6,6 +6,38 @@ namespace LiveLingo.Runtime.Tests.Storage;
 /// <summary>验证真实文件原子设置保存和损坏保护，不启动模型。</summary>
 public sealed class DesktopSettingsStoreTests
 {
+    /// <summary>旧文件默认双本地，整体 API 配置及明文 Key 可往返，非法来源保留原文件。</summary><returns>真实文件兼容检查任务。</returns>
+    [Fact]
+    public async Task ModelSourcesAndApiSettingsRoundTripWithoutLocalPaths()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "model-settings-" + Guid.NewGuid().ToString("N"));
+        var path = Path.Combine(directory, "settings.json"); var store = new DesktopSettingsStore(path);
+        try
+        {
+            await store.SaveAsync(new(), TestContext.Current.CancellationToken);
+            var legacy = System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken))!.AsObject();
+            foreach (var key in new[] { "AsrBackend", "TranslationBackend", "AsrApi", "TranslationApi" }) Assert.True(legacy.Remove(key));
+            await File.WriteAllTextAsync(path, legacy.ToJsonString(), TestContext.Current.CancellationToken);
+            var old = await store.LoadAsync(TestContext.Current.CancellationToken);
+            Assert.Null(old.Error); Assert.Equal(ModelBackend.Local, old.Settings.AsrBackend); Assert.Equal(ModelBackend.Local, old.Settings.TranslationBackend);
+            var settings = new DesktopSettings
+            {
+                AsrBackend = ModelBackend.OpenAiCompatible, TranslationBackend = ModelBackend.OpenAiCompatible,
+                AsrApi = new() { Model = "speech", ApiKey = "test-key-a" }, TranslationApi = new() { Model = "text", ApiKey = "test-key-b" },
+                PythonPath = "", ModelPath = "", OllamaPath = "", OllamaModelsPath = ""
+            };
+            await store.SaveAsync(settings, TestContext.Current.CancellationToken);
+            Assert.Equal(settings, (await store.LoadAsync(TestContext.Current.CancellationToken)).Settings);
+            var text = await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken);
+            Assert.Contains("test-key-a", text); Assert.Contains("test-key-b", text);
+            legacy["AsrBackend"] = 99;
+            var invalid = legacy.ToJsonString(); await File.WriteAllTextAsync(path, invalid, TestContext.Current.CancellationToken);
+            Assert.NotNull((await store.LoadAsync(TestContext.Current.CancellationToken)).Error);
+            Assert.Equal(invalid, await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken));
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
+
     /// <summary>旧设置缺省系统主题和三十天保留，新增字段可往返且非法值保留原文件。</summary><returns>新增配置兼容验证任务。</returns>
     [Fact]
     public async Task ThemeAndRetentionPreserveLegacyDefaultsAndRejectUnknownValues()

@@ -22,13 +22,22 @@ $settings = [pscustomobject]@{
     OllamaModelsPath = 'D:\Soft Ware\Ollama'
     CachePath = 'D:\Soft Ware\LiveLingo\cache'
     TranslationModel = 'translategemma:12b'
+    AsrBackend = 0
+    TranslationBackend = 0
 }
+$saved = $null
 if ($Component -ne 'DotNet' -and (Test-Path -LiteralPath $SettingsPath -PathType Leaf)) {
     $saved = Get-Content -LiteralPath $SettingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
     foreach ($name in @('PythonPath', 'ModelPath', 'OllamaPath', 'OllamaModelsPath', 'CachePath', 'TranslationModel')) {
         if ($saved.PSObject.Properties.Name -contains $name -and $saved.$name) { $settings.$name = $saved.$name }
     }
 }
+foreach ($name in @('AsrBackend', 'TranslationBackend')) {
+    if ($saved -and $saved.PSObject.Properties.Name -contains $name) { $settings.$name = $saved.$name }
+    if ($settings.$name -notin @(0, 1)) { throw 'Unknown model backend; expected 0 (local) or 1 (OpenAI compatible API).' }
+}
+$localAsr = $settings.AsrBackend -eq 0
+$localTranslation = $settings.TranslationBackend -eq 0
 
 function Test-DotNetRuntime {
     <# .SYNOPSIS Tests the x64 shared .NET 10 runtime without requiring an SDK. #>
@@ -68,7 +77,10 @@ function Find-Uv {
 
 if ($Component -eq 'Check') {
     [pscustomobject]@{ Component = '.NET 10 x64'; Present = Test-DotNetRuntime }
-    foreach ($name in @('PythonPath', 'ModelPath', 'OllamaPath', 'OllamaModelsPath')) {
+    $paths = @()
+    if ($localAsr) { $paths += @('PythonPath', 'ModelPath') }
+    if ($localTranslation) { $paths += @('OllamaPath', 'OllamaModelsPath') }
+    foreach ($name in $paths) {
         [pscustomobject]@{ Component = $name; Present = Test-Path -LiteralPath $settings.$name }
     }
     Write-Output 'Path checks are not model/GPU validation. Run again with -Component DotNet, Ollama, Runtime, Models or Driver.'
@@ -78,6 +90,11 @@ if ($Component -eq 'DotNet') {
     if (-not (Test-DotNetRuntime)) { Install-WingetPackage 'Microsoft.DotNet.Runtime.10' }
     if (-not (Test-DotNetRuntime)) { throw '.NET 10 x64 Runtime is still missing. Install from https://dotnet.microsoft.com/download/dotnet/10.0' }
     Write-Output 'DotNetReady=True'; return
+}
+if (($Component -in @('Runtime', 'QwenModel', 'Driver') -and -not $localAsr) -or
+    ($Component -in @('Ollama', 'TranslationModel') -and -not $localTranslation) -or
+    ($Component -eq 'Models' -and -not $localAsr -and -not $localTranslation)) {
+    Write-Output 'No local dependency required for the selected API source.'; return
 }
 if ($Component -eq 'Ollama') {
     if (-not (Test-Path -LiteralPath $settings.OllamaPath -PathType Leaf)) { Install-WingetPackage 'Ollama.Ollama' }
@@ -91,7 +108,11 @@ if ($Component -eq 'Driver') {
     Write-Output 'Manual action required: choose the driver for your GPU, install r580 or newer for CUDA 13.x, and reboot if requested. CUDA Toolkit is not required.'
     return
 }
-foreach ($path in @($settings.PythonPath, $settings.ModelPath, $settings.OllamaModelsPath, $settings.CachePath)) { Assert-ResourcePath $path }
+Assert-ResourcePath $settings.CachePath
+if ($localAsr -and $Component -in @('Runtime', 'Models', 'QwenModel')) {
+    Assert-ResourcePath $settings.PythonPath; Assert-ResourcePath $settings.ModelPath
+}
+if ($localTranslation -and $Component -in @('Models', 'TranslationModel')) { Assert-ResourcePath $settings.OllamaModelsPath }
 $contentRoot = Split-Path $PSScriptRoot -Parent
 . (Join-Path $PSScriptRoot 'Enter-ModelEvaluation.ps1') -CacheRoot $settings.CachePath
 if ($Component -eq 'Runtime') {
@@ -107,8 +128,8 @@ if ($Component -eq 'Runtime') {
     if ($LASTEXITCODE -ne 0) { throw 'Runtime installed, but GPU validation failed. Check the NVIDIA driver and GPU compatibility.' }
     return
 }
-if ($settings.TranslationModel -notin @('translategemma:12b', 'translategemma:4b')) { throw 'Unsupported translation model.' }
-if ($Component -in @('Models', 'QwenModel')) {
+if ($localTranslation -and $Component -in @('Models', 'TranslationModel') -and $settings.TranslationModel -notin @('translategemma:12b', 'translategemma:4b')) { throw 'Unsupported translation model.' }
+if ($localAsr -and $Component -in @('Models', 'QwenModel')) {
 if (-not (Test-Path -LiteralPath $settings.PythonPath -PathType Leaf)) { throw 'Install the Python runtime before the Qwen model.' }
 $prepare = Join-Path $contentRoot 'tools\model_eval\prepare_model.py'
 if (Test-Path -LiteralPath (Join-Path $settings.ModelPath 'asset-manifest.json')) {
@@ -122,6 +143,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Qwen preparation failed; existing assets were 
 if ($Component -eq 'QwenModel') { Write-Output 'QwenReady=True'; return }
 }
 
+if (-not $localTranslation) { Write-Output 'SelectedModelsReady=True'; return }
 if (-not (Test-Path -LiteralPath $settings.OllamaPath -PathType Leaf)) { throw 'Install Ollama before the translation model.' }
 
 # Use only a private, newly created Ollama service; never stop an existing service.

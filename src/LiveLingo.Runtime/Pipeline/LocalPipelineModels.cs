@@ -1,4 +1,5 @@
 using LiveLingo.Core.Processes;
+using LiveLingo.Core.Desktop;
 using LiveLingo.Core.Subtitles;
 using LiveLingo.Runtime.Asr;
 using LiveLingo.Runtime.Storage;
@@ -7,17 +8,18 @@ using LiveLingo.Runtime.Workflows;
 
 namespace LiveLingo.Runtime.Pipeline;
 
-/// <summary>组合实际常驻 Qwen 与私有 Ollama，进程创建由平台工厂负责。</summary>
+/// <summary>按阶段选择常驻本地模型或兼容 API，只有本地来源使用平台进程工厂。</summary>
 public sealed class LocalPipelineModels : IPipelineModels
 {
-    private readonly Func<long, IWorkerConnection> startAsr;
-    private readonly Func<IWorkerConnection> startOllama;
-    private readonly Uri endpoint;
-    private readonly WorkerInformation expected;
+    private readonly Func<long, IWorkerConnection>? startAsr;
+    private readonly Func<IWorkerConnection>? startOllama;
+    private readonly Uri? endpoint;
+    private readonly WorkerInformation? expected;
     private readonly PipelineOptions options;
     private AsrWorkerManager? asr;
     private IWorkerConnection? ollama;
-    private OllamaTranslationService? translation;
+    private ITranslationService? translation;
+    private OpenAiAsrService? apiAsr;
     private TranslationWorkflow? workflow;
     private Task? outputDrain, errorDrain;
     private bool disposed;
@@ -26,8 +28,8 @@ public sealed class LocalPipelineModels : IPipelineModels
     /// <param name="startAsr">每代次新建自有 worker。</param><param name="startOllama">只创建本程序私有服务。</param>
     /// <param name="endpoint">该服务的数字 loopback 地址。</param><param name="expected">固定 ASR 环境。</param>
     /// <param name="options">资源与超时预算。</param>
-    public LocalPipelineModels(Func<long, IWorkerConnection> startAsr, Func<IWorkerConnection> startOllama,
-        Uri endpoint, WorkerInformation expected, PipelineOptions options)
+    public LocalPipelineModels(Func<long, IWorkerConnection>? startAsr, Func<IWorkerConnection>? startOllama,
+        Uri? endpoint, WorkerInformation? expected, PipelineOptions options)
     {
         this.startAsr = startAsr; this.startOllama = startOllama; this.endpoint = endpoint; this.expected = expected; this.options = options;
         options.Validate();
@@ -43,18 +45,30 @@ public sealed class LocalPipelineModels : IPipelineModels
         startup.CancelAfter(options.StartupTimeout);
         try
         {
-            asr = new(startAsr, expected, options);
-            await asr.StartAsync(identity.WorkerEpoch, startup.Token).ConfigureAwait(false);
-            ollama = startOllama();
+            if (selection.AsrBackend == ModelBackend.Local)
+            {
+                asr = new(startAsr ?? throw new InvalidOperationException("缺少本地识别工厂。"), expected ?? throw new InvalidOperationException("缺少本地识别配置。"), options);
+                await asr.StartAsync(identity.WorkerEpoch, startup.Token).ConfigureAwait(false);
+            }
+            else apiAsr = new(selection.AsrApi!, options.RequestTimeout);
+            if (selection.TranslationBackend == ModelBackend.OpenAiCompatible)
+            {
+                translation = new OpenAiTranslationService(selection.TranslationApi!, options.RequestTimeout);
+                workflow = new(translation);
+                startup.Token.ThrowIfCancellationRequested();
+                return;
+            }
+            ollama = (startOllama ?? throw new InvalidOperationException("缺少本地翻译工厂。"))();
             outputDrain = DrainAsync(ollama.Output); errorDrain = DrainAsync(ollama.Error);
             var digest = selection.TranslationModel == "translategemma:12b"
                 ? "c2f9a9ca1ec7149f2422581c89937ab0363d9399d9355514d753ee012e99c252"
                 : "c49d986b0764f5881c476eb21435bb62b7abc62347aab3d4a6071e811be510a1";
-            translation = new(endpoint, selection.TranslationModel, digest, options.RequestTimeout);
+            var localTranslation = new OllamaTranslationService(endpoint ?? throw new InvalidOperationException("缺少私有 Ollama 地址。"), selection.TranslationModel, digest, options.RequestTimeout);
+            translation = localTranslation;
             while (true)
             {
                 startup.Token.ThrowIfCancellationRequested();
-                try { await translation.ValidateModelAsync(startup.Token).ConfigureAwait(false); break; }
+                try { await localTranslation.ValidateModelAsync(startup.Token).ConfigureAwait(false); break; }
                 catch (HttpRequestException) { await Task.Delay(200, startup.Token).ConfigureAwait(false); }
             }
             workflow = new(translation);
@@ -68,6 +82,7 @@ public sealed class LocalPipelineModels : IPipelineModels
 
     /// <inheritdoc />
     public Task<IpcHeader> RecognizeAsync(AsrRequest request, AudioWindowLease window, CancellationToken cancellationToken) =>
+        apiAsr is not null ? apiAsr.RecognizeAsync(request, window, cancellationToken) :
         (asr ?? throw new InvalidOperationException("models_not_ready")).RecognizeAsync(request, window, cancellationToken);
 
     /// <inheritdoc />
@@ -99,7 +114,8 @@ public sealed class LocalPipelineModels : IPipelineModels
             try { await asr.DisposeAsync().ConfigureAwait(false); } catch (Exception error) { failures.Add(error); }
             asr = null;
         }
-        translation?.Dispose(); translation = null; workflow = null;
+        apiAsr?.Dispose(); apiAsr = null;
+        (translation as IDisposable)?.Dispose(); translation = null; workflow = null;
         if (ollama is not null)
         {
             try { await ollama.DisposeAsync().ConfigureAwait(false); } catch (Exception error) { failures.Add(error); }

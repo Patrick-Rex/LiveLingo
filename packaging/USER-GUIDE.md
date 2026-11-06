@@ -1,6 +1,6 @@
 # LiveLingo 安装与使用
 
-Windows 11 x64 本地日语转简体中文字幕。只需一个 Setup.exe 安装程序；程序包不包含 .NET、模型、Python 环境、Ollama、驱动、测试录音或测试源码。
+Windows 11 x64 实时日语转简体中文字幕，识别和翻译分别选择本地或 API。只需一个 Setup.exe 安装程序；程序包不包含 .NET、模型、Python 环境、Ollama、驱动、测试录音或测试源码。
 
 ## 推荐安装与增量更新
 
@@ -78,9 +78,39 @@ Write-Output "Installed files match package $($manifest.version)"
 
 包哈希及文件核对不代表模型、真实鼠标输入或多屏兼容性通过。运行正常后可以删除本次解压目录，保留 ZIP、校验文件和回退备份。不要删除共享模型或 data。
 
+## 整体模型配置
+
+进入“设置 → 运行环境”，选择表单或“整体 JSON”，两种方式编辑同一份模型配置。可一次导入程序目录中的 `model-config.example.json`，替换两个阶段的地址、模型和 Key，再点击一次“应用设置”。示例地址是占位符，不会提供模型服务。导入只更新模型草稿，保留路径、外观和历史设置；任一阶段 JSON 无效时不部分应用。
+
+```json
+{
+  "asr": {
+    "provider": "openai",
+    "base_url": "https://asr.example/v1",
+    "api_key": "",
+    "model": "your-asr-model"
+  },
+  "translation": {
+    "provider": "openai",
+    "base_url": "https://translation.example/v1",
+    "api_key": "",
+    "model": "your-translation-model"
+  },
+  "asr_language": "auto"
+}
+```
+
+这是 LiveLingo 的整体配置结构，API 字段沿用常见 OpenAI 客户端命名；并非 OpenAI 官方统一配置文件标准。两个阶段可使用同一或不同服务。Base URL 填含版本前缀的根地址（例如 `https://api.openai.com/v1`），不要追加接口路径；远程服务要求 HTTPS，本机服务允许 HTTP。服务无需鉴权时 Key 可为空。`asr_language` 支持 `auto` 或 `Japanese`。
+
+要把某阶段改为本地，将其配置改为 `{"provider":"local","model":"Qwen/Qwen3-ASR-1.7B"}`（识别）或 `{"provider":"local","model":"translategemma:12b"}`（翻译，也可选 `translategemma:4b`）；本地阶段不要求 API 地址或 Key。表单中也可直接切换。两者都选 API 时无需 Python、CUDA、NVIDIA 驱动、Ollama 或本地权重；混合使用时只准备所选本地阶段。
+
+API 识别通过 `/audio/transcriptions` 发送有界 WAV 窗口，API 翻译通过 `/chat/completions` 发送当前完整原文。沿用重叠窗口识别和修订，同一音频可能多次发送并产生费用。标准 JSON 转写结果未必提供生成截断信息，因此不能保证字字完整；翻译要求普通文本且 `finish_reason=stop`，拒绝空内容、截断或工具调用。接口须支持所用模型的 JSON 转写或非流式聊天及 `max_completion_tokens`；不包含 Realtime、厂商专有鉴权或自动提供商切换。
+
+按当前选择，Key 直接保存在本地 `settings.json`，表单隐藏显示；整体 JSON 编辑器会显示明文。导入后无需保留对原文件的引用，不监控文件变化。常规日志、历史和安装脚本快照不保存 Key。启动初检只验证配置，不发送付费测试请求；首次实际识别或翻译验证服务可用性，失败会显示状态。真实服务的模型名称、权限与费用由用户配置的服务决定。
+
 ## 首次准备依赖
 
-普通启动会检查 Python 环境版本、Qwen 清单和文件尺寸、Ollama 可执行文件、所选 TranslateGemma 清单及 blob、NVIDIA r580+ 驱动。检测不启动模型服务；初检通过不等于 GPU 推理已通过，正式开始仍执行完整校验。
+先在“设置 → 运行环境”分别选择识别与翻译来源。本地识别检查 Python、Qwen 与 NVIDIA r580+；本地翻译检查 Ollama 与所选 TranslateGemma。API 来源只检查配置，不要求对应本地组件；全 API 无需 Python、CUDA、Ollama 或本地权重。检测不启动模型服务；初检通过不等于 GPU 推理已通过，正式开始仍执行完整校验。
 
 启动会搜索已配置路径、常用非 C 盘资源目录、PATH、VIRTUAL_ENV 与 OLLAMA_MODELS，找到兼容环境时在空闲且没有设置草稿的情况下复用缺失路径。已有文件和不兼容资产不会被覆盖。缺少的组件旁显示“安装”，点击即可执行包内脚本，界面显示输出，完成后自动重新检查；无需打开终端。先安装对应运行环境再安装模型。驱动通过“打开驱动下载”使用厂商安装程序。
 
@@ -97,12 +127,12 @@ Write-Output "Installed files match package $($manifest.version)"
 ./Install-LiveLingoDependencies.ps1 -Component Models
 ```
 
-Driver 打开 NVIDIA 官方驱动页面，由厂商安装器完成匹配与安装，要求 r580 或更新驱动；按提示重启后再准备 Runtime。Runtime 使用 Python 3.13.2、uv 和固定哈希锁并运行一次 CUDA 运算；可用 `-BasePython '实际路径'` 复用准确版本，已有其他 Python 版本不会被自动降级。Models 准备固定 Qwen revision 和当前选择的 TranslateGemma，复用已验证资产、允许恢复未完成的 Qwen 下载；已有翻译模型指纹不符时停止，不覆盖或绕过校验。下载期间只运行脚本自己的临时 Ollama 服务，结束后回收，不停止已有服务。
+Driver 打开 NVIDIA 官方驱动页面，由厂商安装器完成匹配与安装，要求 r580 或更新驱动；按提示重启后再准备 Runtime。Runtime 使用 Python 3.13.2、uv 和固定哈希锁并运行一次 CUDA 运算；可用 `-BasePython '实际路径'` 复用准确版本，已有其他 Python 版本不会被自动降级。Models 仅为所选本地来源准备固定 Qwen revision 或当前选择的 TranslateGemma，复用已验证资产、允许恢复未完成的 Qwen 下载；已有翻译模型指纹不符时停止，不覆盖或绕过校验。下载期间只运行脚本自己的临时 Ollama 服务，结束后回收，不停止已有服务。
 
 脚本默认读取 `D:\Soft Ware\LiveLingo\data\settings.json`，可传 `-SettingsPath '实际设置路径'`；不会改写设置。自定义路径先在程序中应用，再运行脚本。脚本联网安装只在明确指定组件时发生；winget 安装可能需要系统权限和软件许可确认。下列手动步骤继续可用。
 
 
-已有环境和模型可以复用，无需重新下载。新增的大文件全部放非 C 盘。当前主要面向 RTX 5080 16GB；12B 同时需要充足系统内存，不能只按显存容量估算。
+以下手动步骤仅适用于所选本地阶段：本地识别执行 1–2，本地翻译执行 3，再统一执行 4。已有环境和模型可以复用，无需重新下载。新增的大文件全部放非 C 盘。当前主要面向 RTX 5080 16GB；12B 同时需要充足系统内存，不能只按显存容量估算。
 
 1. 安装 Python 3.13.2 x64、uv 和支持 CUDA 13.0 的 NVIDIA 驱动。使用 PyTorch 自带 CUDA wheel，无需另装完整 CUDA Toolkit。Python 官方下载：https://www.python.org/downloads/release/python-3132/ ，uv：https://docs.astral.sh/uv/getting-started/installation/ 。
 2. 在安装后的 `desktop` 目录运行，替换本机基础 Python 路径：
@@ -134,7 +164,7 @@ ollama pull translategemma:4b
 
 下载完成后，在刚才的私有服务窗口按 Ctrl+C 退出，不停止用户原先运行的服务。固定模型标签的上游内容可能更新；应用会校验既定模型指纹，指纹不一致时应按源码运行配置核对版本，不跳过校验。
 
-4. 打开 LiveLingo，进入“设置 → 运行环境”，选择模型和识别语言；展开“高级路径配置”，填写或浏览选择实际 Python、Qwen 模型、Ollama EXE、Ollama 模型、数据和缓存路径。点击“检查路径”查看文件或目录是否存在，再点击底部“应用设置”。应用只运行已经准备的资产，不自动下载或更换模型；路径检查不替代开始翻译时的模型完整性验证。
+4. 打开 LiveLingo，进入“设置 → 运行环境”，选择模型和识别语言；展开“高级路径配置”，填写或浏览选择所选本地阶段的 Python、Qwen、Ollama 路径及共享数据和缓存路径。点击“检查路径”查看文件或目录是否存在，再点击底部“应用设置”。应用只运行已经准备的资产，不自动下载或更换模型；路径检查不替代开始翻译时的模型完整性验证。
 
 ## 日常使用
 
@@ -153,7 +183,7 @@ ollama pull translategemma:4b
 
 - **常规**：选择跟随系统、浅色或深色主题，设置历史保留期。
 - **字幕外观**：通过合成示例预览显示语言、字号和背景；不会开始采集或读取真实历史。
-- **运行环境**：选择模型与识别语言，六个资源路径收在“高级路径配置”中。
+- **运行环境**：选择模型与识别语言，所选来源的资源路径收在“高级路径配置”中。
 - **快捷键**：配置三个互不重复的 Ctrl+Alt+F1–F11 功能键。
 
 主题与字幕外观即时生效并自动保存，翻译运行时也可修改。模型、语言、路径、快捷键和保留期须停止翻译后，在设置页底部点击“应用设置”；点击“撤销”放弃尚未应用的输入，不撤销即时外观。切换页面保留草稿；未应用时实时页提供设置入口，开始翻译前必须先应用或撤销。外观自动保存不会顺带保存这些草稿。

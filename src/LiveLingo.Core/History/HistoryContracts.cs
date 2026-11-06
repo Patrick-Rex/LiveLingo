@@ -28,7 +28,11 @@ public enum HistoryExportFormat
 /// <param name="SessionId">不可复用的会话身份。</param><param name="ApplicationName">采集应用名称。</param>
 /// <param name="SourceLanguage">本次识别语言策略。</param><param name="TranslationModel">本次翻译模型。</param>
 /// <param name="StartedAt">开始时间，存储保留时区偏移。</param>
-public sealed record HistorySessionInfo(Guid SessionId, string ApplicationName, string SourceLanguage, string TranslationModel, DateTimeOffset StartedAt);
+public sealed record HistorySessionInfo(Guid SessionId, string ApplicationName, string SourceLanguage, string TranslationModel, DateTimeOffset StartedAt)
+{
+    /// <summary>获取识别模型及来源；旧档案未记录时为空，不能追补未经记录的信息。</summary>
+    public string? AsrModel { get; init; }
+}
 
 /// <summary>提供历史列表所需的摘要，正文按需读取。</summary>
 /// <param name="Info">固定会话信息。</param><param name="EndedAt">结束时间，未结束时为空。</param>

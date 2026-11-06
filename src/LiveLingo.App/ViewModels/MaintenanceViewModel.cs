@@ -14,6 +14,7 @@ public sealed partial class MaintenanceViewModel(IDesktopEnvironment environment
 {
     private readonly CancellationTokenSource lifetime = new();
     private bool closing;
+    private bool environmentRefreshRequested;
     private Task initialization = Task.CompletedTask;
     /// <summary>通知宿主执行正常异步退出，清理成功后才交接安装。</summary>
     public event Action? InstallRequested;
@@ -63,6 +64,14 @@ public sealed partial class MaintenanceViewModel(IDesktopEnvironment environment
     /// <summary>登记可等待的初始化，不下载资产。</summary><returns>两类检查完成任务。</returns>
     public Task InitializeAsync() => initialization = Task.WhenAll(CheckEnvironmentAsync(), CheckUpdatesAsync());
 
+    /// <summary>应用整体配置后合并一次复检，防止旧来源的缺项提示继续显示。</summary>
+    public void RefreshEnvironment()
+    {
+        if (closing || InstallingDependency) return;
+        environmentRefreshRequested = true;
+        if (!CheckingEnvironment) _ = CheckEnvironmentCommand.ExecuteAsync(null);
+    }
+
     /// <summary>按已应用配置检查环境，失败保持可见并允许重试。</summary><returns>检查完成任务。</returns>
     [RelayCommand]
     private async Task CheckEnvironmentAsync()
@@ -71,14 +80,23 @@ public sealed partial class MaintenanceViewModel(IDesktopEnvironment environment
         CheckingEnvironment = true;
         try
         {
-            var original = settings();
-            var discovered = await environment.DiscoverAsync(original, lifetime.Token);
-            if (!closing && discovered != original && canInstall() && applyDiscovered is not null)
-                await applyDiscovered(original, discovered);
-            var result = await environment.CheckAsync(settings(), lifetime.Token);
-            if (closing) return;
-            EnvironmentChecks = result;
-            EnvironmentMessage = HasEnvironmentIssues ? "已搜索本机环境。点击缺项旁的安装按钮，完成后自动重新检查。" : "本机环境初检通过；开始翻译时会完整校验并加载模型。";
+            do
+            {
+                environmentRefreshRequested = false;
+                var original = settings();
+                var discovered = await environment.DiscoverAsync(original, lifetime.Token);
+                if (!closing && discovered != original && canInstall() && applyDiscovered is not null)
+                    await applyDiscovered(original, discovered);
+                var checking = settings();
+                var result = await environment.CheckAsync(checking, lifetime.Token);
+                if (closing) return;
+                if (checking != settings()) { environmentRefreshRequested = true; continue; }
+                EnvironmentChecks = result;
+                EnvironmentMessage = HasEnvironmentIssues ? "所选来源尚未就绪：请修正 API 配置，或安装缺少的本地组件。" :
+                    checking.AsrBackend == ModelBackend.OpenAiCompatible || checking.TranslationBackend == ModelBackend.OpenAiCompatible
+                        ? "所选来源初检通过；API 连接、权限和模型在实际请求时验证。"
+                        : "本机环境初检通过；开始翻译时会完整校验并加载模型。";
+            } while (environmentRefreshRequested && !closing);
         }
         catch (OperationCanceledException) when (closing) { }
         catch (Exception error)

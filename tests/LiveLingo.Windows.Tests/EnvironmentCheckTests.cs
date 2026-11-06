@@ -6,6 +6,39 @@ namespace LiveLingo.Windows.Tests;
 /// <summary>验证环境初检不把空模型目录当作可用依赖。</summary>
 public sealed class EnvironmentCheckTests
 {
+    /// <summary>四种组合只列出所选本地依赖，API 的文件初检不要求模型或程序路径。</summary>
+    /// <param name="asr">识别来源。</param><param name="translation">翻译来源。</param>
+    [Theory]
+    [InlineData(ModelBackend.Local, ModelBackend.Local)]
+    [InlineData(ModelBackend.Local, ModelBackend.OpenAiCompatible)]
+    [InlineData(ModelBackend.OpenAiCompatible, ModelBackend.Local)]
+    [InlineData(ModelBackend.OpenAiCompatible, ModelBackend.OpenAiCompatible)]
+    public void DependencyChecksFollowBothSources(ModelBackend asr, ModelBackend translation)
+    {
+        var api = new OpenAiApiSettings { Model = "test-model" };
+        var settings = new DesktopSettings { AsrBackend = asr, TranslationBackend = translation, AsrApi = api, TranslationApi = api,
+            PythonPath = "", ModelPath = "", OllamaPath = "", OllamaModelsPath = "" };
+        var checks = DesktopEnvironment.CheckFiles(settings);
+        Assert.Equal(asr == ModelBackend.Local, checks.Any(x => x.Component == DependencyComponent.Runtime));
+        Assert.Equal(asr == ModelBackend.Local, checks.Any(x => x.Component == DependencyComponent.QwenModel));
+        Assert.Equal(translation == ModelBackend.Local, checks.Any(x => x.Component == DependencyComponent.Ollama));
+        Assert.Equal(translation == ModelBackend.Local, checks.Any(x => x.Component == DependencyComponent.TranslationModel));
+        Assert.All(checks.Where(x => x.Name.EndsWith("API", StringComparison.Ordinal)), x => Assert.True(x.Ready));
+    }
+
+    /// <summary>全 API 不执行驱动或解释器探测，也不采用发现的本地路径。</summary><returns>初检验证任务。</returns>
+    [Fact]
+    public async Task AllApiSkipsLocalProbesAndDiscovery()
+    {
+        var api = new OpenAiApiSettings { Model = "test-model" };
+        var settings = new DesktopSettings { AsrBackend = ModelBackend.OpenAiCompatible, TranslationBackend = ModelBackend.OpenAiCompatible,
+            AsrApi = api, TranslationApi = api, PythonPath = "", ModelPath = "", OllamaPath = "", OllamaModelsPath = "" };
+        var environment = new DesktopEnvironment("missing-content-root");
+        var checks = await environment.CheckAsync(settings, TestContext.Current.CancellationToken);
+        Assert.Equal(2, checks.Count); Assert.All(checks, x => Assert.True(x.Ready));
+        Assert.Equal(settings, await environment.DiscoverAsync(settings, TestContext.Current.CancellationToken));
+    }
+
     /// <summary>取消启动检测时不继续探测驱动或解释器。</summary><returns>取消验证任务。</returns>
     [Fact]
     public async Task CanceledCheckDoesNotStartProbes()

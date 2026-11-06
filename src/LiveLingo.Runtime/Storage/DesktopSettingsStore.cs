@@ -31,13 +31,15 @@ public sealed class DesktopSettingsStore(string path) : IDesktopSettingsStore
     public async Task SaveAsync(DesktopSettings settings, CancellationToken cancellationToken = default)
     {
         settings.Validate();
+        var content = JsonSerializer.SerializeToUtf8Bytes(settings, DesktopSettingsJsonContext.Default.DesktopSettings);
+        if (content.Length > 65536) throw new ArgumentException("设置文件超过 64 KiB，请缩短 API 配置。");
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
             await using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.Asynchronous | FileOptions.WriteThrough))
             {
-                await JsonSerializer.SerializeAsync(stream, settings, DesktopSettingsJsonContext.Default.DesktopSettings, cancellationToken).ConfigureAwait(false);
+                await stream.WriteAsync(content, cancellationToken).ConfigureAwait(false);
                 await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
                 stream.Flush(true);
             }

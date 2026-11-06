@@ -54,6 +54,7 @@ public sealed partial class HistoryViewModel(IHistoryInteraction interaction) : 
     /// <summary>获取运行配置、状态和错误摘要。</summary>
     public string DocumentDetail => document is null ? "选择左侧会话；记录只保存在本机" :
         $"{document.Summary.Info.SourceLanguage} → 简体中文 · {document.Summary.Info.TranslationModel} · {SelectedSession?.StateText}" +
+        (document.Summary.Info.AsrModel is { } asrModel ? " · 识别 " + asrModel : "") +
         (document.Summary.Error is { } error ? " · " + error : "");
     /// <summary>获取是否允许开始操作。</summary>
     public bool Ready => store is not null && !Busy && !closed;

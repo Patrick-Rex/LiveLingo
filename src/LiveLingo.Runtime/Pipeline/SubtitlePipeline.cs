@@ -275,7 +275,12 @@ public sealed class SubtitlePipeline
             if (response.Correlation != request) throw new InvalidDataException("recognition_correlation_mismatch");
             return new(work, response, null, null, Stopwatch.GetElapsedTime(started).TotalSeconds, rightContext, queued, counted, recognitionRequest);
         }
-        catch (Exception error) { return new(work, null, null, error.GetType().Name, Stopwatch.GetElapsedTime(started).TotalSeconds, false, queued, counted, recognitionRequest); }
+        catch (Exception error)
+        {
+            var failure = error.GetBaseException() is HttpRequestException { StatusCode: { } code }
+                ? "http_" + (int)code : error.GetBaseException().GetType().Name;
+            return new(work, null, null, failure, Stopwatch.GetElapsedTime(started).TotalSeconds, false, queued, counted, recognitionRequest);
+        }
     }
 
     /// <summary>在事件循环提交模型结果；旧身份始终由归约器再检查。</summary>
@@ -291,11 +296,13 @@ public sealed class SubtitlePipeline
             if (result.Error is not null)
             {
                 disposition = "failed:" + result.Error;
+                if (ticket.Kind == PipelineRequestKind.Recognition) recognitionIssue = "recognition_failed:" + result.Error;
                 if (ticket.Kind == PipelineRequestKind.Translation) reducer.FailTranslation(ticket, "translation_failed:" + result.Error);
                 if (result.Error != "stale_before_dispatch")
                 {
                     Emit();
-                    if (++recoveries > 3) throw new PipelinePressureException("model_recovery_budget");
+                    if (++recoveries > 3) throw new PipelinePressureException(result.Error.StartsWith("http_", StringComparison.Ordinal)
+                        ? "model_recovery_budget:" + result.Error : "model_recovery_budget");
                     await ResetModelsAsync(reducer.Identity with { WorkerEpoch = reducer.Identity.WorkerEpoch + 1 }, selection, cancellationToken).ConfigureAwait(false);
                 }
             }

@@ -12,6 +12,7 @@ public sealed partial class DesktopEnvironment
     public Task<DesktopSettings> DiscoverAsync(DesktopSettings settings, CancellationToken cancellationToken) => Task.Run(() =>
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (settings.AsrBackend == ModelBackend.OpenAiCompatible && settings.TranslationBackend == ModelBackend.OpenAiCompatible) return settings;
         var roots = new List<string> { Path.GetDirectoryName(settings.DataPath)!, @"D:\Soft Ware\LiveLingo" };
         foreach (var drive in DriveInfo.GetDrives().Where(x => x.DriveType == DriveType.Fixed && x.IsReady).Take(26))
         {
@@ -44,21 +45,24 @@ public sealed partial class DesktopEnvironment
         var roots = applicationRoots.Where(IsResourcePath).Distinct(StringComparer.OrdinalIgnoreCase).Take(64).ToArray();
         var executables = executableDirectories.Where(IsLocalPath).Distinct(StringComparer.OrdinalIgnoreCase).Take(128).ToArray();
         var found = settings;
-        if (!File.Exists(settings.OllamaPath))
+        if (settings.TranslationBackend == ModelBackend.Local && !File.Exists(settings.OllamaPath))
             found = found with { OllamaPath = executables.Select(x => Path.Combine(x, "ollama.exe")).FirstOrDefault(File.Exists) ?? settings.OllamaPath };
-        if (!File.Exists(settings.PythonPath))
+        if (settings.AsrBackend == ModelBackend.Local && !File.Exists(settings.PythonPath))
         {
             var interpreters = roots.Select(x => Path.Combine(x, "runtimes", "win-x64-cu130", "Scripts", "python.exe"))
                 .Concat(executables.Where(IsResourcePath).Select(x => Path.Combine(x, "python.exe")));
             found = found with { PythonPath = interpreters.FirstOrDefault(IsRuntimeCandidate) ?? settings.PythonPath };
         }
-        if (!File.Exists(Path.Combine(settings.ModelPath, "asset-manifest.json")))
+        if (settings.AsrBackend == ModelBackend.Local && !File.Exists(Path.Combine(settings.ModelPath, "asset-manifest.json")))
             found = found with { ModelPath = roots.Select(x => Path.Combine(x, "models", "Qwen3-ASR-1.7B-7278e1e"))
                 .FirstOrDefault(x => Inspect("Qwen", () => CheckQwen(x)).Ready) ?? settings.ModelPath };
-        var tag = settings.TranslationModel.Split(':').Last();
-        if (!File.Exists(Path.Combine(settings.OllamaModelsPath, "manifests", "registry.ollama.ai", "library", "translategemma", tag)))
-            found = found with { OllamaModelsPath = translationRoots.Where(IsResourcePath).Distinct(StringComparer.OrdinalIgnoreCase).Take(32)
-                .FirstOrDefault(x => Inspect("TranslateGemma", () => CheckTranslation(x, settings.TranslationModel)).Ready) ?? settings.OllamaModelsPath };
+        if (settings.TranslationBackend == ModelBackend.Local)
+        {
+            var tag = settings.TranslationModel.Split(':').Last();
+            if (!File.Exists(Path.Combine(settings.OllamaModelsPath, "manifests", "registry.ollama.ai", "library", "translategemma", tag)))
+                found = found with { OllamaModelsPath = translationRoots.Where(IsResourcePath).Distinct(StringComparer.OrdinalIgnoreCase).Take(32)
+                    .FirstOrDefault(x => Inspect("TranslateGemma", () => CheckTranslation(x, settings.TranslationModel)).Ready) ?? settings.OllamaModelsPath };
+        }
         return found;
     }
 
@@ -85,6 +89,9 @@ public sealed partial class DesktopEnvironment
     {
         if (!Enum.IsDefined(component)) throw new ArgumentOutOfRangeException(nameof(component));
         settings.Validate(); cancellationToken.ThrowIfCancellationRequested();
+        if (settings.AsrBackend != ModelBackend.Local && component is DependencyComponent.Runtime or DependencyComponent.QwenModel or DependencyComponent.Driver ||
+            settings.TranslationBackend != ModelBackend.Local && component is DependencyComponent.Ollama or DependencyComponent.TranslationModel)
+            throw new InvalidOperationException("当前来源不需要此本地组件。");
         var script = Path.Combine(contentRoot, "scripts", "Install-LiveLingoDependencies.ps1");
         if (!File.Exists(script)) throw new FileNotFoundException("当前构建没有依赖安装脚本，请使用正式安装包。", script);
         var directory = new DirectoryInfo(Path.Combine(settings.CachePath, "setup"));
@@ -101,7 +108,7 @@ public sealed partial class DesktopEnvironment
         var output = new StringBuilder(); var gate = new object();
         try
         {
-            await File.WriteAllTextAsync(snapshot, JsonSerializer.Serialize(settings), timeout.Token).ConfigureAwait(false);
+            await File.WriteAllTextAsync(snapshot, JsonSerializer.Serialize(settings with { AsrApi = settings.AsrApi with { ApiKey = "" }, TranslationApi = settings.TranslationApi with { ApiKey = "" } }), timeout.Token).ConfigureAwait(false);
             started = process.Start();
             await Task.WhenAll(PumpInstallerAsync(process.StandardOutput, output, gate, progress, timeout.Token),
                 PumpInstallerAsync(process.StandardError, output, gate, progress, timeout.Token),

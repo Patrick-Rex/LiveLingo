@@ -9,7 +9,7 @@ public sealed class TranslationWorkflow
 {
     private readonly ITranslationService service;
 
-    /// <summary>组合本地翻译边界，不引入 agent 对话或无限运行图。</summary>
+    /// <summary>组合所选翻译边界，不引入 agent 对话或无限运行图。</summary>
     /// <param name="service">具有真实取消与失败语义的翻译服务。</param>
     public TranslationWorkflow(ITranslationService service) => this.service = service;
 
@@ -51,7 +51,8 @@ public sealed class TranslationWorkflow
                 message.Ticket.Sequence <= 0 || message.Ticket.Segment.Id == Guid.Empty || message.Ticket.Segment.Generation <= 0 ||
                 message.Ticket.SourceRevision <= 0 || message.Ticket.Range.Length == 0)
                 throw new InvalidDataException("翻译关联身份无效。");
-            _ = OfficialTranslationPrompt.Format(message.Source);
+            if (string.IsNullOrWhiteSpace(message.Source) || message.Source.Length > 12000)
+                throw new ArgumentException("原文为空或超出已支持长度。");
             return ValueTask.FromResult(message);
         }
     }
@@ -60,7 +61,7 @@ public sealed class TranslationWorkflow
     private sealed class Translate : Executor<TranslationInput, TranslationResult>
     {
         private readonly ITranslationService service;
-        /// <summary>绑定服务边界。</summary><param name="service">本地翻译服务。</param>
+        /// <summary>绑定服务边界。</summary><param name="service">所选本地或 API 翻译服务。</param>
         public Translate(ITranslationService service) : base("translate") => this.service = service;
         /// <inheritdoc />
         public override async ValueTask<TranslationResult> HandleAsync(TranslationInput message, IWorkflowContext context, CancellationToken cancellationToken = default) =>

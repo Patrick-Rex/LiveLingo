@@ -139,6 +139,7 @@ public sealed class JsonTranslationHistoryStore(string dataPath, TimeProvider? t
         text.Append("结束：").Append(document.Summary.EndedAt is { } ended ? FormatTime(ended) : "尚未结束").Append('\n');
         text.Append("状态：").Append(StateText(document.Summary.State)).Append('\n');
         text.Append("识别语言：").Append(Clean(document.Summary.Info.SourceLanguage, markdown)).Append('\n');
+        if (document.Summary.Info.AsrModel is { } asrModel) text.Append("识别模型：").Append(Clean(asrModel, markdown)).Append('\n');
         text.Append("翻译模型：").Append(Clean(document.Summary.Info.TranslationModel, markdown)).Append('\n');
         if (document.Summary.Error is { } error) text.Append("记录提示：").Append(Clean(error, markdown)).Append('\n');
         text.Append('\n');

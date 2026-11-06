@@ -1,0 +1,15 @@
+{
+  "asr": {
+    "provider": "openai",
+    "base_url": "https://asr.example/v1",
+    "api_key": "",
+    "model": "your-asr-model"
+  },
+  "translation": {
+    "provider": "openai",
+    "base_url": "https://translation.example/v1",
+    "api_key": "",
+    "model": "your-translation-model"
+  },
+  "asr_language": "auto"
+}

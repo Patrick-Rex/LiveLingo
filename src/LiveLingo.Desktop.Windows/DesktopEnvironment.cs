@@ -15,12 +15,13 @@ public sealed partial class DesktopEnvironment(string contentRoot) : IDesktopEnv
     {
         var results = (await Task.Run(() => CheckFiles(settings), cancellationToken).ConfigureAwait(false)).ToList();
         cancellationToken.ThrowIfCancellationRequested();
-        if (results[0].Ready)
+        if (settings.AsrBackend == ModelBackend.Local && results[0].Ready)
         {
             results[0] = (await ProbeAsync("Python 推理环境", settings.PythonPath,
                 ["-I", "-c", "import platform,importlib.metadata as m; assert platform.python_version()=='3.13.2'; assert m.version('torch')=='2.10.0+cu130'; assert m.version('qwen-asr')=='0.0.6'; print('Python 3.13.2 / PyTorch 2.10.0+cu130 / qwen-asr 0.0.6')"],
                 cancellationToken).ConfigureAwait(false)) with { Component = DependencyComponent.Runtime };
         }
+        if (settings.AsrBackend != ModelBackend.Local) return results;
         var smi = Path.Combine(Environment.SystemDirectory, "nvidia-smi.exe");
         if (!File.Exists(smi)) smi = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "NVIDIA Corporation", "NVSMI", "nvidia-smi.exe");
         var driver = await ProbeAsync("NVIDIA 驱动", smi, ["--query-gpu=driver_version", "--format=csv,noheader"], cancellationToken).ConfigureAwait(false);
@@ -31,14 +32,32 @@ public sealed partial class DesktopEnvironment(string contentRoot) : IDesktopEnv
     }
 
     /// <summary>检查文件、模型身份和资产尺寸，不读取大型权重正文。</summary>
-    /// <param name="settings">资源路径和所选翻译模型。</param><returns>四项本地资产检查结果。</returns>
-    public static IReadOnlyList<EnvironmentCheck> CheckFiles(DesktopSettings settings) =>
-    [
-        new("Python 推理环境", File.Exists(settings.PythonPath), File.Exists(settings.PythonPath) ? "已找到解释器，继续检查环境版本。" : "未找到兼容的隔离环境，点击安装准备 Python 和推理依赖。", DependencyComponent.Runtime),
-        Inspect("Qwen 模型", () => CheckQwen(settings.ModelPath)) with { Component = DependencyComponent.QwenModel },
-        new("Ollama", File.Exists(settings.OllamaPath), File.Exists(settings.OllamaPath) ? "已找到 Ollama 程序。" : "未找到 Ollama，点击安装。", DependencyComponent.Ollama),
-        Inspect("TranslateGemma 模型", () => CheckTranslation(settings.OllamaModelsPath, settings.TranslationModel)) with { Component = DependencyComponent.TranslationModel }
-    ];
+    /// <param name="settings">各阶段来源和资源配置。</param><returns>仅所选来源的检查结果。</returns>
+    public static IReadOnlyList<EnvironmentCheck> CheckFiles(DesktopSettings settings)
+    {
+        var results = new List<EnvironmentCheck>();
+        if (settings.AsrBackend == ModelBackend.Local)
+        {
+            results.Add(new("Python 推理环境", File.Exists(settings.PythonPath), File.Exists(settings.PythonPath) ? "已找到解释器，继续检查环境版本。" : "未找到兼容的隔离环境，点击安装准备 Python 和推理依赖。", DependencyComponent.Runtime));
+            results.Add(Inspect("Qwen 模型", () => CheckQwen(settings.ModelPath)) with { Component = DependencyComponent.QwenModel });
+        }
+        else results.Add(CheckApi("识别 API", settings.AsrApi));
+        if (settings.TranslationBackend == ModelBackend.Local)
+        {
+            results.Add(new("Ollama", File.Exists(settings.OllamaPath), File.Exists(settings.OllamaPath) ? "已找到 Ollama 程序。" : "未找到 Ollama，点击安装。", DependencyComponent.Ollama));
+            results.Add(Inspect("TranslateGemma 模型", () => CheckTranslation(settings.OllamaModelsPath, settings.TranslationModel)) with { Component = DependencyComponent.TranslationModel });
+        }
+        else results.Add(CheckApi("翻译 API", settings.TranslationApi));
+        return results;
+    }
+
+    /// <summary>只验证 API 配置，不产生推理费用或要求本地安装。</summary>
+    /// <param name="name">阶段名称。</param><param name="api">独立 API 配置。</param><returns>可见的配置结果。</returns>
+    private static EnvironmentCheck CheckApi(string name, OpenAiApiSettings api)
+    {
+        try { api.Validate(); return new(name, true, "配置有效；实际请求时验证连接与模型，不需要本地组件。"); }
+        catch (ArgumentException error) { return new(name, false, error.Message); }
+    }
 
     /// <summary>把单个资产的读取失败转为可操作消息。</summary><param name="name">依赖名称。</param><param name="check">本地检查。</param><returns>独立结果。</returns>
     private static EnvironmentCheck Inspect(string name, Action check)

@@ -6,6 +6,28 @@ namespace LiveLingo.App.Tests;
 /// <summary>验证维护操作必须由用户确认且受窗口生命周期约束。</summary>
 public sealed class MaintenanceTests
 {
+    /// <summary>一次应用新来源触发复检，正在进行的旧检查不能回写过期依赖提示。</summary><returns>设置与检查竞态验证任务。</returns>
+    [Fact]
+    public async Task ApplyingModelSourcesRefreshesAndRejectsOldChecks()
+    {
+        var environment = new SwitchingEnvironment();
+        var vm = new DesktopViewModel(new FakeSession(), new FakeStore(), action => action());
+        await vm.InitializeAsync();
+        var maintenance = new MaintenanceViewModel(environment, new FakeUpdates(), () => vm.CurrentSettings, () => true);
+        vm.Maintenance = maintenance;
+        try
+        {
+            var initial = maintenance.CheckEnvironmentCommand.ExecuteAsync(null);
+            await environment.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            vm.AsrBackendIndex = 1; vm.TranslationBackendIndex = 1; vm.AsrApiModel = "speech"; vm.TranslationApiModel = "text";
+            await vm.SaveCommand.ExecuteAsync(null);
+            environment.Release.SetResult(); await initial;
+            Assert.Equal(2, environment.Checks); Assert.False(maintenance.HasEnvironmentIssues);
+            Assert.Equal("API", Assert.Single(maintenance.EnvironmentChecks).Name);
+        }
+        finally { environment.Release.TrySetResult(); await maintenance.CloseAsync(); await vm.CloseAsync(); }
+    }
+
     /// <summary>启动仅检查，空闲时一次点击完成下载与安装请求。</summary><returns>交互检查任务。</returns>
     [Fact]
     public async Task StartupDoesNotDownloadAndInstallRequiresIdleConsent()
@@ -120,6 +142,26 @@ public sealed class MaintenanceTests
         if (draft || loadFailure) Assert.Empty(store.Writes);
         else Assert.Equal(@"D:\Existing Ollama\ollama.exe", Assert.Single(store.Writes).OllamaPath);
         await vm.CloseAsync();
+    }
+
+    /// <summary>让旧本地检查延迟返回，用于验证来源切换后的复检。</summary>
+    private sealed class SwitchingEnvironment : IDesktopEnvironment
+    {
+        public int Checks { get; private set; }
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        /// <inheritdoc />
+        public Task<DesktopSettings> DiscoverAsync(DesktopSettings settings, CancellationToken cancellationToken) => Task.FromResult(settings);
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<EnvironmentCheck>> CheckAsync(DesktopSettings settings, CancellationToken cancellationToken)
+        {
+            if (++Checks == 1) { Entered.SetResult(); await Release.Task.WaitAsync(cancellationToken); }
+            var api = settings.AsrBackend == ModelBackend.OpenAiCompatible;
+            return [new(api ? "API" : "本地缺项", api, "fixture")];
+        }
+        /// <inheritdoc />
+        public Task InstallAsync(DependencyComponent component, DesktopSettings settings, IProgress<string> progress, CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("检查不能触发安装。");
     }
 
     /// <summary>提供不启动服务的缺失环境。</summary>

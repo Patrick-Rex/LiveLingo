@@ -74,7 +74,7 @@ public sealed partial class DesktopViewModel : ObservableObject
     /// <summary>获取或设置设置页当前分类。</summary>
     [ObservableProperty] public partial int SelectedSettingsIndex { get; set; }
     /// <summary>获取已生效的模型和识别策略摘要。</summary>
-    public string RuntimeSummary => $"{settings.TranslationModel} · {(settings.AsrLanguage == "auto" ? "自动识别语言" : "日语")}";
+    public string RuntimeSummary => $"识别：{(settings.AsrBackend == ModelBackend.Local ? "本地 Qwen" : "API " + settings.AsrApi.Model)} · 翻译：{(settings.TranslationBackend == ModelBackend.Local ? "本地 " : "API ")}{settings.EffectiveTranslationModel}";
     /// <summary>获取或设置浮窗显示模式；忽略选择控件初始化的空选项。</summary>
     public int DisplayModeIndex
     {
@@ -110,7 +110,7 @@ public sealed partial class DesktopViewModel : ObservableObject
     /// <summary>获取符合当前操作状态的主按钮文案。</summary>
     public string SessionButtonText => Busy ? "正在处理…" : Active ? "停止翻译" : "开始翻译";
     /// <summary>获取模型、资源路径或快捷键是否尚未手动提交。</summary>
-    public bool HasPendingSettings => ReadSettings() != settings;
+    public bool HasPendingSettings => ModelJsonError.Length != 0 || ReadSettings() != settings;
 
     /// <summary>维护操作开始或结束时刷新会话和设置入口。</summary>
     /// <param name="sender">维护模型。</param><param name="args">变化属性。</param>
@@ -275,12 +275,14 @@ public sealed partial class DesktopViewModel : ObservableObject
             await saveGate.WaitAsync(lifetime.Token);
             try
             {
+                if (ModelJsonError.Length != 0) throw new ArgumentException(ModelJsonError);
                 var next = ReadSettings(); next.Validate();
                 await store.SaveAsync(next, lifetime.Token);
                 persistedSettings = next; settings = CopyAppearance(next, settings); allowAutoSave = true;
                 SettingsSaveMessage = "运行设置已保存"; Error = "";
                 NotifyPendingSettings(); SettingsApplied?.Invoke(settings);
                 OnPropertyChanged(nameof(RuntimeSummary));
+                Maintenance?.RefreshEnvironment();
             }
             finally { saveGate.Release(); }
             ScheduleAppearanceSave();
@@ -300,7 +302,7 @@ public sealed partial class DesktopViewModel : ObservableObject
     /// <summary>将已提交运行设置回填到编辑控件，不覆盖字幕视觉输入。</summary>
     private void LoadRuntimeInputs()
     {
-        TranslationModel = settings.TranslationModel; AsrLanguage = settings.AsrLanguage;
+        LoadModelInputs(settings);
         PythonPath = settings.PythonPath; ModelPath = settings.ModelPath; OllamaPath = settings.OllamaPath;
         OllamaModelsPath = settings.OllamaModelsPath; DataPath = settings.DataPath; CachePath = settings.CachePath;
         StartKey = settings.StartKey; VisibilityKey = settings.VisibilityKey; LayoutKey = settings.LayoutKey;
@@ -311,7 +313,8 @@ public sealed partial class DesktopViewModel : ObservableObject
     protected override void OnPropertyChanged(PropertyChangedEventArgs e)
     {
         base.OnPropertyChanged(e);
-        if (e.PropertyName is nameof(TranslationModel) or nameof(AsrLanguage) or nameof(PythonPath) or nameof(ModelPath) or
+        if (e.PropertyName is nameof(AsrBackendIndex) or nameof(TranslationBackendIndex) or nameof(AsrApiBaseUrl) or nameof(AsrApiModel) or nameof(AsrApiKey) or
+            nameof(TranslationApiBaseUrl) or nameof(TranslationApiModel) or nameof(TranslationApiKey) or nameof(ModelJsonError) or nameof(TranslationModel) or nameof(AsrLanguage) or nameof(PythonPath) or nameof(ModelPath) or
             nameof(OllamaPath) or nameof(OllamaModelsPath) or nameof(DataPath) or nameof(CachePath) or nameof(StartKey) or nameof(VisibilityKey) or nameof(LayoutKey) or nameof(HistoryRetentionDays))
         {
             SettingsSaveMessage = ""; NotifyPendingSettings();
@@ -474,6 +477,9 @@ public sealed partial class DesktopViewModel : ObservableObject
     /// <summary>将编辑输入和最近布局组合为本次不可变设置。</summary><returns>完整设置。</returns>
     private DesktopSettings ReadSettings() => settings with
     {
+        AsrBackend = (ModelBackend)AsrBackendIndex, TranslationBackend = (ModelBackend)TranslationBackendIndex,
+        AsrApi = new() { BaseUrl = AsrApiBaseUrl, Model = AsrApiModel, ApiKey = AsrApiKey },
+        TranslationApi = new() { BaseUrl = TranslationApiBaseUrl, Model = TranslationApiModel, ApiKey = TranslationApiKey },
         TranslationModel = TranslationModel, AsrLanguage = AsrLanguage, PythonPath = PythonPath, ModelPath = ModelPath,
         OllamaPath = OllamaPath, OllamaModelsPath = OllamaModelsPath, DataPath = DataPath, CachePath = CachePath,
         StartKey = StartKey, VisibilityKey = VisibilityKey, LayoutKey = LayoutKey, HistoryRetentionDays = HistoryRetentionDays
