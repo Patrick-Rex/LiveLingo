@@ -62,7 +62,7 @@ $env:LIVELINGO_TEST_PROBE = (Resolve-Path tools/LiveLingo.Probe/bin/Release/net1
 
 维护状态测试类 `LiveLingo.App.Tests.MaintenanceTests` 验证启动不下载、明确安装意图、运行限制和关闭取消；`LiveLingo.Windows.Tests.EnvironmentCheckTests` 验证缺失和损坏模型提示。沿用上文 MTP `--filter-class` 命令。
 
-`Install-LiveLingoDependencies.ps1 -Component Check` 只报告路径，不安装。`Test-LiveLingoRelease.ps1 -FullPackage <full.nupkg>` 检查必要文件及外部依赖排除；同时提供 `-PreviousPackage <旧full> -DeltaPackage <新delta>` 时还原差分并逐项校验内容。测试不安装程序、不启动模型，不能代替干净机器缺少 .NET/驱动的真实安装验收。发布命令见 [交付说明](../docs/packaging.md)。
+`Install-LiveLingoDependencies.ps1 -Component Check` 只报告路径，不安装。`Test-LiveLingoRelease.ps1 -FullPackage <full.nupkg>` 检查必要文件、外部依赖排除及唯一根应用清单；同时提供 `-PreviousPackage <旧full> -DeltaPackage <新delta>` 时，在隔离目录调用随包原生 Update.exe 还原差分并逐项校验内容。第三方 `.nuspec` 必须另存为 `.nuspec.xml`，以覆盖原生还原后清单选择与 CLI ZIP 顺序不同的回归。测试不安装程序、不启动模型，不能代替干净机器缺少 .NET/驱动的真实安装验收。发布命令见 [交付说明](../docs/packaging.md)。
 
 `scripts/Test-LiveLingoSetup.ps1` 可用 Windows PowerShell 5.1 或 PowerShell 7 执行，验证只检查不安装、C盘拒绝、旧 ZIP 混装拒绝、非空目录保护、错误资源路径拒绝和自定义模型缓存传播共6项，不下载依赖或修改正式安装。
 

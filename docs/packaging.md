@@ -15,7 +15,7 @@
 ./scripts/Test-LiveLingoRelease.ps1 -FullPackage artifacts/releases/LiveLingo-0.2.1-win-x64-full.nupkg
 ```
 
-实际文件名以输出为准（默认 win-x64 渠道可能带渠道后缀）；差分验证同时传 `-PreviousPackage <旧full> -DeltaPackage <新delta>`，逐项比较还原包内容 SHA-256。打包只生成本地产物，不上传。首版无 delta；后续同一输出目录有旧 full 时自动生成差分。保留全包供跨版本回退下载。`-OutputDirectory` 可覆盖输出位置，同版本不覆盖。
+实际文件名以输出为准（默认 win-x64 渠道可能带渠道后缀）；差分验证同时传 `-PreviousPackage <旧full> -DeltaPackage <新delta>`，使用随包原生 Update.exe 在隔离目录还原并逐项比较 SHA-256。完整包与还原包均检查唯一的根应用清单。打包只生成本地产物，不上传。首版无 delta；后续同一输出目录有旧 full 时自动生成差分。保留全包供跨版本回退下载。`-OutputDirectory` 可覆盖输出位置，同版本不覆盖。
 
 发布目录包含 Setup.exe、full/delta nupkg、渠道 JSON/RELEASES、安装脚本、用户指南和 SHA256SUMS。GitHub Release 必须包含 vpk 生成的当前版本 full、delta（若有）和 feed；首次用户还需要 Setup.exe、两个安装脚本及指南。可用下列命令生成 GitHub 草稿，再把安装脚本、指南、SHA256SUMS 一并附上并核对后发布：
 
@@ -80,7 +80,7 @@ $archive = Join-Path $packageOutput "LiveLingo-$packageVersion-win-x64.zip"
 
 New-LiveLingoPackage.ps1 内部使用 locked restore 和 `dotnet publish -c Release -r win-x64 --self-contained false`，只发布生产工程；不启用裁剪、AOT 或单文件。NuGet 使用本机配置及已有环境变量；如需指定开发缓存，预先执行 `. ./scripts/Enter-Development.ps1 -CacheRoot <可写绝对路径>`。第三方许可从还原结果记录的包目录收集，不要求设置 NUGET_PACKAGES。暂存位于仓库忽略的 artifacts/packaging/唯一目录，完成后清理。Publish-LiveLingo.ps1 默认输出到仓库 artifacts/publish/desktop，可用 -OutputDirectory 覆盖；它要求空输出目录，正式替换使用安装器。
 
-包内包含 desktop 程序、worker、cu130 profile/哈希锁、必要依赖准备脚本、用户指南和第三方许可。根目录含 Install.ps1、manifest.json、README.md、LICENSE、NOTICE。模型、虚拟环境、录音、测试、历史报告、缓存和 PDB 不入包。ZIP 校验覆盖整个归档，manifest 逐项校验 desktop 下的应用文件。
+包内包含 desktop 程序、worker、cu130 profile/哈希锁、必要依赖准备脚本、用户指南和第三方许可。第三方 NuGet 元数据原文以 `.nuspec.xml` 保存，避免原生增量还原后的 ZIP 顺序使其被误识别为应用清单；nupkg 只能有根 `LiveLingo.nuspec`。根目录含 Install.ps1、manifest.json、README.md、LICENSE、NOTICE。模型、虚拟环境、录音、测试、历史报告、缓存和 PDB 不入包。ZIP 校验覆盖整个归档，manifest 逐项校验 desktop 下的应用文件。
 
 Test-LiveLingoPackage.ps1 在 -TemporaryRoot 指定的非 C 本地盘下创建独立临时目录（省略时使用当前 TEMP），执行 10 项检查，覆盖 ZIP/应用哈希、损坏/额外文件/越界路径拒绝、C 盘拒绝、首次安装、拒绝隐式覆盖、显式替换保留设置及安装文件一致性，完成后清理。它不会替换正式安装，也不会启动 GPU 模型。
 

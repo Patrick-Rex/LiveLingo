@@ -173,6 +173,6 @@ ollama pull translategemma:4b
 
 ## 许可证
 
-LiveLingo 使用随包 LICENSE 中的 Apache-2.0 许可证，版权声明见 NOTICE。第三方许可文件位于 licenses，索引为 THIRD-PARTY-NOTICES.md；另行下载的模型遵循各自条款。
+LiveLingo 使用随包 LICENSE 中的 Apache-2.0 许可证，版权声明见 NOTICE。第三方许可文件位于 licenses，索引为 THIRD-PARTY-NOTICES.md，NuGet 元数据原文以 `.nuspec.xml` 保存；另行下载的模型遵循各自条款。
 
 GitHub API 返回限流状态时，程序自动使用同仓库最新稳定 Release 的公开下载清单；不要求填写令牌。此路径只有当前发布的差分，缺少跨版本差分时仍可回退完整包。

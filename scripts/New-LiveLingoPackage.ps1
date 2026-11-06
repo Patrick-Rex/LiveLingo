@@ -53,7 +53,9 @@ try {
         $index.Add("- $($library.Name): $($metadata.package.metadata.license.InnerText) $($metadata.package.metadata.licenseUrl)")
         $licenseFolder = Join-Path $notices ($library.Name.Replace('/', '-'))
         New-Item -ItemType Directory -Path $licenseFolder | Out-Null
-        Copy-Item -LiteralPath $nuspec.FullName -Destination $licenseFolder
+        # Velopack treats the first .nuspec anywhere in a bundle as the application manifest.
+        # Preserve dependency metadata verbatim with an XML suffix so delta ZIP order is harmless.
+        Copy-Item -LiteralPath $nuspec.FullName -Destination (Join-Path $licenseFolder ($nuspec.Name + '.xml'))
         foreach ($file in Get-ChildItem -LiteralPath $package -Recurse -File | Where-Object { $_.Name -match '(?i)^(license|licence|copying|notice|third.party)' }) {
             $relative = $file.FullName.Substring($package.TrimEnd('\').Length + 1)
             $licenseTarget = Join-Path $licenseFolder $relative

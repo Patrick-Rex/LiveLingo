@@ -14,10 +14,18 @@ $FullPackage = (Resolve-Path -LiteralPath $FullPackage).ProviderPath
 if ([bool]$PreviousPackage -ne [bool]$DeltaPackage) { throw 'Specify both PreviousPackage and DeltaPackage.' }
 $repo = Split-Path $PSScriptRoot -Parent
 function Get-PackageFiles {
-    <# .SYNOPSIS Reads each entry with a bounded buffer and returns normalized content hashes. #>
+    <# .SYNOPSIS Validates the unique application manifest and returns bounded-stream content hashes. #>
     param([string]$Path)
     $zip = [IO.Compression.ZipFile]::OpenRead($Path)
     try {
+        $manifests = @($zip.Entries | Where-Object { $_.FullName.EndsWith('.nuspec', [StringComparison]::OrdinalIgnoreCase) })
+        if ($manifests.Count -ne 1 -or $manifests[0].FullName -ne 'LiveLingo.nuspec') {
+            throw 'The package must contain only the root LiveLingo.nuspec; dependency metadata must use .nuspec.xml.'
+        }
+        $reader = [IO.StreamReader]::new($manifests[0].Open())
+        try { [xml]$manifest = $reader.ReadToEnd() } finally { $reader.Dispose() }
+        if ($manifest.package.metadata.id -ne 'LiveLingo' -or $manifest.package.metadata.mainExe -ne 'LiveLingo.Desktop.Windows.exe' -or
+            $manifest.package.metadata.channel -ne 'win-x64' -or -not $manifest.package.metadata.version) { throw 'Invalid application manifest.' }
         $result = @{}
         foreach ($entry in $zip.Entries) {
             if ($entry.FullName.EndsWith('/')) { continue }
@@ -45,8 +53,24 @@ if ($PreviousPackage) {
     Push-Location $repo
     try {
         $patched = Join-Path $scratch 'patched.nupkg'
-        dotnet tool run vpk -- delta patch --base $PreviousPackage --patch $DeltaPackage --output $patched
-        if ($LASTEXITCODE -ne 0) { throw 'Delta reconstruction failed.' }
+        # Exercise the native patcher used by the installed app; the CLI repacks ZIPs differently.
+        $nativeRoot = Join-Path $scratch 'native'
+        $current = Join-Path $nativeRoot 'current'
+        New-Item -ItemType Directory -Path $current, (Join-Path $nativeRoot 'packages') -Force | Out-Null
+        $updater = Join-Path $nativeRoot 'Update.exe'
+        $package = [IO.Compression.ZipFile]::OpenRead($FullPackage)
+        try {
+            [IO.Compression.ZipFileExtensions]::ExtractToFile($package.GetEntry('lib/app/Squirrel.exe'), $updater)
+            [IO.Compression.ZipFileExtensions]::ExtractToFile($package.GetEntry('lib/app/sq.version'), (Join-Path $current 'sq.version'))
+        } finally { $package.Dispose() }
+        $log = Join-Path $scratch 'native-patch.log'
+        $arguments = @('patch', '--old', ('"' + $PreviousPackage + '"'), '--delta', ('"' + $DeltaPackage + '"'),
+            '--output', ('"' + $patched + '"'), '--rootDir', ('"' + $nativeRoot + '"'), '--log', ('"' + $log + '"'), '--silent')
+        $process = Start-Process -FilePath $updater -ArgumentList $arguments -WindowStyle Hidden -PassThru
+        try {
+            if (-not $process.WaitForExit(60000)) { $process.Kill($true); $process.WaitForExit(); throw 'Native delta reconstruction timed out.' }
+            if ($process.ExitCode -ne 0) { throw "Native delta reconstruction failed: $(Get-Content -LiteralPath $log -Raw)" }
+        } finally { $process.Dispose() }
         $actual = Get-PackageFiles $patched
         if ($actual.Count -ne $files.Count) { throw 'Reconstructed package entry count differs.' }
         foreach ($name in $files.Keys) { if ($actual[$name] -ne $files[$name]) { throw "Reconstructed content differs: $name" } }

@@ -32,7 +32,7 @@ M0–M4 首版里程碑已完成，项目进入持续迭代；当前能力与支
 
 ## 安装与使用
 
-从本仓库 GitHub Releases 获取同一版本的 `LiveLingo-win-x64-Setup.exe`、`Install-LiveLingo.ps1` 与 `Install-LiveLingoDependencies.ps1`，放在同一目录，在64位 PowerShell 中运行：
+从本仓库 [GitHub Releases](https://github.com/Patrick-Rex/LiveLingo/releases/latest) 获取同一版本的 `LiveLingo-win-x64-Setup.exe`、`Install-LiveLingo.ps1` 与 `Install-LiveLingoDependencies.ps1`，放在同一目录，在64位 PowerShell 中运行：
 
 ```powershell
 ./Install-LiveLingo.ps1
