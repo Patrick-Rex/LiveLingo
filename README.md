@@ -40,7 +40,7 @@ M0–M4 首版里程碑已完成，项目进入持续迭代；当前能力与支
 
 脚本通过 winget 补齐 .NET 10 x64 Runtime 后打开安装器；也可直接运行 Setup.exe，由安装器提示并下载缺失的 .NET。模型、Python 环境、Ollama、驱动和 .NET 均不打进程序包。
 
-脚本默认安装到 `D:\Soft Ware\LiveLingo\app\LiveLingo`，从开始菜单快捷方式启动。直接运行 Setup.exe 使用 Velopack 默认用户目录，程序文件可以位于该目录；大型模型、隔离环境、缓存及数据仍使用非 C 盘。旧 ZIP 版保持在 `app\desktop`，使用新安装器建立独立安装后复用原设置和模型，不将两种布局混合。
+脚本默认安装到 `D:\Soft Ware\LiveLingo\app\LiveLingo`，从开始菜单快捷方式启动；仓库的 `scripts/Start-LiveLingo.ps1` 默认使用该目录的稳定启动器。直接运行 Setup.exe 使用 Velopack 默认用户目录，程序文件可以位于该目录；大型模型、隔离环境、缓存及数据仍使用非 C 盘。旧 ZIP 位于 `app\desktop`，建立托管安装并确认更新正常后可删除旧目录、旧 ZIP 和解压暂存；保留托管安装的 `packages`，后续差分还原需要当前完整包。
 
 启动会显示依赖缺项；“设置 → 运行环境”提供重新检查和安装脚本入口。准备完成并应用实际路径后，到“实时翻译”选择发声应用、点击开始。
 

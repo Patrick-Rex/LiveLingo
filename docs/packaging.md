@@ -29,6 +29,8 @@ CLI 默认创建草稿；程序只读取正式的稳定 Releases。保留历史�
 
 安装脚本默认安装到 `D:\Soft Ware\LiveLingo\app\LiveLingo`，Velopack 使用 current/packages 布局和稳定启动入口。直接 Setup.exe 使用默认用户目录。旧 ZIP 的 app/desktop 不原地转换；先关闭旧版并独立安装，默认 data/settings.json 与模型保持复用。以下第1–7节只描述旧 ZIP 布局，不用于修改 Velopack 的 current 或 packages。
 
+完成托管安装及更新核对、不再需要旧版回退后，可清理旧 desktop、旧 ZIP、解压暂存、验证副本及发布临时目录。仓库启动脚本默认通过托管安装根的 LiveLingo.exe 启动；指定 ApplicationDirectory 时也支持独立发布目录。保留托管安装 packages 中的当前完整包供后续差分还原；模型、Python、共享 Ollama 权重、设置与历史不属于安装残留。
+
 
 ## 1. 区分构建产物与正式安装
 

@@ -67,3 +67,5 @@ $env:LIVELINGO_TEST_PROBE = (Resolve-Path tools/LiveLingo.Probe/bin/Release/net1
 `scripts/Test-LiveLingoSetup.ps1` 可用 Windows PowerShell 5.1 或 PowerShell 7 执行，验证只检查不安装、C盘拒绝、旧 ZIP 混装拒绝、非空目录保护、错误资源路径拒绝和自定义模型缓存传播共6项，不下载依赖或修改正式安装。
 
 GitHubReleaseSourceTests 验证 API 403/429 回退、检查与下载来源一致、取消及其他错误不触发回退。
+
+`scripts/Start-LiveLingo.ps1` 默认选择托管安装根的 `LiveLingo.exe`；显式 `-ApplicationDirectory` 也支持独立发布目录中的 `LiveLingo.Desktop.Windows.exe`。修改启动入口时分别核对 Windows PowerShell 5.1 与 PowerShell 7 的路径选择；脚本使用 ASCII 提示，兼容无 BOM 文本在 PowerShell 5.1 中的解析。
