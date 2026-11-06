@@ -6,13 +6,12 @@
 
 固定 SDK 与本地 CLI 为 1.2.161（MIT）；不使用 Velopack Flow。生产程序保持 framework-dependent，安装器声明 `net10.0-x64-runtime`，缺失时在线安装；外部 .NET 安装脚本使用 winget。模型、Python 环境、Ollama、驱动与 .NET 不入包，必要脚本、worker、profile/锁和第三方许可随包。
 
-在仓库根 PowerShell 7 执行，版本仅作示例：
+当前稳定版本为 [v0.2.2](https://github.com/Patrick-Rex/LiveLingo/releases/tag/v0.2.2)；v0.2.1 因原生增量清单冲突已标记为预发布，不再用于稳定更新。在仓库根 PowerShell 7 执行，0.2.3 为下一版示例：
 
 ```powershell
-./scripts/New-LiveLingoRelease.ps1 -Version 0.2.0
-# 后续版本：保留 artifacts/releases 的上一 full 包；CI/新目录可显式下载上一公开版本。
-./scripts/New-LiveLingoRelease.ps1 -Version 0.2.1 -DownloadPrevious
-./scripts/Test-LiveLingoRelease.ps1 -FullPackage artifacts/releases/LiveLingo-0.2.1-win-x64-full.nupkg
+# 保留 artifacts/releases 的上一 full 包；CI/新目录可显式下载上一公开稳定版本。
+./scripts/New-LiveLingoRelease.ps1 -Version 0.2.3 -DownloadPrevious
+./scripts/Test-LiveLingoRelease.ps1 -FullPackage artifacts/releases/LiveLingo-0.2.3-win-x64-full.nupkg -PreviousPackage artifacts/releases/LiveLingo-0.2.2-win-x64-full.nupkg -DeltaPackage artifacts/releases/LiveLingo-0.2.3-win-x64-delta.nupkg
 ```
 
 实际文件名以输出为准（默认 win-x64 渠道可能带渠道后缀）；差分验证同时传 `-PreviousPackage <旧full> -DeltaPackage <新delta>`，使用随包原生 Update.exe 在隔离目录还原并逐项比较 SHA-256。完整包与还原包均检查唯一的根应用清单。打包只生成本地产物，不上传。首版无 delta；后续同一输出目录有旧 full 时自动生成差分。保留全包供跨版本回退下载。`-OutputDirectory` 可覆盖输出位置，同版本不覆盖。
@@ -21,10 +20,12 @@
 
 ```powershell
 # 事先按 GitHub 授权配置 VPK_TOKEN；命令不把密钥写入仓库。
-dotnet tool run vpk -- upload github --repoUrl https://github.com/Patrick-Rex/LiveLingo --channel win-x64 --outputDir artifacts/releases --tag v0.2.1 --releaseName 'LiveLingo 0.2.1'
+dotnet tool run vpk -- upload github --repoUrl https://github.com/Patrick-Rex/LiveLingo --channel win-x64 --outputDir artifacts/releases --tag v0.2.3 --releaseName 'LiveLingo 0.2.3'
 ```
 
 CLI 默认创建草稿；程序只读取正式的稳定 Releases。保留历史发布资产，不能只上传 Setup.exe。当前未配置代码签名；发布和干净机器下载安装须单独验证，生成包不等于线上已发布。
+
+手动上传时只把当前版本 full/delta 写入该 Release 的渠道清单，所有清单引用必须有同名附件；筛选后重新生成 SHA256SUMS，再核对远程附件大小与 SHA-256。应用的公开回退来源使用 latest/download，不跨 Release 查找清单引用。
 
 安装脚本默认安装到 `D:\Soft Ware\LiveLingo\app\LiveLingo`，Velopack 使用 current/packages 布局和稳定启动入口。直接 Setup.exe 使用默认用户目录。旧 ZIP 的 app/desktop 不原地转换；先关闭旧版并独立安装，默认 data/settings.json 与模型保持复用。以下第1–7节只描述旧 ZIP 布局，不用于修改 Velopack 的 current 或 packages。
 

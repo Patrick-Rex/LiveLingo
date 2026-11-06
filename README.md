@@ -32,7 +32,7 @@ M0–M4 首版里程碑已完成，项目进入持续迭代；当前能力与支
 
 ## 安装与使用
 
-从本仓库 [GitHub Releases](https://github.com/Patrick-Rex/LiveLingo/releases/latest) 获取同一版本的 `LiveLingo-win-x64-Setup.exe`、`Install-LiveLingo.ps1` 与 `Install-LiveLingoDependencies.ps1`，放在同一目录，在64位 PowerShell 中运行：
+当前稳定发布为 [v0.2.2](https://github.com/Patrick-Rex/LiveLingo/releases/tag/v0.2.2)。从本仓库 [GitHub Releases](https://github.com/Patrick-Rex/LiveLingo/releases/latest) 获取同一版本的 `LiveLingo-win-x64-Setup.exe`、`Install-LiveLingo.ps1` 与 `Install-LiveLingoDependencies.ps1`，放在同一目录，在64位 PowerShell 中运行：
 
 ```powershell
 ./Install-LiveLingo.ps1
@@ -73,10 +73,10 @@ dotnet restore LiveLingo.slnx --locked-mode
 dotnet build LiveLingo.slnx -c Release --no-restore --disable-build-servers -clp:ErrorsOnly
 # 存储测试需要非 C 盘临时目录；先按 tests/README.md 设置 TEMP/TMP。
 dotnet test --solution LiveLingo.slnx -c Release --no-build --no-progress
-./scripts/New-LiveLingoRelease.ps1 -Version 0.2.0
+./scripts/New-LiveLingoRelease.ps1 -Version 0.2.3 -DownloadPrevious
 ```
 
-增量发布默认输出到 `artifacts/releases`，固定 Velopack/vpk 1.2.161；同一输出目录保留上一版完整包以生成差分，或使用 `-DownloadPrevious` 获取上一公开版本。0.2.0 为示例，不表示已发布。旧 ZIP 打包脚本 `New-LiveLingoPackage.ps1` 仍输出到 `artifacts/packages`，安装目录为 `app\desktop`。完整的打包、包测试、备份、安装替换、核对与回退步骤见 [交付说明](docs/packaging.md)。构建或打包成功不会自动替换已安装程序。
+增量发布默认输出到 `artifacts/releases`，固定 Velopack/vpk 1.2.161；同一输出目录保留上一版完整包以生成差分，或使用 `-DownloadPrevious` 获取上一公开版本。0.2.3 为下一版示例，不表示已发布。旧 ZIP 打包脚本 `New-LiveLingoPackage.ps1` 仍输出到 `artifacts/packages`，安装目录为 `app\desktop`。完整的打包、包测试、备份、安装替换、核对与回退步骤见 [交付说明](docs/packaging.md)。构建或打包成功不会自动替换已安装程序。
 
 Windows 目标框架中的 `10.0.26100.0` 是编译 API 基线，最低运行平台由 `SupportedOSPlatformVersion=10.0.22000.0` 声明，因此支持 Windows 11 各后续版本。NuGet 库仍按集中版本和依赖锁还原，不随本机 SDK 补丁改变。
 
