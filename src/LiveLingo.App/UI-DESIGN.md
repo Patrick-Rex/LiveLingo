@@ -37,3 +37,7 @@
 参考 [微软设置指南](https://learn.microsoft.com/en-us/windows/apps/design/app-settings/guidelines-for-app-settings)、[Avalonia样式实践](https://docs.avaloniaui.net/docs/styling/style-best-practices)与[LunaTranslator工具栏交互](https://docs.lunatranslator.org/zh/alltoolbuttons.html)，以及本地VelaShell的设计资源组织；不复制其UI源码。
 
 每次相关变更检查明暗主题、最小窗口、长文本、键盘焦点与空/错/加载状态。Headless不替代真实Windows穿透、焦点和混合DPI检查。
+
+## 安装与更新状态
+
+缺失依赖与新版本使用主窗口独立提示；前者进入运行环境，后者进入常规设置。运行环境逐项显示初检结果和安装脚本入口；常规显示当前版本、下载进度、取消及退出安装。更新不自动重启，依赖初检不宣称 GPU 已通过。长说明随设置内容滚动，按钮保留文字名称。

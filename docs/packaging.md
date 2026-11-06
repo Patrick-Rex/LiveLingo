@@ -1,6 +1,33 @@
-# 打包、安装替换与回退
+# 打包、增量发布与安装回退
 
-本文是从当前源码到 Windows 11 x64 安装的完整流程。运行依赖、模型准备及日常操作见 [随包用户指南](../packaging/USER-GUIDE.md)。安装目录默认为 `D:\Soft Ware\LiveLingo\app\desktop`，版本号用于 ZIP 名和包清单，不创建编号安装目录。
+本文覆盖 Velopack 增量发布，以及保留的旧 ZIP 手工替换流程。运行依赖与日常操作见 [用户指南](../packaging/USER-GUIDE.md)。
+
+## Velopack 发布
+
+固定 SDK 与本地 CLI 为 1.2.161（MIT）；不使用 Velopack Flow。生产程序保持 framework-dependent，安装器声明 `net10.0-x64-runtime`，缺失时在线安装；外部 .NET 安装脚本使用 winget。模型、Python 环境、Ollama、驱动与 .NET 不入包，必要脚本、worker、profile/锁和第三方许可随包。
+
+在仓库根 PowerShell 7 执行，版本仅作示例：
+
+```powershell
+./scripts/New-LiveLingoRelease.ps1 -Version 0.2.0
+# 后续版本：保留 artifacts/releases 的上一 full 包；CI/新目录可显式下载上一公开版本。
+./scripts/New-LiveLingoRelease.ps1 -Version 0.2.1 -DownloadPrevious
+./scripts/Test-LiveLingoRelease.ps1 -FullPackage artifacts/releases/LiveLingo-0.2.1-win-x64-full.nupkg
+```
+
+实际文件名以输出为准（默认 win-x64 渠道可能带渠道后缀）；差分验证同时传 `-PreviousPackage <旧full> -DeltaPackage <新delta>`，逐项比较还原包内容 SHA-256。打包只生成本地产物，不上传。首版无 delta；后续同一输出目录有旧 full 时自动生成差分。保留全包供跨版本回退下载。`-OutputDirectory` 可覆盖输出位置，同版本不覆盖。
+
+发布目录包含 Setup.exe、full/delta nupkg、渠道 JSON/RELEASES、安装脚本、用户指南和 SHA256SUMS。GitHub Release 必须包含 vpk 生成的当前版本 full、delta（若有）和 feed；首次用户还需要 Setup.exe、两个安装脚本及指南。可用下列命令生成 GitHub 草稿，再把安装脚本、指南、SHA256SUMS 一并附上并核对后发布：
+
+```powershell
+# 事先按 GitHub 授权配置 VPK_TOKEN；命令不把密钥写入仓库。
+dotnet tool run vpk -- upload github --repoUrl https://github.com/Patrick-Rex/LiveLingo --channel win-x64 --outputDir artifacts/releases --tag v0.2.1 --releaseName 'LiveLingo 0.2.1'
+```
+
+CLI 默认创建草稿；程序只读取正式的稳定 Releases。保留历史发布资产，不能只上传 Setup.exe。当前未配置代码签名；发布和干净机器下载安装须单独验证，生成包不等于线上已发布。
+
+安装脚本默认安装到 `D:\Soft Ware\LiveLingo\app\LiveLingo`，Velopack 使用 current/packages 布局和稳定启动入口。直接 Setup.exe 使用默认用户目录。旧 ZIP 的 app/desktop 不原地转换；先关闭旧版并独立安装，默认 data/settings.json 与模型保持复用。以下第1–7节只描述旧 ZIP 布局，不用于修改 Velopack 的 current 或 packages。
+
 
 ## 1. 区分构建产物与正式安装
 
@@ -153,4 +180,6 @@ Write-Output "Installed files match package $($manifest.version)"
 
 [用户指南](../packaging/USER-GUIDE.md)提供 Python/uv、cu130 环境、Qwen 固定 revision、Ollama 模型准备及常用操作。依赖准备只在首次使用或明确改变配置时进行，程序替换不等于重新初始化环境。
 
-卸载先退出程序，只处理目标 app/desktop；模型、Python 环境、设置及数据独立保留，按需要另外处理。不要删除其他应用共享的 Ollama 权重。当前交付形式为 ZIP + PowerShell，没有签名 MSI/EXE 安装向导、自动更新或注册表卸载项。
+卸载先退出程序，只处理目标 app/desktop；模型、Python 环境、设置及数据独立保留，按需要另外处理。不要删除其他应用共享的 Ollama 权重。上述卸载方式仅适用于旧 ZIP。Velopack 安装使用 Windows“已安装的应用”卸载；模型和数据独立保留。
+
+发布清单 releases.win-x64.json 也用于 GitHub API 403/429 时的公开下载回退，因此必须与当前 full/delta 一起上传。回退不使用用户凭据；API 正常时仍通过 GithubSource 查找历史差分。

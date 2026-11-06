@@ -4,7 +4,7 @@ M0–M4 首版里程碑已完成，项目进入持续迭代。本入口维护公
 
 - [项目介绍与快速开始](../README.md)
 - [安装、模型准备与使用](../packaging/USER-GUIDE.md)
-- [源码打包、备份、安装替换与回退](packaging.md)
+- [源码打包、增量发布、安装替换与回退](packaging.md)
 - [贡献指南](../CONTRIBUTING.md)
 - [测试运行方式](../tests/README.md)
 - [桌面界面、设置与历史模块](../src/LiveLingo.App/README.md)

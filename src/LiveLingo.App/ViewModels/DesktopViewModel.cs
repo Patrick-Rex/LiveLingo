@@ -90,6 +90,8 @@ public sealed partial class DesktopViewModel : ObservableObject
     public int[] FunctionKeys { get; } = Enumerable.Range(1, 11).ToArray();
     /// <summary>获取当前配置的不可变副本。</summary>
     public DesktopSettings CurrentSettings => settings;
+    /// <summary>获取或设置宿主提供的安装、依赖和更新交互。</summary>
+    [ObservableProperty] public partial MaintenanceViewModel? Maintenance { get; set; }
     /// <summary>获取有效会话身份，用于显式验证和外部诊断。</summary>
     public Guid SessionId { get; private set; }
 
@@ -368,6 +370,8 @@ public sealed partial class DesktopViewModel : ObservableObject
 
     /// <summary>从待应用提示直接进入设置，保留所有编辑输入。</summary>
     [RelayCommand] private void OpenSettings() { if (!closing) SelectedPageIndex = 2; }
+    /// <summary>从更新提示进入常规设置查看版本和下载状态。</summary>
+    [RelayCommand] private void OpenUpdateSettings() { if (closing) return; SelectedSettingsIndex = 0; SelectedPageIndex = 2; }
 
     /// <summary>从实时页的运行摘要进入运行环境分类。</summary>
     [RelayCommand] private void OpenRuntimeSettings() { if (closing) return; SelectedSettingsIndex = 2; SelectedPageIndex = 2; }

@@ -1,11 +1,25 @@
 <UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:vm="using:LiveLingo.App.ViewModels" x:Class="LiveLingo.App.Views.SettingsView" x:DataType="vm:DesktopViewModel">
+             xmlns:vm="using:LiveLingo.App.ViewModels" xmlns:core="using:LiveLingo.Core.Desktop" x:Class="LiveLingo.App.Views.SettingsView" x:DataType="vm:DesktopViewModel">
   <Grid RowDefinitions="Auto,*,Auto" RowSpacing="12">
     <StackPanel Spacing="4"><TextBlock Text="设置" Classes="pageTitle" /><TextBlock Text="主题与字幕外观即时保存，其余设置停止后应用。" Classes="caption" /></StackPanel>
     <TabControl Name="SettingsTabs" Grid.Row="1" SelectedIndex="{Binding SelectedSettingsIndex}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
       <TabItem Header="常规">
         <ScrollViewer HorizontalScrollBarVisibility="Disabled">
           <StackPanel Margin="0,20,8,16" Spacing="20">
+            <Border Classes="card">
+              <StackPanel Spacing="10">
+                <TextBlock Text="程序更新" Classes="section" />
+                <TextBlock Text="{Binding Maintenance.CurrentVersion, StringFormat='当前版本：{0}'}" Classes="caption" />
+                <TextBlock Text="{Binding Maintenance.UpdateMessage}" TextWrapping="Wrap" />
+                <ProgressBar Minimum="0" Maximum="100" Value="{Binding Maintenance.DownloadProgress}" IsVisible="{Binding Maintenance.Updating}" />
+                <WrapPanel Orientation="Horizontal">
+                  <Button Margin="0,0,8,8" Content="检查更新" Command="{Binding Maintenance.CheckUpdatesCommand}" IsEnabled="{Binding !Maintenance.Updating}" />
+                  <Button Margin="0,0,8,8" Content="下载更新" Command="{Binding Maintenance.DownloadCommand}" IsEnabled="{Binding Maintenance.CanDownload}" />
+                  <Button Margin="0,0,8,8" Content="取消下载" Command="{Binding Maintenance.DownloadCancelCommand}" IsVisible="{Binding Maintenance.DownloadCommand.IsRunning}" />
+                  <Button Margin="0,0,8,8" Content="退出并安装" Command="{Binding Maintenance.InstallCommand}" IsVisible="{Binding Maintenance.UpdateReady}" />
+                </WrapPanel>
+              </StackPanel>
+            </Border>
             <StackPanel Spacing="6"><TextBlock Text="界面主题" Classes="section" /><TextBlock Text="跟随系统或选择更适合当前环境的明暗外观。" Classes="caption" /><ComboBox Name="ThemeSelector" ItemsSource="{Binding Themes}" SelectedIndex="{Binding ThemeIndex}" MinWidth="180" AutomationProperties.Name="界面主题" /></StackPanel>
             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8"><TextBlock Text="{Binding AppearanceSaveMessage}" Classes="saveStatus" Classes.error="{Binding AppearanceSaveFailed}" VerticalAlignment="Center" /><Button Grid.Column="1" Content="重试保存" IsVisible="{Binding AppearanceSaveFailed}" Command="{Binding RetryAppearanceSaveCommand}" /></Grid>
             <Border Classes="card">
@@ -33,6 +47,17 @@
       <TabItem Header="运行环境">
         <ScrollViewer HorizontalScrollBarVisibility="Disabled">
           <StackPanel Name="RuntimeInputs" Margin="0,20,8,16" Spacing="20" IsEnabled="{Binding CanEdit}">
+            <Border Classes="card">
+              <StackPanel Spacing="10">
+                <TextBlock Text="依赖准备" Classes="section" />
+                <TextBlock Text="{Binding Maintenance.EnvironmentMessage}" TextWrapping="Wrap" />
+                <ItemsControl ItemsSource="{Binding Maintenance.EnvironmentChecks}">
+                  <ItemsControl.ItemTemplate><DataTemplate DataType="core:EnvironmentCheck"><StackPanel Margin="0,0,0,10" Spacing="4"><TextBlock Text="{Binding Name}" FontWeight="SemiBold" /><TextBlock Text="{Binding Message}" TextWrapping="Wrap" /></StackPanel></DataTemplate></ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBlock Text="打开脚本目录，在 PowerShell 中运行 Install-LiveLingoDependencies.ps1，按提示选择缺少的组件。模型、Ollama、驱动和 .NET 均独立安装。" Classes="caption" TextWrapping="Wrap" />
+                <StackPanel Orientation="Horizontal" Spacing="8"><Button Content="重新检查" Command="{Binding Maintenance.CheckEnvironmentCommand}" IsEnabled="{Binding !Maintenance.CheckingEnvironment}" /><Button Content="打开安装脚本" Command="{Binding Maintenance.OpenSetupFolderCommand}" /></StackPanel>
+              </StackPanel>
+            </Border>
             <StackPanel Spacing="6"><TextBlock Text="模型与语言" Classes="section" /><TextBlock Text="使用已安装的本地模型，停止翻译后更改并应用。" Classes="caption" /></StackPanel>
             <Grid ColumnDefinitions="*,*" ColumnSpacing="16"><StackPanel Spacing="6"><TextBlock Text="翻译模型" /><ComboBox ItemsSource="{Binding Models}" SelectedItem="{Binding TranslationModel}" HorizontalAlignment="Stretch" AutomationProperties.Name="翻译模型" /></StackPanel><StackPanel Grid.Column="1" Spacing="6"><TextBlock Text="识别语言" /><ComboBox ItemsSource="{Binding Languages}" SelectedItem="{Binding AsrLanguage}" HorizontalAlignment="Stretch" AutomationProperties.Name="识别语言" /></StackPanel></Grid>
             <Expander Header="高级路径配置" HorizontalAlignment="Stretch">

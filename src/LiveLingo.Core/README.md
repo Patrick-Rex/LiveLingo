@@ -7,3 +7,5 @@
 History 提供会话摘要、采集代次内条目身份、固定正文快照和独立保存状态，以及记录、分页查询、删除、文本导出、保留期清理契约；不引用文件选择器、数据库或 UI。记录器接收权威字幕快照，存储与恢复实现位于 Runtime。
 
 测试位于 tests/LiveLingo.Core.Tests，统一命令见 [测试说明](../../tests/README.md)。
+
+DesktopMaintenance 定义环境初检结果与更新服务中立契约，不引用 Velopack、网络或平台进程 API；具体安装与检查位于 Windows 宿主。

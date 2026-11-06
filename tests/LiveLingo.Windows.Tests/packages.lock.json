@@ -633,7 +633,8 @@
           "LiveLingo.App": "[1.0.0, )",
           "LiveLingo.Platform.Windows": "[1.0.0, )",
           "LiveLingo.Runtime": "[1.0.0, )",
-          "Microsoft.Extensions.Hosting": "[10.0.12, )"
+          "Microsoft.Extensions.Hosting": "[10.0.12, )",
+          "Velopack": "[1.2.161, )"
         }
       },
       "livelingo.platform.windows": {
@@ -746,6 +747,12 @@
           "Microsoft.Extensions.Logging.EventSource": "10.0.12",
           "Microsoft.Extensions.Options": "10.0.12"
         }
+      },
+      "Velopack": {
+        "type": "CentralTransitive",
+        "requested": "[1.2.161, )",
+        "resolved": "1.2.161",
+        "contentHash": "OpHNacIumnkhaaX3ZlQ/TCR4YPOJvud2/PAOoWb6o+mIrLwIVA275I5wAgt4q/1O2VrJeDwR1qFQyqzG4lUArg=="
       }
     },
     "net10.0-windows10.0.26100/win-x64": {

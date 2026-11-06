@@ -8,7 +8,7 @@ Optional absolute cache root. Explicitly redirects caches for this process and i
 param([string]$CacheRoot)
 
 if ($PSBoundParameters.ContainsKey('CacheRoot')) {
-    if ([string]::IsNullOrWhiteSpace($CacheRoot) -or -not [IO.Path]::IsPathFullyQualified($CacheRoot)) {
+    if ([string]::IsNullOrWhiteSpace($CacheRoot) -or $CacheRoot -notmatch '^(?:[A-Za-z]:[\\/]|\\\\[^\\/]+[\\/][^\\/]+)') {
         throw 'CacheRoot must be an absolute path on a writable drive.'
     }
     $developmentCacheRoot = [IO.Path]::GetFullPath($CacheRoot)

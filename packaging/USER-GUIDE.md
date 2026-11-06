@@ -1,15 +1,27 @@
 # LiveLingo 安装与使用
 
-Windows 11 x64 本地日语转简体中文字幕。安装目录固定为 `D:\Soft Ware\LiveLingo\app\desktop`；版本号用于压缩包名和包清单。包内没有模型、Python 环境、测试录音、测试源码或历史讨论。
+Windows 11 x64 本地日语转简体中文字幕。安装脚本默认使用 `D:\Soft Ware\LiveLingo\app\LiveLingo`；旧 ZIP 安装保留 `app\desktop`。程序包不包含 .NET、模型、Python 环境、Ollama、驱动、测试录音或测试源码。
 
-## 安装与更新
+## 推荐安装与增量更新
+
+下载同一 GitHub Release 中的 `LiveLingo-win-x64-Setup.exe`、`Install-LiveLingo.ps1` 和 `Install-LiveLingoDependencies.ps1` 到同一目录，运行 `./Install-LiveLingo.ps1`。脚本通过 Microsoft winget 官方源补齐 .NET 10 x64 Runtime，再打开安装器；`-InstallDirectory 'E:\LiveLingo\app\LiveLingo'` 可选其他非 C 盘目录，`-CheckOnly` 不安装。系统缺少 winget 时先安装 Microsoft App Installer，或直接运行 Setup.exe 使用内置 .NET 在线安装提示。
+
+直接双击 Setup.exe 使用用户本地应用目录；脚本默认使用上述 D 盘布局。Velopack 管理安装根内的 `current`、`packages` 和 `Update.exe`，从开始菜单或安装根的稳定启动程序打开，不手工改动 `current`。程序文件允许使用安装器的用户目录；模型、Python 隔离环境和大型缓存仍须非 C 盘。
+
+每次普通启动后台检查稳定更新，断网失败不影响本地翻译。发现版本时主窗口提示，“设置 → 常规”可检查、下载、取消下载、退出并安装。程序不会自动安装已下载更新，停止翻译且应用或撤销设置后才能安装。退出会先清理模型、保存与宿主，再交给更新器；差分不可用或还原失败时更新工具回退完整包。
+
+旧 ZIP 版需先退出，运行新安装器建立独立的 `app\LiveLingo` 安装。默认设置、历史和模型路径继续复用；使用自定义 `--settings` 时在新的启动快捷方式保留该参数。程序内更新重启会保留启动参数。确认新安装正常后再处理旧 `desktop`，不要把旧包复制进 `current`。发布产物当前未配置数字签名，SHA-256 仅验证传输完整性。
+
+安装或更新失败时保留原安装与数据，重新打开查看状态；保留旧版安装包和设置备份。需要人工回退时先退出并备份数据，再按对应旧版本安装方式恢复；禁止手工混合 current 与 desktop 文件。增量更新不会自动降级或迁移用户设置。
+
+## 旧 ZIP 安装与更新
 
 1. 安装 [.NET 10.0 x64 Runtime](https://dotnet.microsoft.com/download/dotnet/10.0)，兼容各稳定补丁版本，建议使用最新维护版本。运行程序无需 SDK。
 2. 将 ZIP 解压到非 C 盘的临时目录，且不要解压到目标 `app` 目录内。可用 `Get-FileHash <ZIP路径> -Algorithm SHA256` 对照随包 `.sha256` 文件检查传输完整性。
 3. 先关闭 LiveLingo；升级前按下节备份旧程序、设置和旧 ZIP。在解压目录打开 64 位 PowerShell 5.1 或 7，先运行 `./Install.ps1 -VerifyOnly`；首次安装运行 `./Install.ps1`，升级已有安装运行 `./Install.ps1 -ReplaceExisting`。脚本校验全部应用文件，复制并复核后切换目录，清理上一份程序。用户设置、模型、环境和数据位于应用目录外，不受替换影响。
 4. 双击 `D:\Soft Ware\LiveLingo\app\desktop\LiveLingo.Desktop.Windows.exe`。按“安装后的核对”确认文件及运行正常后可以删除解压目录，保留 ZIP 用于重装。
 
-这是 ZIP + PowerShell 安装包，没有 MSI/EXE 安装向导、数字签名、自动更新、开机启动或注册表卸载项。未修改 PowerShell 执行策略；组织策略禁止运行时，请由管理员按其策略处理。SHA-256 清单用于完整性检查，不代替可信来源或数字签名。
+本节仅适用于旧 ZIP + PowerShell 安装包，该布局不支持程序内增量更新，也不创建注册表卸载项。未修改 PowerShell 执行策略；组织策略禁止运行时，请由管理员按其策略处理。SHA-256 清单用于完整性检查，不代替可信来源或数字签名。
 
 `./Install.ps1 -VerifyOnly` 只验证包。`-ApplicationRoot 'E:\LiveLingo\app'` 可改变程序安装位置，末级仍须为 `app`，程序目录恒为 `desktop`。当前依赖准备脚本默认使用以下 D 盘布局；改变程序安装位置不会迁移模型或设置。
 
@@ -65,6 +77,24 @@ Write-Output "Installed files match package $($manifest.version)"
 包哈希及文件核对不代表模型、真实鼠标输入或多屏兼容性通过。运行正常后可以删除本次解压目录，保留 ZIP、校验文件和回退备份。不要删除共享模型或 data。
 
 ## 首次准备依赖
+
+普通启动会检查 Python 环境版本、Qwen 清单和文件尺寸、Ollama 可执行文件、所选 TranslateGemma 清单及 blob、NVIDIA r580+ 驱动。检测不启动模型服务；初检通过不等于 GPU 推理已通过，正式开始仍执行完整校验。
+
+在“设置 → 运行环境”打开安装脚本目录，使用64位 PowerShell按缺项运行：
+
+```powershell
+./Install-LiveLingoDependencies.ps1                  # 仅显示路径检查和组件选择
+./Install-LiveLingoDependencies.ps1 -Component DotNet
+./Install-LiveLingoDependencies.ps1 -Component Ollama
+./Install-LiveLingoDependencies.ps1 -Component Driver
+./Install-LiveLingoDependencies.ps1 -Component Runtime
+./Install-LiveLingoDependencies.ps1 -Component Models
+```
+
+Driver 打开 NVIDIA 官方驱动页面，由厂商安装器完成匹配与安装，要求 r580 或更新驱动；按提示重启后再准备 Runtime。Runtime 使用 Python 3.13.2、uv 和固定哈希锁并运行一次 CUDA 运算；可用 `-BasePython '实际路径'` 复用准确版本，已有其他 Python 版本不会被自动降级。Models 准备固定 Qwen revision 和当前选择的 TranslateGemma，复用已验证资产、允许恢复未完成的 Qwen 下载；已有翻译模型指纹不符时停止，不覆盖或绕过校验。下载期间只运行脚本自己的临时 Ollama 服务，结束后回收，不停止已有服务。
+
+脚本默认读取 `D:\Soft Ware\LiveLingo\data\settings.json`，可传 `-SettingsPath '实际设置路径'`；不会改写设置。自定义路径先在程序中应用，再运行脚本。脚本联网安装只在明确指定组件时发生；winget 安装可能需要系统权限和软件许可确认。下列手动步骤继续可用。
+
 
 已有环境和模型可以复用，无需重新下载。新增的大文件全部放非 C 盘。当前主要面向 RTX 5080 16GB；12B 同时需要充足系统内存，不能只按显存容量估算。
 
@@ -139,8 +169,10 @@ ollama pull translategemma:4b
 
 模型仍可能漏掉真实重复、人名或误译否定；首次可读中文 3–6 秒是目标，并非所有内容均能达到。正常 30 秒窗口，对齐失败时最多回退到 120 秒，超限会显示积压，不静默丢弃。现有证据尚未覆盖完整的物理混合 DPI、拔屏和独占全屏组合，不据首版里程碑完成扩大兼容性声明。
 
-卸载时关闭程序，只删除 `app\desktop`。模型、Python 环境、设置和数据独立保留，按需要另外处理。不要删除其他应用共享的 Ollama 模型。
+托管安装先关闭程序，在 Windows“已安装的应用”中卸载 LiveLingo；旧 ZIP 安装只删除 `app\desktop`。模型、Python 环境、设置和数据独立保留，按需要另外处理。不要删除其他应用共享的 Ollama 模型。
 
 ## 许可证
 
 LiveLingo 使用随包 LICENSE 中的 Apache-2.0 许可证，版权声明见 NOTICE。第三方许可文件位于 licenses，索引为 THIRD-PARTY-NOTICES.md；另行下载的模型遵循各自条款。
+
+GitHub API 返回限流状态时，程序自动使用同仓库最新稳定 Release 的公开下载清单；不要求填写令牌。此路径只有当前发布的差分，缺少跨版本差分时仍可回退完整包。

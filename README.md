@@ -15,6 +15,7 @@ M0–M4 首版里程碑已完成，项目进入持续迭代；当前能力与支
 - 实时翻译、历史记录和设置三个页面，支持跟随系统、浅色和深色主题。
 - 本地保存每次翻译会话，支持查找、复制、TXT / Markdown 导出，以及结束后确认删除和保留期清理。
 - 关闭程序时停止采集并回收程序启动的模型进程。
+- 启动检查运行依赖，提供独立安装脚本；从 GitHub Releases 获取用户确认的增量更新。
 
 ## 系统要求
 
@@ -31,15 +32,19 @@ M0–M4 首版里程碑已完成，项目进入持续迭代；当前能力与支
 
 ## 安装与使用
 
-获取由本仓库构建的 Windows x64 ZIP 安装包，将其解压到目标安装目录之外。在解压目录打开64位 PowerShell：
+从本仓库 GitHub Releases 获取同一版本的 `LiveLingo-win-x64-Setup.exe`、`Install-LiveLingo.ps1` 与 `Install-LiveLingoDependencies.ps1`，放在同一目录，在64位 PowerShell 中运行：
 
 ```powershell
-./Install.ps1
-# 更新已有安装时，先关闭 LiveLingo：
-./Install.ps1 -ReplaceExisting
+./Install-LiveLingo.ps1
 ```
 
-默认程序位置为 `D:\Soft Ware\LiveLingo\app\desktop\LiveLingo.Desktop.Windows.exe`。准备好模型与依赖后，在“设置 → 运行环境”确认模型和路径并应用，再到“实时翻译”选择发声应用、点击开始。
+脚本通过 winget 补齐 .NET 10 x64 Runtime 后打开安装器；也可直接运行 Setup.exe，由安装器提示并下载缺失的 .NET。模型、Python 环境、Ollama、驱动和 .NET 均不打进程序包。
+
+脚本默认安装到 `D:\Soft Ware\LiveLingo\app\LiveLingo`，从开始菜单快捷方式启动。直接运行 Setup.exe 使用 Velopack 默认用户目录，程序文件可以位于该目录；大型模型、隔离环境、缓存及数据仍使用非 C 盘。旧 ZIP 版保持在 `app\desktop`，使用新安装器建立独立安装后复用原设置和模型，不将两种布局混合。
+
+启动会显示依赖缺项；“设置 → 运行环境”提供重新检查和安装脚本入口。准备完成并应用实际路径后，到“实时翻译”选择发声应用、点击开始。
+
+程序从 GitHub Releases 检查稳定更新，只提示，不自动下载或安装。“设置 → 常规”可下载更新；停止翻译并应用或撤销设置后，点击“退出并安装”。优先使用可用差分，必要时回退完整包，更新保留应用目录之外的模型、设置与历史。
 
 | 默认快捷键 | 功能 |
 | --- | --- |
@@ -68,10 +73,10 @@ dotnet restore LiveLingo.slnx --locked-mode
 dotnet build LiveLingo.slnx -c Release --no-restore --disable-build-servers -clp:ErrorsOnly
 # 存储测试需要非 C 盘临时目录；先按 tests/README.md 设置 TEMP/TMP。
 dotnet test --solution LiveLingo.slnx -c Release --no-build --no-progress
-./scripts/New-LiveLingoPackage.ps1 -Version 0.1.1
+./scripts/New-LiveLingoRelease.ps1 -Version 0.2.0
 ```
 
-安装包默认输出到仓库的 `artifacts/packages`，可用 `-OutputDirectory` 覆盖；直接执行发布脚本默认输出到 `artifacts/publish/desktop`。0.1.1 为命令示例，按本次实际版本替换；同版本包不覆盖。版本号用于压缩包和包清单，安装目录统一为 `app\desktop`。完整的打包、包测试、备份、安装替换、核对与回退步骤见 [交付说明](docs/packaging.md)。构建或打包成功不会自动替换已安装程序。
+增量发布默认输出到 `artifacts/releases`，固定 Velopack/vpk 1.2.161；同一输出目录保留上一版完整包以生成差分，或使用 `-DownloadPrevious` 获取上一公开版本。0.2.0 为示例，不表示已发布。旧 ZIP 打包脚本 `New-LiveLingoPackage.ps1` 仍输出到 `artifacts/packages`，安装目录为 `app\desktop`。完整的打包、包测试、备份、安装替换、核对与回退步骤见 [交付说明](docs/packaging.md)。构建或打包成功不会自动替换已安装程序。
 
 Windows 目标框架中的 `10.0.26100.0` 是编译 API 基线，最低运行平台由 `SupportedOSPlatformVersion=10.0.22000.0` 声明，因此支持 Windows 11 各后续版本。NuGet 库仍按集中版本和依赖锁还原，不随本机 SDK 补丁改变。
 
@@ -101,7 +106,7 @@ Windows 目标框架中的 `10.0.26100.0` 是编译 API 基线，最低运行平
 - 首次可读中文通常以3–6秒为目标，冷启动、长句和积压可能增加延迟。
 - 普通识别窗口30秒，对齐失败时最多扩展到120秒；无法继续处理时显示限制和积压。
 - 物理混合DPI、显示器拔插及独占全屏的完整兼容性仍需验证。
-- 模型准备与正式安装脚本仍默认使用D盘布局；源码构建与打包不依赖该布局。暂不支持跨平台安装、自动更新或签名安装向导。
+- 模型准备与安装脚本默认使用D盘布局，可按已应用设置准备模型路径；源码构建与打包不依赖该布局。支持 Windows 安装器与用户确认的增量更新；尚未配置代码签名，首次安装可能显示 Windows 来源提示。
 
 ## 贡献
 
@@ -112,3 +117,5 @@ Windows 目标框架中的 `10.0.26100.0` 是编译 API 基线，最低运行平
 ## 许可证
 
 本项目采用 [Apache License 2.0](LICENSE)，版权声明见 [NOTICE](NOTICE)。第三方依赖及模型遵循各自许可证；本项目许可证不替代其条款。
+
+GitHub API 限流时，更新检查可回退同仓库的公开发布清单，无需配置 GitHub 令牌。

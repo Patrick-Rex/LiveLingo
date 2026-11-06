@@ -57,3 +57,13 @@ $env:LIVELINGO_TEST_PROBE = (Resolve-Path tools/LiveLingo.Probe/bin/Release/net1
 ```
 
 示例版本及临时根按本机实际位置修改。`-TemporaryRoot` 必须在可写的非 C 本地盘（省略时使用当前 `TEMP`），因为本项验证正式安装的非 C 盘约束；普通构建和打包没有此限制。脚本在独立临时目录验证完整性、错误包拒绝、首次安装、显式升级和设置保留，完成后清理本次临时目录；不替换正式安装，也不证明 GPU 或窗口交互通过。构建、备份、正式替换和回退见 [打包说明](../docs/packaging.md)。
+
+## 安装引导与增量更新
+
+维护状态测试类 `LiveLingo.App.Tests.MaintenanceTests` 验证启动不下载、明确安装意图、运行限制和关闭取消；`LiveLingo.Windows.Tests.EnvironmentCheckTests` 验证缺失和损坏模型提示。沿用上文 MTP `--filter-class` 命令。
+
+`Install-LiveLingoDependencies.ps1 -Component Check` 只报告路径，不安装。`Test-LiveLingoRelease.ps1 -FullPackage <full.nupkg>` 检查必要文件及外部依赖排除；同时提供 `-PreviousPackage <旧full> -DeltaPackage <新delta>` 时还原差分并逐项校验内容。测试不安装程序、不启动模型，不能代替干净机器缺少 .NET/驱动的真实安装验收。发布命令见 [交付说明](../docs/packaging.md)。
+
+`scripts/Test-LiveLingoSetup.ps1` 可用 Windows PowerShell 5.1 或 PowerShell 7 执行，验证只检查不安装、C盘拒绝、旧 ZIP 混装拒绝、非空目录保护、错误资源路径拒绝和自定义模型缓存传播共6项，不下载依赖或修改正式安装。
+
+GitHubReleaseSourceTests 验证 API 403/429 回退、检查与下载来源一致、取消及其他错误不触发回退。

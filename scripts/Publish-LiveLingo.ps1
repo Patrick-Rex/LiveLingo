@@ -1,4 +1,5 @@
-param([string]$OutputDirectory = (Join-Path $PSScriptRoot '../artifacts/publish/desktop'))
+param([string]$OutputDirectory = (Join-Path $PSScriptRoot '../artifacts/publish/desktop'),
+    [ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version = '0.1.0')
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'Enter-Development.ps1')
 $repo = Split-Path $PSScriptRoot -Parent
@@ -7,7 +8,7 @@ if ((Test-Path -LiteralPath $OutputDirectory) -and @(Get-ChildItem -LiteralPath 
 $log = Join-Path $env:TEMP ('desktop-publish-' + [guid]::NewGuid().ToString('N') + '.log')
 dotnet restore (Join-Path $repo 'src/LiveLingo.Desktop.Windows/LiveLingo.Desktop.Windows.csproj') --locked-mode --disable-build-servers -r win-x64 *> $log
 if ($LASTEXITCODE -ne 0) { Select-String -LiteralPath $log -Pattern '\berror\b'; throw "Locked restore failed; log=$log" }
-dotnet publish (Join-Path $repo 'src/LiveLingo.Desktop.Windows/LiveLingo.Desktop.Windows.csproj') -c Release -r win-x64 --no-restore --disable-build-servers --self-contained false -p:CopyOutputSymbolsToPublishDirectory=false -p:PublishDocumentationFiles=false -o $OutputDirectory -v:q *> $log
+dotnet publish (Join-Path $repo 'src/LiveLingo.Desktop.Windows/LiveLingo.Desktop.Windows.csproj') -c Release -r win-x64 --no-restore --disable-build-servers --self-contained false "-p:Version=$Version" -p:CopyOutputSymbolsToPublishDirectory=false -p:PublishDocumentationFiles=false -o $OutputDirectory -v:q *> $log
 $result = $LASTEXITCODE
 Select-String -LiteralPath $log -Pattern '\berror\b'
 if ($result -ne 0) { throw "PublishExit=$result; log=$log" }

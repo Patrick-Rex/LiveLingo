@@ -14,4 +14,8 @@ OverlayBridge 负责 HWND、Screens、缩放与工作区位置。即时外观事
 
 验证模式使用 Avalonia 12 的 `PngBitmapEncoderOptions.Default` 保存 PNG，覆盖三一级页面和设置分类的浅深主题、默认及最小尺寸，以及字幕锁定／解锁的组合渲染图。`subtitle-controls.json` 核对按钮几何、样式和显隐，不等同于真实鼠标输入验收。原生脚本使用独立的 `<OutputDirectory>.settings.json`，不改用户设置；手动验证也应显式传入独立 `--settings` 路径。本轮已验证透明级别、原生样式、几何及退出；自动输入检查因无法激活自有接收器提前结束，跨进程点击穿透、实际拖动与多屏 DPI 尚不能记为通过。
 
-正式安装统一使用 app/desktop，发布按 win-x64 选择平台资产并排除PDB。源码构建不会更新已安装程序；使用安装包校验、备份并显式替换，设置与模型保留在 app 外。完整操作参见 [使用指南](../../packaging/USER-GUIDE.md) 和 [打包、替换与回退](../../docs/packaging.md)。
+旧 ZIP 安装使用 app/desktop，发布按 win-x64 选择平台资产并排除PDB。源码构建不会更新已安装程序；使用安装包校验、备份并显式替换，设置与模型保留在 app 外。完整操作参见 [使用指南](../../packaging/USER-GUIDE.md) 和 [打包、替换与回退](../../docs/packaging.md)。
+
+DesktopEnvironment 提供有限输出、15秒超时且可取消的 Python/驱动初检，本地模型只检查清单身份及长度；真实加载仍由会话负责。DesktopUpdates 隔离 Velopack，固定 GitHub 稳定源，元数据最多4 MiB、单请求30秒，更新包最多1 GiB、下载30分钟。Program 在创建宿主前禁用启动自动应用；用户请求安装后，DesktopApplication 先取消维护任务、结束既有退出流程，成功才调用等待退出的更新器，并保留原始启动参数。Velopack 使用 app/LiveLingo/current 与 packages；模型、设置和历史位于外部。
+
+GitHubReleaseSource 在 API 403/429 时回退同仓库 latest/download 的渠道清单，下载保持与成功检查的来源一致。取消及其他错误不启动额外回退请求。

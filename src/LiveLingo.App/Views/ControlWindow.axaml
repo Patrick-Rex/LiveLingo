@@ -18,6 +18,10 @@
         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12"><TextBlock Text="{Binding PendingSettingsText}" TextWrapping="Wrap" VerticalAlignment="Center" Foreground="{DynamicResource DesktopWarning}" /><Button Grid.Column="1" Content="前往设置" Command="{Binding OpenSettingsCommand}" /></Grid>
       </Border>
       <StackPanel Grid.Row="1" Spacing="8">
+        <Border Classes="card" IsVisible="{Binding Maintenance.HasUpdateNotification}" Padding="12"><Grid ColumnDefinitions="*,Auto" ColumnSpacing="8"><TextBlock Text="{Binding Maintenance.UpdateMessage}" TextWrapping="Wrap" VerticalAlignment="Center" /><Button Grid.Column="1" Content="查看更新" Command="{Binding OpenUpdateSettingsCommand}" /></Grid></Border>
+        <Border Classes="card" IsVisible="{Binding Maintenance.HasEnvironmentIssues}" Padding="12">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8"><TextBlock Text="运行依赖尚未准备齐全，请到运行环境查看缺项和安装脚本。" TextWrapping="Wrap" VerticalAlignment="Center" /><Button Grid.Column="1" Content="准备运行环境" Command="{Binding OpenRuntimeSettingsCommand}" /></Grid>
+        </Border>
         <Border Classes="card" IsVisible="{Binding HasError}" Padding="12"><TextBlock Text="{Binding Error}" Foreground="{DynamicResource DesktopDanger}" TextWrapping="Wrap" /></Border>
         <Border Classes="card" IsVisible="{Binding HistorySaveFailed}" Padding="12"><Grid ColumnDefinitions="*,Auto" ColumnSpacing="8"><TextBlock Text="{Binding HistorySaveMessage}" TextWrapping="Wrap" Foreground="{DynamicResource DesktopDanger}" VerticalAlignment="Center" /><Button Grid.Column="1" Content="重试保存记录" Command="{Binding Archive.RetrySaveCommand}" IsVisible="{Binding Archive.CanRetry}" /></Grid></Border>
       </StackPanel>

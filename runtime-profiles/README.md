@@ -12,3 +12,5 @@
 安装成功不证明 GPU 或模型可用。运行实际 CUDA 运算，再按 [用户指南](../packaging/USER-GUIDE.md) 准备模型。固定 profile 与哈希锁用于重现依赖，不代表任意设备或语料质量通过。
 
 改变依赖时同步 requirements.in、requirements.lock 及 profile 中的锁哈希；日常构建不重新解析版本。本机评测报告与准入记录不入库。
+
+可在随包 scripts 目录运行 `Install-LiveLingoDependencies.ps1 -Component Runtime`，复用已应用设置的隔离 Python 与缓存路径；必要时传 `-SettingsPath` 和 `-BasePython`。底层初始化支持 `-RuntimeRoot` 与 `-CacheRoot`，仍拒绝 C 盘，锁和固定版本不变；`Enter-ModelEvaluation.ps1 -CacheRoot` 只改变当前终端缓存。

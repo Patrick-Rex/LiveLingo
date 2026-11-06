@@ -15,7 +15,8 @@ namespace LiveLingo.Desktop.Windows;
 
 /// <summary>持有所有窗口和唯一异步退出任务，在 UI 消息循环结束前等待资源回收。</summary>
 /// <param name="host">组合根宿主。</param><param name="arguments">显式启动参数。</param>
-public sealed class DesktopApplication(IHost host, string[] arguments) : Application
+/// <param name="restartArguments">更新重启时保留的原始参数。</param>
+public sealed class DesktopApplication(IHost host, string[] arguments, string[] restartArguments) : Application
 {
     private IClassicDesktopStyleApplicationLifetime? desktop;
     private DesktopViewModel? model;
@@ -40,6 +41,9 @@ public sealed class DesktopApplication(IHost host, string[] arguments) : Applica
         {
             desktop = lifetime; desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
             model = new(host.Services.GetRequiredService<IDesktopSession>(), host.Services.GetRequiredService<IDesktopSettingsStore>(), action => Dispatcher.UIThread.Post(action));
+            model.Maintenance = new(host.Services.GetRequiredService<IDesktopEnvironment>(), host.Services.GetRequiredService<DesktopUpdates>(),
+                () => model.CurrentSettings, () => model.CanEdit && !model.HasPendingSettings);
+            model.Maintenance.InstallRequested += RequestClose;
             var control = new ControlWindow { DataContext = model };
             model.Archive = new HistoryViewModel(new HistoryInteraction(control));
             history = host.Services.GetRequiredService<DesktopHistory>();
@@ -94,6 +98,7 @@ public sealed class DesktopApplication(IHost host, string[] arguments) : Applica
         {
             overlay.Show(); bridge = new(control, overlay, model!);
             await host.StartAsync(); await model!.InitializeAsync();
+            if (arguments.Length == 0) _ = model.Maintenance!.InitializeAsync();
             if (arguments.Length != 0)
             {
                 verifier = new DesktopVerification(arguments, history);
@@ -124,6 +129,12 @@ public sealed class DesktopApplication(IHost host, string[] arguments) : Applica
             if (verification is { IsCompleted: false } && verifier is { Finished: false }) { verifier.Cancel(); await verification; exit = requestedExit; }
             if (model is not null)
             {
+                if (model.Maintenance is { } maintenance)
+                {
+                    maintenance.InstallRequested -= RequestClose;
+                    try { await maintenance.CloseAsync(); }
+                    catch (Exception error) { exit = 1; model.Error = "维护任务退出失败：" + error.Message; }
+                }
                 var archiveClosing = model.Archive?.CloseAsync() ?? Task.CompletedTask;
                 try { await model.CloseAsync(); }
                 finally { await archiveClosing.WaitAsync(TimeSpan.FromSeconds(2)); }
@@ -139,6 +150,11 @@ public sealed class DesktopApplication(IHost host, string[] arguments) : Applica
                 try { await history.DisposeAsync(); } catch (Exception) { exit = 1; }
             }
             try { await host.StopAsync(TimeSpan.FromSeconds(10)); } catch (Exception) { exit = 1; }
+            if (exit == 0 && model?.Maintenance?.InstallAccepted == true)
+            {
+                try { host.Services.GetRequiredService<DesktopUpdates>().ApplyAfterExit(restartArguments); }
+                catch (Exception error) { exit = 1; model.Error = "更新交接失败，重新启动后可重试：" + error.Message; }
+            }
             cleaned = true; desktop?.TryShutdown(exit);
         }
     }

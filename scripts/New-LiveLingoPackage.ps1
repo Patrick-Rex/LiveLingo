@@ -21,10 +21,10 @@ $workRoot = (Resolve-Path -LiteralPath $workRoot).ProviderPath
 $work = Join-Path $workRoot ([guid]::NewGuid().ToString('N'))
 $payload = Join-Path $work 'desktop'
 try {
-    & (Join-Path $PSScriptRoot 'Publish-LiveLingo.ps1') -OutputDirectory $payload
+    & (Join-Path $PSScriptRoot 'Publish-LiveLingo.ps1') -OutputDirectory $payload -Version $Version
     $setup = Join-Path $payload 'scripts'
     New-Item -ItemType Directory -Path $setup -Force | Out-Null
-    foreach ($file in @('Enter-Development.ps1', 'Enter-ModelEvaluation.ps1', 'Initialize-ModelRuntime.ps1')) {
+    foreach ($file in @('Enter-Development.ps1', 'Enter-ModelEvaluation.ps1', 'Initialize-ModelRuntime.ps1', 'Install-LiveLingoDependencies.ps1')) {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination $setup
     }
     Copy-Item -LiteralPath (Join-Path $repo 'packaging/USER-GUIDE.md') -Destination (Join-Path $payload 'USER-GUIDE.md')

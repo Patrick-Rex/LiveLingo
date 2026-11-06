@@ -1,9 +1,11 @@
 param(
     [Parameter(Mandatory)][ValidateSet('win-x64-cu128', 'win-x64-cu130', 'win-x64-whisper')][string]$Profile,
-    [string]$BasePython = (Join-Path $env:LOCALAPPDATA 'Programs\Python\Python313\python.exe')
+    [string]$BasePython = (Join-Path $env:LOCALAPPDATA 'Programs\Python\Python313\python.exe'),
+    [string]$RuntimeRoot = '',
+    [string]$CacheRoot = 'D:\Soft Ware\LiveLingo\cache'
 )
 $ErrorActionPreference = 'Stop'
-. (Join-Path $PSScriptRoot 'Enter-ModelEvaluation.ps1')
+. (Join-Path $PSScriptRoot 'Enter-ModelEvaluation.ps1') -CacheRoot $CacheRoot
 $repoRoot = Split-Path $PSScriptRoot -Parent
 $profileDirectory = Join-Path $repoRoot "runtime-profiles\$Profile"
 $profileData = Get-Content (Join-Path $profileDirectory 'profile.json') -Raw | ConvertFrom-Json
@@ -11,9 +13,11 @@ $lockPath = Join-Path $profileDirectory 'requirements.lock'
 if ((Get-FileHash -LiteralPath $lockPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $profileData.lockSha256) {
     throw 'Profile lock fingerprint does not match.'
 }
-$runtimeRoot = [IO.Path]::GetFullPath("D:\Soft Ware\LiveLingo\runtimes\$Profile")
+if (-not $RuntimeRoot) { $RuntimeRoot = "D:\Soft Ware\LiveLingo\runtimes\$Profile" }
+if ($RuntimeRoot -notmatch '^[D-Zd-z]:[\\/]') { throw 'Runtime requires a non-C local absolute path.' }
+$runtimeRoot = [IO.Path]::GetFullPath($RuntimeRoot)
+if ($runtimeRoot.StartsWith('C:', [StringComparison]::OrdinalIgnoreCase)) { throw 'Runtime requires a non-C local absolute path.' }
 $expectedPython = Join-Path $runtimeRoot 'Scripts\python.exe'
-if ($profileData.interpreter -ne $expectedPython) { throw 'Profile interpreter is outside its dedicated runtime.' }
 $actualVersion = & $BasePython -c 'import platform; print(platform.python_version())'
 if ($LASTEXITCODE -ne 0 -or $actualVersion -ne $profileData.python) { throw 'Unexpected base Python version.' }
 if (-not (Test-Path -LiteralPath $runtimeRoot)) {

@@ -1,6 +1,9 @@
+param([string]$CacheRoot = 'D:\Soft Ware\LiveLingo\cache')
 # Process-local model caches; never change the user's persistent environment.
-$modelCacheRoot = 'D:\Soft Ware\LiveLingo\cache'
+$modelCacheRoot = [IO.Path]::GetFullPath($CacheRoot)
+if ($CacheRoot -notmatch '^[D-Zd-z]:[\\/]' -or $modelCacheRoot.StartsWith('C:', [StringComparison]::OrdinalIgnoreCase)) { throw 'Model cache requires a non-C local absolute path.' }
 . (Join-Path $PSScriptRoot 'Enter-Development.ps1') -CacheRoot $modelCacheRoot
+$env:LIVELINGO_CACHE_ROOT = $modelCacheRoot
 $env:UV_CACHE_DIR = Join-Path $modelCacheRoot 'uv'
 $env:PIP_CACHE_DIR = Join-Path $modelCacheRoot 'pip'
 $env:HF_HOME = Join-Path $modelCacheRoot 'huggingface'

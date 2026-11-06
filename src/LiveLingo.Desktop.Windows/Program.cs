@@ -14,6 +14,8 @@ internal static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        Velopack.VelopackApp.Build().SetAutoApplyOnStartup(false).Run();
+        var restartArguments = args.ToArray();
         var settingsPath = @"D:\Soft Ware\LiveLingo\data\settings.json";
         var settingsIndex = Array.IndexOf(args, "--settings");
         if (settingsIndex >= 0)
@@ -35,10 +37,12 @@ internal static class Program
         }
         var history = new DesktopHistory(verificationData);
         builder.Services.AddSingleton(history);
+        builder.Services.AddSingleton<DesktopUpdates>();
+        builder.Services.AddSingleton<IDesktopEnvironment>(new DesktopEnvironment(AppContext.BaseDirectory));
         builder.Services.AddSingleton(new DesktopSession(AppContext.BaseDirectory, history));
         builder.Services.AddSingleton<IDesktopSession>(services => services.GetRequiredService<DesktopSession>());
         builder.Services.AddSingleton<IDesktopSettingsStore>(new DesktopSettingsStore(settingsPath));
         using var host = builder.Build();
-        return AppBuilder.Configure(() => new DesktopApplication(host, args)).UsePlatformDetect().StartWithClassicDesktopLifetime(args);
+        return AppBuilder.Configure(() => new DesktopApplication(host, args, restartArguments)).UsePlatformDetect().StartWithClassicDesktopLifetime(args);
     }
 }

@@ -31,3 +31,5 @@
 默认翻译使用官方单 user 提示，保持完整原文，关闭质量重试；其他提示、保守重复检查及重试选项仅供显式实验。
 
 公开语料由使用者按其授权条款下载，不收入仓库。已登记素材可用 `scripts/Remove-EvaluationCorpus.ps1 -Directory <素材目录>` 删除，脚本先校验清单与哈希。测试命令见 [测试说明](../../tests/README.md)；评测结果和录音留在本地。
+
+首次用户可运行随包 `scripts/Install-LiveLingoDependencies.ps1 -Component Models`。脚本复用 `prepare_model.py` 的固定版本、完整验证与未完成下载恢复入口，不替换推理侧校验；TranslateGemma 通过本次私有 Ollama 显式下载并核对指纹。
