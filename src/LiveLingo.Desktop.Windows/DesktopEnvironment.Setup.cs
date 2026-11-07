@@ -59,7 +59,7 @@ public sealed partial class DesktopEnvironment
         if (settings.TranslationBackend == ModelBackend.Local)
         {
             var tag = settings.TranslationModel.Split(':').Last();
-            if (!File.Exists(Path.Combine(settings.OllamaModelsPath, "manifests", "registry.ollama.ai", "library", "translategemma", tag)))
+            if (!File.Exists(GetTranslationManifestPath(settings.OllamaModelsPath, tag)))
                 found = found with { OllamaModelsPath = translationRoots.Where(IsResourcePath).Distinct(StringComparer.OrdinalIgnoreCase).Take(32)
                     .FirstOrDefault(x => Inspect("TranslateGemma", () => CheckTranslation(x, settings.TranslationModel)).Ready) ?? settings.OllamaModelsPath };
         }

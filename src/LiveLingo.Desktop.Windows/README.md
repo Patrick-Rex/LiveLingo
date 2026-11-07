@@ -22,4 +22,6 @@ GitHubReleaseSource 在 API 403/429 时回退同仓库 latest/download 的渠道
 
 DesktopEnvironment.Setup 从已配置路径、固定本地资源目录、PATH、VIRTUAL_ENV 和 OLLAMA_MODELS 有界查找缺失路径，不递归扫描整盘，不替换已有不兼容资产。界面点击缺项后，通过 ArgumentList 执行包内 PowerShell，使用已应用设置的临时快照；进程执行策略不修改全局配置。输出保留最后8Ki字符，安装限时2小时，取消与关闭回收自有进程树并删除快照；完成后重新发现与检查。QwenModel 与 TranslationModel 分别执行，避免安装单个模型时要求另一套运行环境。
 
+TranslateGemma 初检与路径发现优先读取 `manifests-v2/ollama.com/library/translategemma/<tag>`，仅在该文件不存在时使用 `manifests/registry.ollama.ai/library/translategemma/<tag>`。旧目录可能只是附加原清单引用的兼容副本，不能用其摘要代替有效新清单。新清单存在但指纹错误时明确失败；仍验证固定 digest 和所有引用 blob 的长度，不改写用户模型目录。
+
 007 模型来源独立选择：DesktopEnvironment 仅发现与检查所选本地组件；全 API 不探测 Python/NVIDIA，也不读取本地 profile。DesktopSession 只创建所选本地进程，API 接入沿用有界调度与退出取消。整体 JSON 模板随构建和发布输出；安装快照清除 API Key，准备脚本同样按来源跳过不需要的组件。

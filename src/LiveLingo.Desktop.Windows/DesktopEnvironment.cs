@@ -67,11 +67,16 @@ public sealed partial class DesktopEnvironment(string contentRoot) : IDesktopEnv
         { return new(name, false, "资产缺失或不兼容：" + error.Message + " 缺失时可点击安装；已有不兼容资产不会被自动覆盖。"); }
     }
 
-    /// <summary>限制清单读取大小，避免意外读取大文件。</summary><param name="path">清单路径。</param><returns>调用方负责释放的文档。</returns>
-    private static JsonDocument ReadManifest(string path)
+    /// <summary>限制清单读取大小，并按需校验同一份内容的摘要。</summary>
+    /// <param name="path">清单路径。</param><param name="expectedDigest">预期 SHA-256；为空时只读取清单。</param>
+    /// <returns>调用方负责释放的文档。</returns><exception cref="InvalidDataException">清单过大或摘要不匹配。</exception>
+    private static JsonDocument ReadManifest(string path, string? expectedDigest = null)
     {
         if (new FileInfo(path).Length > 2 * 1024 * 1024) throw new InvalidDataException("模型清单过大。");
-        return JsonDocument.Parse(File.ReadAllBytes(path));
+        var bytes = File.ReadAllBytes(path);
+        if (expectedDigest is not null && !Convert.ToHexStringLower(SHA256.HashData(bytes)).Equals(expectedDigest, StringComparison.Ordinal))
+            throw new InvalidDataException("TranslateGemma 指纹不匹配。");
+        return JsonDocument.Parse(bytes);
     }
 
     /// <summary>检查固定识别模型 revision 和清单内文件长度。</summary><param name="root">模型根目录。</param>
@@ -90,11 +95,7 @@ public sealed partial class DesktopEnvironment(string contentRoot) : IDesktopEnv
     /// <summary>检查所选翻译模型清单摘要与引用的本地 blob 长度。</summary><param name="root">Ollama 模型根。</param><param name="model">模型标签。</param>
     private static void CheckTranslation(string root, string model)
     {
-        var tag = model switch { "translategemma:12b" => "12b", "translategemma:4b" => "4b", _ => throw new InvalidDataException("不支持的翻译模型。") };
-        var path = Path.Combine(root, "manifests", "registry.ollama.ai", "library", "translategemma", tag);
-        using var document = ReadManifest(path);
-        var expected = tag == "12b" ? "c2f9a9ca1ec7149f2422581c89937ab0363d9399d9355514d753ee012e99c252" : "c49d986b0764f5881c476eb21435bb62b7abc62347aab3d4a6071e811be510a1";
-        if (!Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(path))).Equals(expected, StringComparison.Ordinal)) throw new InvalidDataException("TranslateGemma 指纹不匹配。");
+        using var document = ReadTranslationManifest(root, model);
         foreach (var layer in document.RootElement.GetProperty("layers").EnumerateArray().Append(document.RootElement.GetProperty("config")))
         {
             var digest = layer.GetProperty("digest").GetString()!;
@@ -102,6 +103,26 @@ public sealed partial class DesktopEnvironment(string contentRoot) : IDesktopEnv
                 throw new InvalidDataException("无效模型 blob 摘要。");
             CheckAsset(root, Path.Combine("blobs", digest.Replace(':', '-')), layer.GetProperty("size").GetInt64());
         }
+    }
+
+    /// <summary>按 Ollama 的目录优先级读取有效清单，保留固定模型身份校验。</summary>
+    /// <param name="root">Ollama 模型根。</param><param name="model">受支持的 TranslateGemma 标签。</param>
+    /// <returns>调用方负责释放的已验证清单。</returns>
+    /// <exception cref="InvalidDataException">模型不受支持、清单过大或指纹不匹配。</exception>
+    internal static JsonDocument ReadTranslationManifest(string root, string model)
+    {
+        var tag = model switch { "translategemma:12b" => "12b", "translategemma:4b" => "4b", _ => throw new InvalidDataException("不支持的翻译模型。") };
+        var expected = tag == "12b" ? "c2f9a9ca1ec7149f2422581c89937ab0363d9399d9355514d753ee012e99c252" : "c49d986b0764f5881c476eb21435bb62b7abc62347aab3d4a6071e811be510a1";
+        return ReadManifest(GetTranslationManifestPath(root, tag), expected);
+    }
+
+    /// <summary>优先使用新版清单；仅在其不存在时使用旧版目录，不绕过不兼容的新清单。</summary>
+    /// <param name="root">Ollama 模型根。</param><param name="tag">不含模型名称的标签。</param>
+    /// <returns>所选清单路径，可能尚不存在。</returns>
+    private static string GetTranslationManifestPath(string root, string tag)
+    {
+        var current = Path.Combine(root, "manifests-v2", "ollama.com", "library", "translategemma", tag);
+        return File.Exists(current) ? current : Path.Combine(root, "manifests", "registry.ollama.ai", "library", "translategemma", tag);
     }
 
     /// <summary>拒绝清单越界路径和缺失文件。</summary><param name="root">资产根目录。</param><param name="relative">相对路径。</param><param name="length">预期长度。</param>

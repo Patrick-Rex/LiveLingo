@@ -60,7 +60,7 @@ $env:LIVELINGO_TEST_PROBE = (Resolve-Path tools/LiveLingo.Probe/bin/Release/net1
 
 ## 安装引导与增量更新
 
-维护状态测试类 `LiveLingo.App.Tests.MaintenanceTests` 验证启动不下载、一次点击下载后请求安装、失败不重启、待应用设置保护、按缺项安装与关闭取消；`LiveLingo.Windows.Tests.EnvironmentCheckTests` 验证缺失和损坏模型提示。`DependencySetupTests` 验证发现现有程序、保留已有路径，以及真实 PowerShell 的快照传递、错误与取消回收，不安装软件。沿用上文 MTP `--filter-class` 命令；多个类名作为独立参数传入。
+维护状态测试类 `LiveLingo.App.Tests.MaintenanceTests` 验证启动不下载、一次点击下载后请求安装、失败不重启、待应用设置保护、按缺项安装与关闭取消；`LiveLingo.Windows.Tests.EnvironmentCheckTests` 验证缺失和损坏模型提示，以及 Ollama 新版清单优先、旧版回退、错误新清单不回退和缺失 blob 拒绝。清单夹具不包含模型权重。`DependencySetupTests` 验证发现现有程序、保留已有路径，以及真实 PowerShell 的快照传递、错误与取消回收，不安装软件。沿用上文 MTP `--filter-class` 命令；多个类名作为独立参数传入。
 
 `Install-LiveLingoDependencies.ps1 -Component Check` 只报告路径，不安装。`Test-LiveLingoRelease.ps1 -FullPackage <full.nupkg>` 检查必要文件、外部依赖排除及唯一根应用清单；同时提供 `-PreviousPackage <旧full> -DeltaPackage <新delta>` 时，在隔离目录调用随包原生 Update.exe 还原差分并逐项校验内容。第三方 `.nuspec` 必须另存为 `.nuspec.xml`，以覆盖原生还原后清单选择与 CLI ZIP 顺序不同的回归。测试不安装程序、不启动模型，不能代替干净机器缺少 .NET/驱动的真实安装验收。发布命令见 [交付说明](../docs/packaging.md)。
 
