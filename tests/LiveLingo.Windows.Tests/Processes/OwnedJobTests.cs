@@ -5,6 +5,7 @@ using LiveLingo.Platform.Windows.Processes;
 namespace LiveLingo.Windows.Tests.Processes;
 
 /// <summary>真实启动明确自有夹具验证嵌套 Job，绝不按进程名结束外部应用。</summary>
+[Collection("ProcessHandleInheritance")]
 public sealed partial class OwnedJobTests
 {
     /// <summary>真实标准管道往返并 EOF 退出，父孙进程都属于原子 Job，额外可继承句柄不泄漏。</summary>

@@ -32,6 +32,8 @@ dotnet test --project tests/LiveLingo.Windows.Tests/LiveLingo.Windows.Tests.cspr
 
 普通异步等待、Channel 和文件读写传递 `TestContext.Current.CancellationToken`，使测试取消可中断等待；验证主动取消或超时行为时保留场景专用令牌。警告审计使用根 README 的 `-t:Rebuild -warnaserror` 命令，不以关闭分析器代替修复。
 
+OwnedJobTests 会主动把测试哨兵句柄设为可继承，因此使用独占测试集合，避免同进程中并行执行的环境或安装探测继承该人工句柄。其余测试仍按原并行策略运行；保留真实管道、父孙进程归属、句柄白名单和退出断言。
+
 App 测试覆盖三一级页面、设置分类及设置专属应用栏、主题独立性、最小尺寸、档案选择与删除确认、固定内容导出、保存失败反馈、字幕跟随/回看/修订/撤销及语言切换。小锁验证同一入口解锁与重新锁定、40 DIP 预留区不遮正文、按钮随字幕关闭；字幕在运行中可调，自动保存不包含未确认运行配置，两类保存串行，退出冲刷且保护损坏设置。
 
 Runtime Storage 测试覆盖旧设置默认值、历史同代次替换与撤销、真实重复、跨采集代次保留、异常中断、部分保存、存储失败重试、删除后不复活、固定导出和保留期边界。Windows DesktopHistoryTests 验证跨宿主重启、旧记录器固定目录、验证根隔离、旧失败不被新会话成功遮蔽、删除旧失败后保留后续失败、自动清理及退出冲刷。
@@ -71,3 +73,5 @@ GitHubReleaseSourceTests 验证 API 403/429 回退、检查与下载来源一致
 `scripts/Start-LiveLingo.ps1` 优先读取当前用户卸载记录中的安装位置，再查默认用户目录，最后兼容既有 D 盘目录；从安装根的 `LiveLingo.exe` 启动。显式 `-ApplicationDirectory` 也支持独立发布目录中的 `LiveLingo.Desktop.Windows.exe`。修改入口时分别核对 Windows PowerShell 5.1 与 PowerShell 7 的路径选择；脚本使用 ASCII 提示，兼容无 BOM 文本在 PowerShell 5.1 中的解析。
 
 模型来源回归：App 的 ModelConfigurationTests 覆盖四种组合、整体 JSON 原子导入、表单切换、草稿/自动保存隔离和 Headless 可见性；Runtime 的 OpenAiApiTests 覆盖请求路径、Bearer、PCM16 WAV、结束状态、HTTP 错误、响应上限、取消与超时，DesktopSettingsStoreTests 覆盖旧设置和 API 字段持久化。Windows 的 EnvironmentCheckTests、ApiSessionTests 与 LocalPipelineModelsTests 覆盖按来源检查、全 API 无本地资产启动与已有本地清理路径。使用上文 MTP --filter-class 指定这些类；假传输与空输入宿主检查不代表真实服务商联调通过。
+
+ApiSessionTests 另通过随机回环端口的 HTTP 测试服务，从非空音频贯通生产 DesktopSession 的转写、翻译和字幕输出，核对独立鉴权、地址前缀及全 API 不启动本地进程。响应为确定夹具，不代表外部服务商联调或模型质量验收。
