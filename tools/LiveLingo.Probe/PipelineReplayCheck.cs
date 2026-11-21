@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
@@ -47,7 +48,7 @@ internal static class PipelineReplayCheck
         var provenance = new PipelineProvenance(expected, Hash(profilePath), Hash(Path.Combine(Path.GetDirectoryName(profilePath)!, "requirements.lock")),
             Directory.EnumerateFiles(Path.Combine(repository, "workers", "qwen_asr"), "*.py").Order(StringComparer.Ordinal)
                 .ToDictionary(path => Path.GetFileName(path), Hash, StringComparer.Ordinal));
-        var owned = new List<OwnedWorkerConnection>();
+        var owned = new ConcurrentQueue<OwnedWorkerConnection>();
         var external = WindowsTargets.Enumerate().Where(x => x.IsApplicationRoot && x.Identity is not null &&
             (x.Name.Equals("msedge.exe", StringComparison.OrdinalIgnoreCase) || x.Name.Equals("ollama.exe", StringComparison.OrdinalIgnoreCase)))
             .Select(x => x.Identity!).ToArray();
@@ -80,7 +81,7 @@ internal static class PipelineReplayCheck
             var connection = new OwnedWorkerConnection(python,
                 ["-u", "-m", "workers.qwen_asr.service", "--profile", profilePath, "--model", model, "--worker-epoch", epoch.ToString(System.Globalization.CultureInfo.InvariantCulture)],
                 repository, "pipeline-qwen", new Dictionary<string, string> { ["LIVELINGO_OWNED_WORKER"] = "1", ["PYTHONUTF8"] = "1" });
-            owned.Add(connection); return connection;
+            owned.Enqueue(connection); return connection;
         }, () =>
         {
             var connection = new OwnedWorkerConnection(ollamaExecutable, ["serve"], repository, "pipeline-ollama", new Dictionary<string, string>
@@ -88,7 +89,7 @@ internal static class PipelineReplayCheck
                 ["OLLAMA_HOST"] = $"127.0.0.1:{port}", ["OLLAMA_MODELS"] = @"D:\Soft Ware\Ollama", ["OLLAMA_CONTEXT_LENGTH"] = "4096",
                 ["OLLAMA_NUM_PARALLEL"] = "1", ["OLLAMA_MAX_LOADED_MODELS"] = "1"
             });
-            owned.Add(connection); return connection;
+            owned.Enqueue(connection); return connection;
         }, endpoint, expected, options);
         ContinuousAudioStore? currentStore = null;
         var pipeline = new SubtitlePipeline(new(session, 1, 1, 1), selection, options, () =>
@@ -145,7 +146,7 @@ internal static class PipelineReplayCheck
         {
             var gpuConnection = new OwnedWorkerConnection(Path.Combine(Environment.SystemDirectory, "nvidia-smi.exe"),
                 ["--id=0", "--query-gpu=memory.used,memory.total,utilization.gpu", "--format=csv,noheader,nounits", "--loop-ms=1000"], repository, "pipeline-gpu-sampler");
-            owned.Add(gpuConnection);
+            owned.Enqueue(gpuConnection);
             gpuSampler = new(gpuConnection, Path.Combine(directory, "gpu.jsonl"));
             var source = capture is null ? WaveReplaySource.ReadAsync(input, session, durationSeconds, realtime: true, stop.Token) : capture.ReadAsync(session, stop.Token);
             final = await pipeline.RunAsync(source, stop.Token).ConfigureAwait(false);
@@ -215,7 +216,7 @@ internal static class PipelineReplayCheck
 
     /// <summary>只统计本次 Job 内仍匹配完整身份的进程，已退出进程不当成零值样本。</summary>
     /// <param name="owned">本次受监管连接。</param><returns>当前可查询自有进程资源。</returns>
-    private static PipelineWorkerMetric[] SampleWorkers(List<OwnedWorkerConnection> owned)
+    private static PipelineWorkerMetric[] SampleWorkers(IEnumerable<OwnedWorkerConnection> owned)
     {
         var result = new List<PipelineWorkerMetric>();
         foreach (var identity in owned.SelectMany(x => x.ObserveMembers()).Distinct())

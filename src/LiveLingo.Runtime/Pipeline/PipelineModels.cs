@@ -40,7 +40,7 @@ public interface IPipelineModels : IAsyncDisposable
     /// <param name="request">完整请求。</param><param name="window">当前窗口租约。</param><param name="cancellationToken">推理取消。</param>
     /// <returns>原始模型输出。</returns>
     Task<IpcHeader> RecognizeAsync(AsrRequest request, AudioWindowLease window, CancellationToken cancellationToken);
-    /// <summary>经有限 MAF 图翻译完整当前块。</summary>
-    /// <param name="input">当前原文版本。</param><param name="cancellationToken">推理取消。</param><returns>完整终止证据。</returns>
+    /// <summary>经有限 MAF 工作流翻译当前短句，并回传本次调用的身份。</summary>
+    /// <param name="input">短句原文及其所属语义块的音频范围和源版本。</param><param name="cancellationToken">推理取消。</param><returns>短句译文及其生成终止证据。</returns>
     Task<TranslationResult> TranslateAsync(TranslationInput input, CancellationToken cancellationToken);
 }

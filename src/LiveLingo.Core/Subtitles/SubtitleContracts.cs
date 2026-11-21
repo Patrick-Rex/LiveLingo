@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 using LiveLingo.Core.Audio;
 
 namespace LiveLingo.Core.Subtitles;
@@ -84,7 +85,12 @@ public sealed record BoundaryDecision(bool CanClose, string Reason, int StableOb
 /// <param name="Boundary">本次来源边界证据。</param>
 public sealed record SubtitleSegment(SegmentKey Key, SampleRange Range, long SourceRevision,
     long SubtitleRevision, string Source, string? Translation, long? TranslatedSourceRevision,
-    SubtitlePhase Phase, TranslationState TranslationState, string? Error, BoundaryDecision Boundary);
+    SubtitlePhase Phase, TranslationState TranslationState, string? Error, BoundaryDecision Boundary)
+{
+    /// <summary>获取实时会话已逐句完成的原译对，按原文顺序排列。档案通过 Translation 保存当前译文正文。</summary>
+    [JsonIgnore]
+    public ImmutableArray<SubtitlePhraseTranslation> PhraseTranslations { get; init; } = [];
+}
 
 /// <summary>供消费者按单调版本替换的完整权威快照。</summary>
 /// <param name="Identity">当前身份。</param><param name="StateSequence">单调状态序号。</param>

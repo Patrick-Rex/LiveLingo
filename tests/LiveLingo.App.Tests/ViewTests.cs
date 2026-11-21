@@ -8,6 +8,7 @@ using Avalonia.Input.Raw;
 using Avalonia.VisualTree;
 using Avalonia.Styling;
 using Avalonia.Themes.Fluent;
+using System.Collections.Immutable;
 using LiveLingo.App.ViewModels;
 using LiveLingo.App.Views;
 using LiveLingo.Core.Subtitles;
@@ -261,6 +262,101 @@ public sealed class ViewTests
             Assert.Equal(scroll.Extent.Height - scroll.Viewport.Height, scroll.Offset.Y, 1);
         }
         finally { overlay.Close(); }
+    }
+
+    /// <summary>同一识别块一次返回多句时，迟到的译文紧跟其原句，两窗跟随译文且主窗可独立回看。</summary>
+    [AvaloniaFact]
+    public void LiveViewsFollowTranslatedPairsWhileMoreRecognizedPhrasesWait()
+    {
+        var sources = Enumerable.Range(1, 40).Select(index => $"第{index}句。").ToArray();
+        var translations = sources.Select((source, index) => new SubtitlePhraseTranslation(source, $"译{index + 1}。另一句中文！")).ToImmutableArray();
+        var segment = new SubtitleSegment(new(Guid.NewGuid(), 1), new(0, 16000), 2, 2, string.Concat(sources),
+            "旧整块译文", 1, SubtitlePhase.Revised, TranslationState.Pending, null, BoundaryDecision.Pending);
+        var vm = new DesktopViewModel(new FakeSession(), new FakeStore(), action => action());
+        var control = new ControlWindow { DataContext = vm };
+        var overlay = new SubtitleWindow { DataContext = vm, Width = 340, Height = 150 };
+        try
+        {
+            vm.History = [new(segment)]; vm.ResumeFollowingCommand.Execute(null);
+            control.Show(); overlay.Show(); control.UpdateLayout(); overlay.UpdateLayout();
+            Assert.Equal(40, vm.LivePhrases.Count);
+            Assert.Equal(sources[0], Assert.Single(vm.OverlayPhrases).Phrase.Source);
+            Assert.All(vm.LivePhrases, item => Assert.Equal("等待中文…", item.Phrase.Translation));
+
+            vm.History = [new(segment with { PhraseTranslations = translations[..20] })]; vm.ResumeFollowingCommand.Execute(null);
+            control.UpdateLayout(); overlay.UpdateLayout();
+            var latest = vm.LivePhrases[19].Phrase;
+            Assert.Equal((sources[19], translations[19].Translation), (latest.Source, latest.Translation));
+            Assert.Equal(latest, vm.OverlayPhrases[^2].Phrase);
+            Assert.Null(vm.OverlayPhrases[^1].Phrase.Chinese);
+            var phrases = overlay.FindControl<ItemsControl>("PhraseList")!;
+            var scroll = overlay.FindControl<ScrollViewer>("SubtitleScroll")!;
+            // 跟随在布局结束时设置滚动偏移，等待下一帧将偏移应用到正文控件。
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            overlay.UpdateLayout();
+            var pair = phrases.ContainerFromIndex(19)!;
+            var top = pair.TranslatePoint(default, scroll)!.Value.Y;
+            Assert.InRange(top, -1, scroll.Viewport.Height - pair.Bounds.Height + 1);
+            var texts = pair.GetVisualDescendants().OfType<TextBlock>().Where(text => text.IsEffectivelyVisible).Select(text => text.Text).ToArray();
+            Assert.Equal(new[] { latest.Source, latest.Translation, latest.StatusText }, texts);
+            var list = control.FindControl<ListBox>("HistoryList")!;
+            Assert.True(list.Scroll!.Offset.Y > 0);
+            var hit = list.TranslatePoint(new Point(30, 40), control)!.Value;
+            control.MouseWheel(hit, new Vector(0, 4)); control.UpdateLayout();
+            Assert.True(vm.ReviewingTranscript); Assert.True(vm.FollowLatest);
+            var reviewed = list.Scroll.Offset.Y;
+
+            vm.History = [new(segment with { PhraseTranslations = translations[..30] })];
+            control.UpdateLayout();
+            Assert.Equal(reviewed, list.Scroll.Offset.Y, 1);
+            vm.ResumeReadingCommand.Execute(null); control.UpdateLayout(); overlay.UpdateLayout();
+            Assert.False(vm.ReviewingTranscript); Assert.True(list.Scroll.Offset.Y > reviewed);
+            Assert.Equal(sources[29], vm.OverlayPhrases[^2].Phrase.Source);
+            vm.DisplayModeIndex = 2;
+            Assert.Equal(sources[^1], vm.OverlayPhrases[^1].Phrase.Source);
+        }
+        finally { overlay.Close(); control.Close(); }
+    }
+
+    /// <summary>鼠标停在当前会话行上时，音频状态和其他短句的回填不会重建悬停行或收起详情。</summary>
+    /// <returns>真实视图接收会话更新的验证任务。</returns>
+    [AvaloniaFact]
+    public async Task HoveredTranscriptRowKeepsItsVisualsAcrossAudioAndTranslationUpdates()
+    {
+        var session = new FakeSession();
+        var vm = new DesktopViewModel(session, new FakeStore(), action => action());
+        await vm.InitializeAsync(); await vm.ToggleCommand.ExecuteAsync(null);
+        var identity = new PipelineIdentity(vm.SessionId, 1, 1, 1);
+        var segment = new SubtitleSegment(new(Guid.NewGuid(), 1), new(0, 16000), 1, 2, "第一句。第二句。",
+            null, null, SubtitlePhase.Revised, TranslationState.Pending, null, BoundaryDecision.Pending)
+        { PhraseTranslations = [new("第一句。", "第一条译文")] };
+        var snapshot = new SubtitleSnapshot(identity, 2, false, [segment], []);
+        session.Publish(new(vm.SessionId, 1, snapshot, "运行中", 0, true));
+        var control = new ControlWindow { DataContext = vm };
+        try
+        {
+            control.Show(); control.UpdateLayout();
+            var list = control.FindControl<ListBox>("HistoryList")!;
+            var item = (ListBoxItem)list.ContainerFromIndex(0)!;
+            var detail = item.GetVisualDescendants().OfType<Expander>().Single();
+            detail.IsExpanded = true; control.UpdateLayout();
+            var hit = item.TranslatePoint(new Point(25, 25), control)!.Value;
+            control.MouseMove(hit); control.UpdateLayout();
+            Assert.True(item.IsPointerOver);
+            var changes = 0;
+            vm.LivePhrases.CollectionChanged += (_, _) => changes++;
+            session.Publish(new(vm.SessionId, 2, snapshot, "运行中", 1, true));
+            segment = segment with { SubtitleRevision = 3, PhraseTranslations = [.. segment.PhraseTranslations, new("第二句。", "第二条译文")] };
+            session.Publish(new(vm.SessionId, 3, snapshot with { StateSequence = 3, Segments = [segment] }, "运行中", 0, true));
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs(); control.UpdateLayout();
+            Assert.Same(item, list.ContainerFromIndex(0));
+            Assert.Same(detail, item.GetVisualDescendants().OfType<Expander>().Single());
+            Assert.True(item.IsPointerOver); Assert.True(detail.IsExpanded);
+            Assert.Equal(0, changes);
+            Assert.Contains("字幕 v3", ((TextBlock)detail.Content!).Text);
+            Assert.Contains(list.ContainerFromIndex(1)!.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "第二条译文");
+        }
+        finally { control.Close(); await vm.CloseAsync(); }
     }
 
     /// <summary>控制窗和浮窗语言选择同步更新既有文本可见性，历史与待译提示仍保留。</summary>

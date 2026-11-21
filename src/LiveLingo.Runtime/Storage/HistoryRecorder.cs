@@ -1,4 +1,6 @@
 using System.Collections.Immutable;
+using System.Globalization;
+using LiveLingo.Core.Audio;
 using LiveLingo.Core.History;
 using LiveLingo.Core.Subtitles;
 
@@ -13,6 +15,8 @@ internal sealed class HistoryRecorder : IHistoryRecorder
     private readonly object gate = new();
     private readonly Dictionary<long, SubtitleSnapshot> latest = [];
     private readonly HashSet<long> dirty = [];
+    private readonly HashSet<(long Epoch, SampleRange Range)> backlogGaps = [];
+    private const int MaximumBacklogGaps = 128;
     private Task writer = Task.CompletedTask;
     private HistorySaveStatus status;
     private long version;
@@ -25,6 +29,7 @@ internal sealed class HistoryRecorder : IHistoryRecorder
     private bool deleted;
     private bool failed;
     private bool writing;
+    private bool additionalGaps;
 
     /// <summary>建立只保留内存状态的会话记录器，首次快照或结束时才启动写入。</summary>
     /// <param name="store">串行文件存储。</param><param name="info">固定会话信息。</param><param name="time">结束时间来源。</param>
@@ -74,6 +79,24 @@ internal sealed class HistoryRecorder : IHistoryRecorder
                 // 保存失败后仅更新有界内存快照，由用户明确重试，避免持续访问故障磁盘。
                 if (!failed) notification = StartWriterLocked();
             }
+        }
+        if (notification is not null) Publish(notification);
+    }
+
+    /// <inheritdoc />
+    public void RecordBacklogGap(long captureEpoch, SampleRange range)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(captureEpoch);
+        if (range.Length == 0) return;
+        HistorySaveStatus? notification = null;
+        lock (gate)
+        {
+            if (deleted || endedAt is not null || backlogGaps.Contains((captureEpoch, range))) return;
+            if (backlogGaps.Count < MaximumBacklogGaps) backlogGaps.Add((captureEpoch, range));
+            else if (!additionalGaps) additionalGaps = true;
+            else return;
+            version++;
+            if (!failed) notification = StartWriterLocked();
         }
         if (notification is not null) Publish(notification);
     }
@@ -210,7 +233,19 @@ internal sealed class HistoryRecorder : IHistoryRecorder
         endedAt is null ? HistorySessionState.Recording : partialError is not null ? HistorySessionState.PartiallySaved :
             endError is null ? HistorySessionState.Completed : HistorySessionState.Interrupted,
         latest.Values.Sum(x => x.Segments.Count(segment => !x.RetiredIds.Contains(segment.Key.Id) && !string.IsNullOrWhiteSpace(segment.Source))),
-        ErrorLocked() ?? endError) { LastSavedAt = lastSavedAt };
+        SummaryNoticeLocked()) { LastSavedAt = lastSavedAt };
+
+    /// <summary>汇集保存错误、会话错误及有界缺口提示，缺口本身不视为保存故障。</summary><returns>无提示时为空，否则返回摘要提示。</returns>
+    private string? SummaryNoticeLocked()
+    {
+        var notices = new List<string>();
+        if (ErrorLocked() is { } saveNotice) notices.Add(saveNotice);
+        if (endError is { } sessionNotice) notices.Add(sessionNotice);
+        foreach (var (epoch, range) in backlogGaps.OrderBy(x => x.Epoch).ThenBy(x => x.Range.Start).ThenBy(x => x.Range.End))
+            notices.Add($"未识别：采集片段 {epoch}，{(range.Start / 16000m).ToString("0.#######", CultureInfo.InvariantCulture)}–{(range.End / 16000m).ToString("0.#######", CultureInfo.InvariantCulture)} 秒（相对本片段，终点不含）。");
+        if (additionalGaps) notices.Add("另有未识别时段未逐一列出。");
+        return notices.Count == 0 ? null : string.Join(" ", notices);
+    }
 
     /// <summary>将不可恢复的内容缺失与可重试的磁盘错误分开保留，保存成功不能掩盖缺失。</summary><returns>当前持久化错误。</returns>
     private string? ErrorLocked() => partialError is null ? saveError : saveError is null ? partialError : partialError + " " + saveError;

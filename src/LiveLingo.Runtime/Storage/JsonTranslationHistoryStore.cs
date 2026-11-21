@@ -287,7 +287,9 @@ public sealed class JsonTranslationHistoryStore(string dataPath, TimeProvider? t
 
     /// <summary>将失去本进程记录器的未结束会话显示为中断，不启动任何模型。</summary><param name="summary">磁盘摘要。</param><returns>恢复状态。</returns>
     private static HistorySessionSummary Recover(HistorySessionSummary summary) => summary.State == HistorySessionState.Recording
-        ? summary with { State = HistorySessionState.Interrupted, Error = summary.Error ?? "上次运行未正常结束，显示最后成功保存的内容。" } : summary;
+        ? summary with { State = HistorySessionState.Interrupted, Error = string.IsNullOrEmpty(summary.Error)
+            ? "上次运行未正常结束，显示最后成功保存的内容。"
+            : summary.Error + " 上次运行未正常结束，显示最后成功保存的内容。" } : summary;
 
     /// <summary>写入与正文对应的轻量摘要并记录本次保存时间。</summary><param name="summary">摘要。</param><param name="token">取消提交。</param><returns>本次成功提交的保存时间。</returns>
     private async Task<DateTimeOffset> WriteSummaryAsync(HistorySessionSummary summary, CancellationToken token)

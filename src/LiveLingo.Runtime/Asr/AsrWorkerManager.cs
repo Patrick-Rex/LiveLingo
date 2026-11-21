@@ -68,17 +68,16 @@ public sealed class AsrWorkerManager : IAsyncDisposable
             if (audioIdentity is null) { audioIdentity = identity; uploadedEnd = retainedStart = window.Range.Start; }
             else if (window.Range.Start < retainedStart)
             {
-                if (options.AlignmentRecoverySamples == 0 || window.Range.Length <= options.MaximumWindowSamples)
+                var shorterProbe = window.Range.End < uploadedEnd && window.Range.Length <= options.MaximumWindowSamples;
+                if (!shorterProbe && (options.AlignmentRecoverySamples == 0 || window.Range.Length <= options.MaximumWindowSamples))
                     throw new InvalidOperationException("worker_expansion_not_enabled");
-                if (window.Range.End < uploadedEnd) throw new InvalidOperationException("worker_window_discontinuity");
                 await client.ResetAudioAsync(identity, window.Range.Start, deadline.Token).ConfigureAwait(false);
                 uploadedEnd = retainedStart = window.Range.Start;
             }
             else
             {
-                if (window.Range.End < uploadedEnd) throw new InvalidOperationException("worker_window_discontinuity");
                 await client.ReleaseBeforeAsync(identity, Math.Min(window.Range.Start, uploadedEnd), deadline.Token).ConfigureAwait(false);
-                // 已释放的模型缓存可以从下一有效块重建；宿主仍独立记录中间静音及完整来源。
+                // 连接窗口可以完全位于已上传的缓存内；读取它不回退模型副本的上传终点。
                 uploadedEnd = Math.Max(uploadedEnd, window.Range.Start);
                 retainedStart = window.Range.Start;
             }

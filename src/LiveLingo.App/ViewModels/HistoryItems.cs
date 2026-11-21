@@ -27,7 +27,6 @@ public sealed partial class HistorySessionItem(HistorySessionSummary summary, Ac
 /// <param name="entry">固定历史条目。</param><param name="selectionChanged">刷新选择计数。</param>
 public sealed partial class HistoryEntryItem(HistoryEntry entry, Action selectionChanged) : ObservableObject
 {
-    private readonly SubtitleRow row = new(entry.Segment);
     /// <summary>获取固定历史条目。</summary>
     public HistoryEntry Entry { get; } = entry;
     /// <summary>获取原文。</summary>
@@ -35,7 +34,7 @@ public sealed partial class HistoryEntryItem(HistoryEntry entry, Action selectio
     /// <summary>获取译文或明确的未完成提示。</summary>
     public string Translation => Entry.Segment.Translation ?? "尚无译文";
     /// <summary>获取不隐藏版本不匹配的简短状态。</summary>
-    public string StatusText => row.StatusText;
+    public string StatusText => SubtitleRow.GetStatusText(Entry.Segment);
     /// <summary>获取版本与采集代次诊断。</summary>
     public string Detail => $"采集段 {Entry.CaptureEpoch} · 原文 v{Entry.Segment.SourceRevision} / 字幕 v{Entry.Segment.SubtitleRevision}" +
         (Entry.Segment.Error is { } error ? " · " + error : "");

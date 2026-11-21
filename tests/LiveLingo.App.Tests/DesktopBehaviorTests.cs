@@ -230,6 +230,58 @@ public sealed class DesktopBehaviorTests
         await vm.CloseAsync(); session.Publish(new(vm.SessionId, 3, null, "late", 0, true)); Assert.Empty(queue);
     }
 
+    /// <summary>只有状态与积压变化时复用字幕投影，新会话可从相同序号开始。</summary>
+    /// <returns>会话切换与字幕投影验证任务。</returns>
+    [Fact]
+    public async Task UnchangedSubtitleSequenceUpdatesStatusWithoutReplacingRows()
+    {
+        var session = new FakeSession();
+        var vm = new DesktopViewModel(session, new FakeStore(), action => action());
+        await vm.InitializeAsync(); await vm.ToggleCommand.ExecuteAsync(null);
+        var snapshot = new SubtitleSnapshot(new(vm.SessionId, 1, 1, 1), 1, false, [Segment()], []);
+        session.Publish(new(vm.SessionId, 1, snapshot, "第一次识别", 0, true));
+        var history = vm.History;
+        session.Publish(new(vm.SessionId, 2, snapshot, "等待音频", 3, true));
+        Assert.Same(history, vm.History);
+        Assert.Equal("等待音频", vm.Status);
+        Assert.Contains("3", vm.Backlog);
+        await vm.ToggleCommand.ExecuteAsync(null); await vm.ToggleCommand.ExecuteAsync(null);
+        var replacement = Segment();
+        session.Publish(new(vm.SessionId, 1, new(new(vm.SessionId, 1, 1, 1), 1, false, [replacement], []), "新会话", 0, true));
+        Assert.Equal(replacement.Key, Assert.Single(vm.LivePhrases).Phrase.Key);
+        await vm.CloseAsync();
+    }
+
+    /// <summary>会话停止时保留定稿和未定稿正文，终止等待提示而不改写历史语义。</summary>
+    /// <param name="newFinalSnapshot">停止通知是否同时到达新的字幕。</param><returns>启停状态与两个实时入口的验证任务。</returns>
+    [Theory, InlineData(false), InlineData(true)]
+    public async Task StoppingKeepsSubtitlesAndEndsLiveReadingStates(bool newFinalSnapshot)
+    {
+        var session = new FakeSession();
+        var vm = new DesktopViewModel(session, new FakeStore(), action => action());
+        await vm.InitializeAsync(); await vm.ToggleCommand.ExecuteAsync(null);
+        var final = Segment() with { Phase = SubtitlePhase.Final };
+        var partial = Segment() with
+        {
+            Source = "一句。二句。", Translation = "一句译文", TranslatedSourceRevision = null,
+            Phase = SubtitlePhase.Revised, TranslationState = TranslationState.Pending, PhraseTranslations = [new("一句。", "一句译文")]
+        };
+        var snapshot = new SubtitleSnapshot(new(vm.SessionId, 1, 1, 1), 1, false, [final, partial], []);
+        session.Publish(new(vm.SessionId, 1, newFinalSnapshot ? snapshot with { Segments = [final] } : snapshot, "运行中", 0, true));
+        session.Publish(new(vm.SessionId, 2, snapshot with { StateSequence = newFinalSnapshot ? 2 : 1, Stopped = true }, "已停止", 0, false));
+        Assert.False(vm.Active);
+        var statuses = new[] { "已定稿", "已停止 · 未定稿", "已停止 · 翻译未完成" };
+        Assert.Equal(statuses, vm.LivePhrases.Select(item => item.StatusText));
+        Assert.Equal(statuses, vm.OverlayPhrases.Select(item => item.StatusText));
+        Assert.Equal(new[] { final.Translation, "一句译文", "尚无译文" }, vm.OverlayPhrases.Select(item => item.Translation));
+        Assert.Same(partial, vm.History[1].Segment);
+        Assert.Equal("更新中 · 中文待更新", new HistoryEntryItem(new(1, partial), () => { }).StatusText);
+        await vm.ToggleCommand.ExecuteAsync(null);
+        session.Publish(new(vm.SessionId, 1, snapshot with { Identity = new(vm.SessionId, 1, 1, 1) }, "新会话", 0, true));
+        Assert.Equal("等待中文…", vm.OverlayPhrases[^1].Translation);
+        await vm.CloseAsync();
+    }
+
     /// <summary>启动正在等待时，重复请求不会另建会话；停止与下一次启动使用不同身份。</summary><returns>竞态测试。</returns>
     [Fact]
     public async Task CommandsDoNotStartTwoSessions()

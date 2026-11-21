@@ -50,7 +50,7 @@ public sealed class BoundedWorkQueue
     {
         if (Stopped) return Reject("stopped");
         if (work.Request.Kind != kind || work.Request.Id == Guid.Empty || work.Request.Sequence <= 0 ||
-            work.UnprocessedRange.Length == 0 || !work.Request.Range.Contains(work.UnprocessedRange))
+            work.Request.Range.Length == 0 || !work.Request.Range.Contains(work.UnprocessedRange))
             return Reject("invalid_work");
         if (AllWork().Any(x => x.Request.Id == work.Request.Id)) return Reject("duplicate_request");
         if (closed.Any(x => x.Request.Segment.Id == work.Request.Segment.Id)) return Reject("already_closed");
@@ -88,6 +88,21 @@ public sealed class BoundedWorkQueue
 
     /// <summary>代次失效时撤销排队工作，保留实际在途配额直到完成确认。</summary>
     public void InvalidatePending() { pending = null; closed.Clear(); }
+
+    /// <summary>撤回已被新原文清空或完全复用的开放任务，保留其他闭合范围。</summary>
+    /// <param name="segment">不再需要排队的块及代次。</param>
+    internal void DiscardOpen(SegmentKey segment)
+    {
+        if (pending?.Request.Segment == segment) pending = null;
+    }
+
+    /// <summary>从待识别工作量中扣除已接受的音频，仍保留模型需要的完整逻辑范围。</summary>
+    /// <param name="end">权威快照已覆盖的音频终点。</param>
+    internal void AcknowledgeThrough(long end)
+    {
+        if (pending is { } work && end > work.UnprocessedRange.Start)
+            pending = work with { UnprocessedRange = new(Math.Min(end, work.UnprocessedRange.End), work.UnprocessedRange.End) };
+    }
 
     /// <summary>建立停止屏障，并撤销尚未执行的工作。</summary>
     public void Stop() { Stopped = true; InvalidatePending(); }

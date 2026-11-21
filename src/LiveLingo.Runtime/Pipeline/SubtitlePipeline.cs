@@ -59,10 +59,13 @@ public sealed class SubtitlePipeline
     private long nextRequest, snapshotSequence, recognizedEnd, recognitionCalls, translationCalls;
     private long lastOfferedEnd, releaseBefore, observedEnd;
     private long failedRecognitionEnd = -1;
+    private long audioEndAtDispatch, audioEndAtFailure, quietCandidateEnd;
+    private bool triedShorterWindow, canExpandAfterFailure;
     private string status = "starting";
     private double lastComputeSeconds;
     private bool used;
     private bool previousRightContext;
+    private bool recognizeBeforeNextPhrase;
     private string? recognitionIssue;
     private readonly float[] rightContextSamples = new float[8000];
     private int rightContextPosition, rightContextCount;
@@ -97,8 +100,11 @@ public sealed class SubtitlePipeline
         await using var enumerator = input.GetAsyncEnumerator(lifetime.Token);
         Task<bool>? incoming = null;
         Task<ModelCompletion>? computing = null;
+        Task? resetting = null;
         CancellationTokenSource? computationStop = null;
         var eof = false;
+        var inputEpoch = reducer.Identity.CaptureEpoch;
+        long inputOrigin = 0;
         try
         {
             await models.ResetAsync(reducer.Identity, selection, lifetime.Token).ConfigureAwait(false);
@@ -107,11 +113,22 @@ public sealed class SubtitlePipeline
             {
                 lifetime.Token.ThrowIfCancellationRequested();
                 if (!eof && incoming is null) incoming = enumerator.MoveNextAsync().AsTask();
+                if (resetting?.IsCompleted == true)
+                {
+                    var ready = resetting;
+                    resetting = null;
+                    await ready.ConfigureAwait(false);
+                    computationStop!.Dispose(); computationStop = null;
+                    FinishModelReset();
+                    Emit();
+                }
                 if (computing?.IsCompleted == true)
                 {
                     var completion = await computing.ConfigureAwait(false);
-                    computing = null; computationStop!.Dispose(); computationStop = null;
-                    await ApplyCompletionAsync(completion, lifetime.Token).ConfigureAwait(false);
+                    computing = null;
+                    if (ApplyCompletion(completion))
+                        resetting = BeginModelResetAsync(reducer.Identity with { WorkerEpoch = reducer.Identity.WorkerEpoch + 1 }, computationStop!.Token);
+                    else { computationStop!.Dispose(); computationStop = null; }
                     OfferRecognition(force: eof);
                 }
                 if (incoming?.IsCompleted == true)
@@ -119,19 +136,46 @@ public sealed class SubtitlePipeline
                     if (await incoming.ConfigureAwait(false))
                     {
                         var item = enumerator.Current;
-                        if (item is PipelineAudio audio) Append(audio);
-                        else
+                        if (item is PipelineAudio packet)
+                        {
+                            var audio = packet.Audio;
+                            if (packet.CaptureEpoch != inputEpoch || audio.Range.Start != checked(inputOrigin + store.End) ||
+                                audio.Range.Length != audio.Samples.Length) throw new InvalidDataException("capture_identity_or_continuity");
+                            var end = audio.Range.End - inputOrigin;
+                            if (options.ResumeLiveAfterBacklog && end - recognizedEnd >= options.MaximumBacklogSamples)
+                            {
+                                observedEnd = end;
+                                inputOrigin = audio.Range.End;
+                                item = new PipelineCaptureReset(checked(reducer.Identity.CaptureEpoch + 1), "audio_backlog_capacity");
+                            }
+                            else Append(audio.Samples);
+                        }
+                        else if (item is PipelineCaptureReset reset)
+                        {
+                            if (reset.CaptureEpoch <= inputEpoch) throw new InvalidDataException("capture_reset_identity_or_capacity");
+                            var epoch = checked(reducer.Identity.CaptureEpoch + (reset.CaptureEpoch - inputEpoch));
+                            inputEpoch = reset.CaptureEpoch;
+                            inputOrigin = 0;
+                            item = reset with { CaptureEpoch = epoch };
+                        }
+                        if (item is not PipelineAudio)
                         {
                             computationStop?.Cancel();
                             if (computing is not null) { RecordOperation(await computing.ConfigureAwait(false), "control_invalidated"); computing = null; }
-                            computationStop?.Dispose(); computationStop = null;
-                            await ApplyControlAsync(item, lifetime.Token).ConfigureAwait(false);
+                            if (resetting is not null)
+                            {
+                                await AwaitCancelledResetAsync(resetting, computationStop!.Token).ConfigureAwait(false);
+                                resetting = null;
+                            }
+                            computationStop?.Dispose();
+                            computationStop = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+                            resetting = ApplyControlAsync(item, computationStop.Token);
                         }
                     }
                     else { eof = true; OfferRecognition(force: true); }
                     incoming = null;
                 }
-                if (computing is null)
+                if (computing is null && resetting is null)
                 {
                     var work = TakeNext();
                     if (work is not null)
@@ -140,11 +184,12 @@ public sealed class SubtitlePipeline
                         computing = ComputeAsync(work, computationStop.Token);
                     }
                 }
-                if (eof && computing is null) break;
+                if (eof && computing is null && resetting is null) break;
                 if (incoming is null && !eof) continue;
                 var waits = new List<Task>(2);
                 if (incoming is not null) waits.Add(incoming);
                 if (computing is not null) waits.Add(computing);
+                if (resetting is not null) waits.Add(resetting);
                 if (waits.Count != 0) await Task.WhenAny(waits).WaitAsync(lifetime.Token).ConfigureAwait(false);
             }
             status = recognitionIssue ?? (reducer.Snapshot().Segments.Any(x => x.TranslationState == TranslationState.Failed)
@@ -167,6 +212,11 @@ public sealed class SubtitlePipeline
                     try { RecordOperation(stoppedResult, "session_stopped"); }
                     catch (Exception error) { status = "diagnostic_failed:" + error.GetType().Name; }
                 }
+                if (resetting is not null)
+                {
+                    try { await AwaitCancelledResetAsync(resetting, computationStop!.Token).ConfigureAwait(false); }
+                    catch (Exception error) { status = "model_cleanup_failed:" + error.GetType().Name; }
+                }
                 if (incoming is not null) try { await incoming.ConfigureAwait(false); } catch (Exception) { }
             }
             finally
@@ -182,28 +232,29 @@ public sealed class SubtitlePipeline
     }
 
     /// <summary>追加完整音频，保护当前未闭合块和闭合待翻译块，超限明确停止。</summary>
-    /// <param name="input">连续来源采样。</param>
-    private void Append(PipelineAudio input)
+    /// <param name="samples">已经验证身份和连续性的输入采样。</param>
+    private void Append(float[] samples)
     {
-        if (input.CaptureEpoch != reducer.Identity.CaptureEpoch || input.Audio.Range.Start != store.End || input.Audio.Range.Length != input.Audio.Samples.Length)
-            throw new InvalidDataException("capture_identity_or_continuity");
-        if (input.Audio.Samples.Length == 0) return;
-        observedEnd = input.Audio.Range.End;
-        var quietTail = ObserveRightContext(input.Audio.Samples);
+        if (samples.Length == 0) return;
+        var start = store.End;
+        observedEnd = checked(start + samples.Length);
+        var quietTail = ObserveRightContext(samples);
         try
         {
-            for (var offset = 0; offset < input.Audio.Samples.Length; offset += 16000)
-                store.Append(input.Audio.Range.Start + offset, input.Audio.Samples.AsSpan(offset, Math.Min(16000, input.Audio.Samples.Length - offset)));
+            for (var offset = 0; offset < samples.Length; offset += 16000)
+                store.Append(start + offset, samples.AsSpan(offset, Math.Min(16000, samples.Length - offset)));
         }
         catch (InvalidOperationException) { throw new PipelinePressureException("audio_storage_pressure"); }
         if (store.End - recognizedEnd > options.MaximumBacklogSamples) throw new PipelinePressureException("audio_backlog_capacity");
         if (openSegment is null)
         {
-            if (input.Audio.Samples.All(x => x == 0)) { recognizedEnd = store.End; Reclaim(); Emit(); return; }
-            openSegment = Guid.NewGuid(); reducer.Add(openSegment.Value, new(input.Audio.Range.Start, input.Audio.Range.Start));
-            hypothesis = null; stableObservations = 0; lastOfferedEnd = input.Audio.Range.Start;
+            if (samples.All(x => x == 0)) { recognizedEnd = store.End; Reclaim(); Emit(); return; }
+            openSegment = Guid.NewGuid(); reducer.Add(openSegment.Value, new(start, start));
+            hypothesis = null; stableObservations = 0; lastOfferedEnd = start;
         }
-        OfferRecognition(quietTail && store.End - lastOfferedEnd >= 8000);
+        var quietRefresh = quietTail && store.End - lastOfferedEnd >= 8000;
+        if (quietRefresh) quietCandidateEnd = store.End;
+        OfferRecognition(quietRefresh);
         Reclaim(); Emit();
     }
 
@@ -214,22 +265,49 @@ public sealed class SubtitlePipeline
         if (recognitionQueue.Pending?.RecoveryWindowSamples > 0 || recognitionQueue.Running?.RecoveryWindowSamples > 0) return;
         if (openSegment is null || store.End <= lastOfferedEnd || !force && store.End - lastOfferedEnd < options.RefreshSamples) return;
         var segment = Segment(openSegment.Value);
-        var reachableEnd = Math.Min(store.End, (hypothesis?.Range.End ?? segment.Range.Start) +
-            (hypothesis is null ? options.MaximumWindowSamples : Math.Max(options.RefreshSamples, options.MaximumWindowSamples / 2)));
-        if (reachableEnd <= failedRecognitionEnd) return;
+        var acceptedEnd = hypothesis?.Range.End ?? segment.Range.Start;
+        var advance = hypothesis is null ? options.MaximumWindowSamples : Math.Max(options.RefreshSamples, options.MaximumWindowSamples / 2);
+        var reachableEnd = Math.Min(store.End, acceptedEnd + advance);
+        var offeredEnd = failedRecognitionEnd < 0 ? store.End : reachableEnd;
+        var recoveryWindow = 0;
+        if (reachableEnd <= failedRecognitionEnd)
+        {
+            if (recognitionQueue.Running is not null || recognitionQueue.Pending is not null ||
+                store.End - audioEndAtFailure < options.RefreshSamples) return;
+            if (!triedShorterWindow && acceptedEnd + options.RefreshSamples < failedRecognitionEnd)
+            {
+                // 先靠近上个可信终点：更长的旧音频重叠也可能重新覆盖原始锚点。
+                offeredEnd = acceptedEnd + options.RefreshSamples;
+                triedShorterWindow = true;
+            }
+            else
+            {
+                // 新终点至少保留一次刷新量的真实音频重叠；无可验证重叠时保留积压。
+                var maximum = canExpandAfterFailure ? options.MaximumLeaseSamples : options.MaximumWindowSamples;
+                var overlap = Math.Min(options.RefreshSamples, options.MaximumWindowSamples / 2);
+                offeredEnd = Math.Min(store.End, acceptedEnd + maximum - overlap);
+                if (hypothesis is null || offeredEnd <= failedRecognitionEnd) return;
+                if (offeredEnd - acceptedEnd > options.MaximumWindowSamples - overlap)
+                    recoveryWindow = offeredEnd - acceptedEnd <= 960000 - overlap ? 960000 : 1920000;
+            }
+        }
         var request = new PipelineRequest(Guid.NewGuid(), ++nextRequest, PipelineRequestKind.Recognition, reducer.Identity,
-            segment.Key, new(segment.Range.Start, store.End), segment.SourceRevision);
-        if (!recognitionQueue.Offer(new(request, request.Range, false, Stopwatch.GetTimestamp()))) throw new PipelinePressureException(recognitionQueue.Rejection!);
-        lastOfferedEnd = store.End;
+            segment.Key, new(segment.Range.Start, offeredEnd), segment.SourceRevision);
+        var unprocessed = new SampleRange(Math.Clamp(recognizedEnd, segment.Range.Start, offeredEnd), offeredEnd);
+        if (!recognitionQueue.Offer(new(request, unprocessed, false, Stopwatch.GetTimestamp(), recoveryWindow))) throw new PipelinePressureException(recognitionQueue.Rejection!);
+        lastOfferedEnd = offeredEnd;
     }
 
-    /// <summary>闭合译文优先，其次最新完整块译文，之后进行下一次识别。</summary>
+    /// <summary>优先保留闭合译文；开放块两句翻译之间允许已到期的识别及时修订尾部。</summary>
     /// <returns>尚未登记到归约器的工作。</returns>
     private ScheduledWork? TakeNext()
     {
-        var translation = translationQueue.Take();
-        if (translation is not null) return translation;
-        return recognitionQueue.Take();
+        if (recognizeBeforeNextPhrase)
+        {
+            recognizeBeforeNextPhrase = false;
+            if (translationQueue.ClosedCount == 0 && recognitionQueue.Take() is { } recognition) return recognition;
+        }
+        return translationQueue.Take() ?? recognitionQueue.Take();
     }
 
     /// <summary>执行一次模型操作，窗口租约在底层计算实际结束后释放。</summary>
@@ -247,19 +325,26 @@ public sealed class SubtitlePipeline
             {
                 var previousEnd = hypothesis?.Range.End ?? work.Request.Range.Start;
                 var advance = hypothesis is null ? options.MaximumWindowSamples : Math.Max(options.RefreshSamples, options.MaximumWindowSamples / 2);
-                var actualEnd = Math.Min(work.Request.Range.End, previousEnd + advance);
+                var actualEnd = failedRecognitionEnd < 0 ? Math.Min(work.Request.Range.End, previousEnd + advance) : work.Request.Range.End;
+                if (failedRecognitionEnd < 0 && quietCandidateEnd > previousEnd && quietCandidateEnd <= actualEnd)
+                    actualEnd = quietCandidateEnd;
+                if (quietCandidateEnd <= actualEnd) quietCandidateEnd = 0;
                 if (actualEnd < work.Request.Range.End)
                 {
-                    work = work with { Request = work.Request with { Range = new(work.Request.Range.Start, actualEnd) } };
+                    work = work with { Request = work.Request with { Range = new(work.Request.Range.Start, actualEnd) },
+                        UnprocessedRange = new(Math.Min(work.UnprocessedRange.Start, actualEnd), actualEnd) };
                     lastOfferedEnd = actualEnd;
                 }
             }
             if (!reducer.Register(work.Request)) return new(work, null, null, "stale_before_dispatch", 0, false, queued);
             if (work.Request.Kind == PipelineRequestKind.Translation)
             {
-                var input = new TranslationInput(work.Request, Segment(work.Request.Segment.Id).Source);
+                var segment = Segment(work.Request.Segment.Id);
+                var phrases = SubtitlePhrases.Split(segment.Source);
+                var input = new TranslationInput(work.Request, phrases[segment.PhraseTranslations.Length]);
                 translationCalls++; counted = true;
                 var result = await gpu.RunAsync(token => models.TranslateAsync(input, token), cancellationToken).ConfigureAwait(false);
+                if (result.Input != input) throw new InvalidDataException("translation_correlation_mismatch");
                 return new(work, null, result, null, Stopwatch.GetElapsedTime(started).TotalSeconds, false, queued, counted);
             }
             var end = work.Request.Range.End;
@@ -270,6 +355,7 @@ public sealed class SubtitlePipeline
             var request = new AsrRequest(work.Request, windowRange, windowRange.Start, selection.AsrLanguage,
                 work.RecoveryWindowSamples == 0 ? 512 : 512 * (windowSamples / 480000));
             recognitionRequest = request;
+            audioEndAtDispatch = store.End;
             recognitionCalls++; counted = true;
             var response = await gpu.RunAsync(token => models.RecognizeAsync(request, window, token), cancellationToken).ConfigureAwait(false);
             if (response.Correlation != request) throw new InvalidDataException("recognition_correlation_mismatch");
@@ -284,8 +370,8 @@ public sealed class SubtitlePipeline
     }
 
     /// <summary>在事件循环提交模型结果；旧身份始终由归约器再检查。</summary>
-    /// <param name="result">已退出的计算。</param><param name="cancellationToken">恢复取消。</param><returns>必要恢复完成后的任务。</returns>
-    private async Task ApplyCompletionAsync(ModelCompletion result, CancellationToken cancellationToken)
+    /// <param name="result">已退出的计算。</param><returns>模型失败且仍可使用恢复预算时为 true。</returns>
+    private bool ApplyCompletion(ModelCompletion result)
     {
         var ticket = result.Work.Request;
         var queue = ticket.Kind == PipelineRequestKind.Recognition ? recognitionQueue : translationQueue;
@@ -303,20 +389,33 @@ public sealed class SubtitlePipeline
                     Emit();
                     if (++recoveries > 3) throw new PipelinePressureException(result.Error.StartsWith("http_", StringComparison.Ordinal)
                         ? "model_recovery_budget:" + result.Error : "model_recovery_budget");
-                    await ResetModelsAsync(reducer.Identity with { WorkerEpoch = reducer.Identity.WorkerEpoch + 1 }, selection, cancellationToken).ConfigureAwait(false);
+                    return true;
                 }
             }
             else if (result.Translation is { } translated)
             {
-                if (translated.Input.Ticket != ticket) throw new InvalidDataException("translation_correlation_mismatch");
-                disposition = reducer.AcceptTranslation(ticket, translated.Text, translated.Complete) ? "accepted" : "rejected:" + reducer.LastRejection;
+                if (translated.Complete && !string.IsNullOrWhiteSpace(translated.Text))
+                {
+                    var accepted = reducer.AcceptPhraseTranslation(ticket, new(translated.Input.Source, translated.Text));
+                    disposition = accepted ? "accepted" : "rejected:" + reducer.LastRejection;
+                    if (accepted && Segment(ticket.Segment.Id) is { TranslationState: TranslationState.Pending } segment)
+                    {
+                        QueueTranslation(segment, result.Work.Closed, result.Work.UnprocessedRange);
+                        recognizeBeforeNextPhrase = !result.Work.Closed;
+                    }
+                }
+                else
+                {
+                    reducer.AcceptTranslation(ticket, translated.Text, false);
+                    disposition = "rejected:" + reducer.LastRejection;
+                }
             }
             else if (result.Recognition is { } recognized)
             {
                 var current = new TranscriptionHypothesis(recognized.Correlation!.WindowRange, recognized.Text!);
                 var alignment = hypothesis is null ? new AlignmentDecision(true, current, 0, "initial") : HypothesisAlignment.Compare(hypothesis, current);
                 if (recognized.Complete == true && alignment.Accepted && hypothesis is not null &&
-                    options.PreserveObservedRepetitions && result.Work.RecoveryWindowSamples > 0 &&
+                    options.PreserveObservedRepetitions && (result.Work.RecoveryWindowSamples > 0 || failedRecognitionEnd >= 0) &&
                     HypothesisAlignment.HasReducedObservedRepetition(hypothesis.Text, alignment.Hypothesis!.Text))
                     alignment = new(false, null, 0, "observed_repetition_reduced");
                 if (recognized.Complete != true || !alignment.Accepted)
@@ -324,13 +423,17 @@ public sealed class SubtitlePipeline
                     recognitionIssue = recognized.Complete != true ? "recognition_incomplete" : alignment.Reason;
                     disposition = "rejected:" + recognitionIssue;
                     publishRejection?.Invoke(new(ticket, hypothesis, current, recognitionIssue));
-                    failedRecognitionEnd = ticket.Range.End;
+                    if (result.Work.RecoveryWindowSamples == 0 || ticket.Range.End > failedRecognitionEnd)
+                        audioEndAtFailure = audioEndAtDispatch;
+                    failedRecognitionEnd = Math.Max(failedRecognitionEnd, ticket.Range.End);
+                    canExpandAfterFailure = recognized.Complete == true;
                     recognitionQueue.InvalidatePending();
+                    lastOfferedEnd = ticket.Range.End;
                     if (recognized.Complete == true) OfferAlignmentRecovery(result.Work, current.Range);
                 }
                 else
                 {
-                    recognitionIssue = null; failedRecognitionEnd = -1;
+                    recognitionIssue = null; failedRecognitionEnd = -1; triedShorterWindow = false;
                     var previous = hypothesis;
                     var previousBoundary = previous is null ? BoundaryDecision.Pending : JapaneseBoundaryPolicy.Evaluate(previous.Text, 2, previousRightContext, true);
                     if (previous is not null && previousBoundary.CanClose && current.Range.End > previous.Range.End &&
@@ -341,7 +444,7 @@ public sealed class SubtitlePipeline
                         disposition = "boundary_confirmation";
                         QueueTranslation(Segment(ticket.Segment.Id), true);
                         CloseOpen(previous.Range.End);
-                        Reclaim(); Emit(); return;
+                        Reclaim(); Emit(); return false;
                     }
                     hypothesis = alignment.Hypothesis!;
                     previousRightContext = result.RightContext;
@@ -353,6 +456,7 @@ public sealed class SubtitlePipeline
                     {
                         disposition = "accepted";
                         recognizedEnd = Math.Max(recognizedEnd, ticket.Range.End);
+                        recognitionQueue.AcknowledgeThrough(recognizedEnd);
                         var segment = Segment(ticket.Segment.Id);
                         if (segment.Source.Length == 0 && stableObservations >= 2 && result.RightContext &&
                             recognized.Reason is "exact-digital-silence" or "model-no-speech")
@@ -362,14 +466,14 @@ public sealed class SubtitlePipeline
                         }
                         else
                         {
-                            QueueTranslation(segment, boundary.CanClose);
+                            QueueTranslation(segment, boundary.CanClose, result.Work.UnprocessedRange);
                             if (boundary.CanClose) CloseOpen(ticket.Range.End);
                         }
                     }
                     else disposition = "rejected:" + reducer.LastRejection;
                 }
             }
-            Reclaim(); Emit();
+            Reclaim(); Emit(); return false;
         }
         finally { RecordOperation(result, disposition); }
     }
@@ -382,19 +486,27 @@ public sealed class SubtitlePipeline
         if (options.AlignmentRecoverySamples < next || failed.RecoveryWindowSamples >= next ||
             Math.Max(failed.Request.Range.Start, window.End - next) >= window.Start) return;
         var request = failed.Request with { Id = Guid.NewGuid(), Sequence = ++nextRequest };
-        if (!recognitionQueue.Offer(new(request, request.Range, false, Stopwatch.GetTimestamp(), next)))
+        if (!recognitionQueue.Offer(new(request, failed.UnprocessedRange, false, Stopwatch.GetTimestamp(), next)))
             throw new PipelinePressureException(recognitionQueue.Rejection!);
         lastOfferedEnd = request.Range.End;
     }
 
-    /// <summary>登记当前完整块的翻译，已具备当前译文的定稿不重复调用。</summary>
+    /// <summary>只为当前版本的下一条未译短句排队，完全复用或清空原文时撤回旧开放任务。</summary>
     /// <param name="segment">当前有效块。</param><param name="closed">边界是否已确认。</param>
-    private void QueueTranslation(SubtitleSegment segment, bool closed)
+    /// <param name="unprocessed">本次识别新增或仍待翻译的音频负担；重新确认边界时没有新音频。</param>
+    private void QueueTranslation(SubtitleSegment segment, bool closed, SampleRange? unprocessed = null)
     {
-        if (string.IsNullOrWhiteSpace(segment.Source) || segment.Phase == SubtitlePhase.Final) return;
+        if (string.IsNullOrWhiteSpace(segment.Source) || segment.TranslationState == TranslationState.Complete)
+        {
+            translationQueue.DiscardOpen(segment.Key);
+            return;
+        }
         var request = new PipelineRequest(Guid.NewGuid(), ++nextRequest, PipelineRequestKind.Translation, reducer.Identity,
             segment.Key, segment.Range, segment.SourceRevision);
-        if (!translationQueue.Offer(new(request, request.Range, closed, Stopwatch.GetTimestamp()))) throw new PipelinePressureException(translationQueue.Rejection!);
+        var range = unprocessed ?? new(segment.Range.End, segment.Range.End);
+        if (translationQueue.Pending is { } pending && pending.Request.Segment == segment.Key)
+            range = new(Math.Min(pending.UnprocessedRange.Start, range.Start), range.End);
+        if (!translationQueue.Offer(new(request, range, closed, Stopwatch.GetTimestamp()))) throw new PipelinePressureException(translationQueue.Rejection!);
     }
 
     /// <summary>在已证实的音频边界建立新锚点，缓存在边界之后的语音重新识别且不丢失。</summary>
@@ -402,6 +514,7 @@ public sealed class SubtitlePipeline
     private void CloseOpen(long end)
     {
         recognitionQueue.InvalidatePending(); openSegment = null; hypothesis = null; stableObservations = 0; previousRightContext = false; failedRecognitionEnd = -1;
+        quietCandidateEnd = 0; triedShorterWindow = false;
         lastOfferedEnd = end;
         if (store.End > end)
         {
@@ -411,13 +524,13 @@ public sealed class SubtitlePipeline
 
     /// <summary>处理已等待计算退出的采集或模型控制，旧许可全部撤销。</summary>
     /// <param name="input">控制事件。</param><param name="cancellationToken">恢复取消。</param><returns>模型重新就绪任务。</returns>
-    private async Task ApplyControlAsync(PipelineInput input, CancellationToken cancellationToken)
+    private Task ApplyControlAsync(PipelineInput input, CancellationToken cancellationToken)
     {
         var identity = reducer.Identity;
         if (input is PipelineCaptureReset reset)
         {
             if (reset.CaptureEpoch <= identity.CaptureEpoch || gaps.Count >= 256) throw new InvalidDataException("capture_reset_identity_or_capacity");
-            gaps.Add(new(identity.CaptureEpoch, new(recognizedEnd, Math.Max(recognizedEnd, store.End)), reset.Reason));
+            gaps.Add(new(identity.CaptureEpoch, new(recognizedEnd, Math.Max(recognizedEnd, observedEnd)), reset.Reason));
             identity = identity with { CaptureEpoch = reset.CaptureEpoch, WorkerEpoch = identity.WorkerEpoch + 1 };
             store.Dispose(); store = createStore(); openSegment = null; hypothesis = null;
             recognizedEnd = lastOfferedEnd = releaseBefore = observedEnd = 0; stableObservations = 0;
@@ -432,8 +545,7 @@ public sealed class SubtitlePipeline
             stableObservations = 0; previousRightContext = false;
         }
         else throw new InvalidDataException("unknown_pipeline_control");
-        await ResetModelsAsync(identity, selection, cancellationToken).ConfigureAwait(false);
-        Emit();
+        return BeginModelResetAsync(identity, cancellationToken);
     }
 
     /// <summary>将边界即将失效的闭合待翻译范围与开放尾部原子重建为可重新识别的完整范围。</summary>
@@ -456,24 +568,38 @@ public sealed class SubtitlePipeline
         stableObservations = 0; previousRightContext = false; failedRecognitionEnd = -1;
     }
 
-    /// <summary>确认旧模型实际退出后重建配额，清空旧调用并重排当前有效开放范围。</summary>
-    /// <param name="identity">新的失效身份。</param><param name="configuration">当前模型选择。</param><param name="cancellationToken">取消。</param>
-    /// <returns>模型就绪任务。</returns>
-    private async Task ResetModelsAsync(PipelineIdentity identity, PipelineModelSelection configuration, CancellationToken cancellationToken)
+    /// <summary>在单写入循环提交新身份并替换待处理队列，模型加载期间仍可接收新身份的音频。</summary>
+    /// <param name="identity">新的失效身份。</param><param name="cancellationToken">取消这一次模型重置。</param>
+    /// <returns>后端实际完成重置并就绪的任务。</returns>
+    private Task BeginModelResetAsync(PipelineIdentity identity, CancellationToken cancellationToken)
     {
         reducer.AdvanceIdentity(identity);
-        stableObservations = 0; failedRecognitionEnd = -1;
+        stableObservations = 0; failedRecognitionEnd = -1; recognizeBeforeNextPhrase = false;
+        quietCandidateEnd = 0; triedShorterWindow = false;
         recognitionQueue = Queue(PipelineRequestKind.Recognition); translationQueue = Queue(PipelineRequestKind.Translation);
         status = "recovering_models"; Emit();
-        await models.ResetAsync(identity, configuration, cancellationToken).ConfigureAwait(false);
+        return models.ResetAsync(identity, selection, cancellationToken);
+    }
+
+    /// <summary>在事件循环确认后端就绪后重新开放推理，处理模型加载期间保留的完整音频。</summary>
+    private void FinishModelReset()
+    {
         status = "running";
         gpu = new();
         if (openSegment is not null) { lastOfferedEnd = Segment(openSegment.Value).Range.Start; OfferRecognition(true); }
         foreach (var segment in reducer.Snapshot().Segments.Where(x => x.Key.Id != openSegment && x.Phase != SubtitlePhase.Final && !string.IsNullOrWhiteSpace(x.Source)))
         {
-            var request = new PipelineRequest(Guid.NewGuid(), ++nextRequest, PipelineRequestKind.Translation, identity, segment.Key, segment.Range, segment.SourceRevision);
-            if (!translationQueue.Offer(new(request, request.Range, true, Stopwatch.GetTimestamp()))) throw new PipelinePressureException(translationQueue.Rejection!);
+            QueueTranslation(segment, true);
         }
+    }
+
+    /// <summary>等待被新控制或会话停止撤销的重置实际退出，保留与取消无关的模型错误。</summary>
+    /// <param name="reset">在途后端重置。</param><param name="cancellationToken">该次重置已发出的取消信号。</param>
+    /// <returns>后端停止使用旧模型资源时完成的任务。</returns>
+    private static async Task AwaitCancelledResetAsync(Task reset, CancellationToken cancellationToken)
+    {
+        try { await reset.ConfigureAwait(false); }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
     }
 
     /// <summary>仅释放已完成且超过修订尾部的音频，闭合待翻译与开放块仍保留。</summary>

@@ -25,7 +25,11 @@ public sealed class TranslationHistoryTests
                 var revised = first with { Source = "已修订", SourceRevision = 2, SubtitleRevision = 2, TranslatedSourceRevision = 1 };
                 recorder.Offer(Snapshot(id, 1, 2, [revised, second], [retired.Key.Id]));
                 recorder.Offer(Snapshot(id, 1, 1, [first, second, retired]));
-                var next = Segment("恢复以后", 0);
+                var next = Segment("恢复以后。继续。", 0) with
+                {
+                    Translation = "已恢复。\n继续。",
+                    PhraseTranslations = [new("恢复以后。", "已恢复。"), new("继续。", "继续。")]
+                };
                 recorder.Offer(Snapshot(id, 2, 3, [next], [first.Key.Id, second.Key.Id, retired.Key.Id]));
                 await recorder.CompleteAsync(cancellationToken: TestContext.Current.CancellationToken);
                 Assert.Null(recorder.Status.Error); Assert.False(recorder.Status.CanRetry);
@@ -35,6 +39,8 @@ public sealed class TranslationHistoryTests
             Assert.Equal(3, document.Entries.Count); Assert.Equal(new long[] { 1, 1, 2 }, document.Entries.Select(x => x.CaptureEpoch));
             Assert.Equal("已修订", document.Entries[0].Segment.Source); Assert.Equal("同一句", document.Entries[1].Segment.Source);
             Assert.Equal(16000, document.Entries[1].Segment.Range.Start); Assert.Equal(32000, document.Entries[1].Segment.Range.End);
+            Assert.Equal("已恢复。\n继续。", document.Entries[2].Segment.Translation);
+            Assert.Empty(document.Entries[2].Segment.PhraseTranslations);
             Assert.Equal(HistorySessionState.Completed, document.Summary.State);
             Assert.DoesNotContain(document.Entries, x => x.Segment.Source == "已撤销");
             var files = Directory.GetFiles(directory, "*.json", SearchOption.AllDirectories);
@@ -418,6 +424,75 @@ public sealed class TranslationHistoryTests
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => reopened.DeleteSessionsAsync([id], cancelled.Token));
             var result = await reopened.ReadAsync(id, TestContext.Current.CancellationToken);
             Assert.Equal("退出末次内容", Assert.Single(result.Entries).Segment.Source); Assert.Equal(HistorySessionState.Interrupted, result.Summary.State);
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    /// <summary>缺口随活动会话实时落盘，正常结束后仍在摘要和两种导出中可见。</summary><returns>缺口持久化与兼容性验证任务。</returns>
+    [Fact]
+    public async Task BacklogGapsPersistWithoutTurningCompletedSessionIntoSaveFailure()
+    {
+        var directory = NewDirectory(); var id = Guid.NewGuid();
+        try
+        {
+            await using (var store = new JsonTranslationHistoryStore(directory))
+            {
+                var recorder = store.BeginSession(Info(id));
+                recorder.RecordBacklogGap(2, new(16000, 40000));
+                recorder.RecordBacklogGap(2, new(16000, 40000));
+                recorder.RecordBacklogGap(3, new(0, 8000));
+                await recorder.RetryAsync(TestContext.Current.CancellationToken);
+                Assert.Null(recorder.Status.Error); Assert.False(recorder.Status.CanRetry);
+                var path = Path.Combine(store.RootPath, id.ToString("N"), "summary.json");
+                using var json = JsonDocument.Parse(await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken));
+                Assert.Equal(1, json.RootElement.GetProperty("SchemaVersion").GetInt32());
+                await using (var reader = new JsonTranslationHistoryStore(directory))
+                {
+                    var recovered = await reader.ReadAsync(id, TestContext.Current.CancellationToken);
+                    Assert.Equal(HistorySessionState.Interrupted, recovered.Summary.State);
+                    Assert.Contains("上次运行未正常结束", recovered.Summary.Error);
+                    Assert.Contains("采集片段 2，1–2.5 秒", recovered.Summary.Error);
+                }
+                await recorder.CompleteAsync(cancellationToken: TestContext.Current.CancellationToken);
+            }
+            await using var reopened = new JsonTranslationHistoryStore(directory);
+            var document = await reopened.ReadAsync(id, TestContext.Current.CancellationToken);
+            Assert.Equal(HistorySessionState.Completed, document.Summary.State);
+            Assert.Contains("采集片段 2，1–2.5 秒", document.Summary.Error);
+            Assert.Contains("采集片段 3，0–0.5 秒", document.Summary.Error);
+            Assert.Equal(1, document.Summary.Error!.Split("采集片段 2，1–2.5 秒").Length - 1);
+            Assert.Contains("未识别", Assert.Single((await reopened.ListAsync(cancellationToken: TestContext.Current.CancellationToken)).Sessions).Error);
+            foreach (var format in new[] { HistoryExportFormat.Text, HistoryExportFormat.Markdown })
+                Assert.Contains("采集片段 2，1–2.5 秒", await reopened.ExportAsync(id, format, cancellationToken: TestContext.Current.CancellationToken));
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    /// <summary>缺口不覆盖保存或会话错误，重复记录有界且不会伪装完整清单。</summary><returns>错误与缺口容量验证任务。</returns>
+    [Fact]
+    public async Task BacklogGapsPreserveErrorsAndBoundTheirSummary()
+    {
+        var directory = NewDirectory(); var id = Guid.NewGuid();
+        try
+        {
+            var obstruction = Path.Combine(directory, "history");
+            await File.WriteAllTextAsync(obstruction, "occupied", TestContext.Current.CancellationToken);
+            await using var store = new JsonTranslationHistoryStore(directory);
+            var recorder = store.BeginSession(Info(id));
+            for (var i = 0; i < 130; i++) recorder.RecordBacklogGap(1, new(i * 16000L, (i + 1L) * 16000));
+            await recorder.RetryAsync(TestContext.Current.CancellationToken);
+            var failed = await store.ReadAsync(id, TestContext.Current.CancellationToken);
+            Assert.True(recorder.Status.CanRetry);
+            Assert.Contains("历史未完整保存", failed.Summary.Error);
+            Assert.Contains("另有未识别时段", failed.Summary.Error);
+            File.Delete(obstruction);
+            await recorder.RetryAsync(TestContext.Current.CancellationToken);
+            await recorder.CompleteAsync("采集故障", TestContext.Current.CancellationToken);
+            var result = await store.ReadAsync(id, TestContext.Current.CancellationToken);
+            Assert.Equal(HistorySessionState.Interrupted, result.Summary.State);
+            Assert.Contains("采集故障", result.Summary.Error);
+            Assert.Contains("另有未识别时段", result.Summary.Error);
+            Assert.Null(recorder.Status.Error);
         }
         finally { Directory.Delete(directory, true); }
     }

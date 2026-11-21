@@ -2,8 +2,8 @@ using LiveLingo.Core.Subtitles;
 
 namespace LiveLingo.Runtime.Translation;
 
-/// <summary>携带精确源版本的完整块翻译输入，原文始终作为数据。</summary>
-/// <param name="Ticket">完整调用关联字段。</param><param name="Source">未经去重或修补的全部源文。</param>
+/// <summary>将一条待译原文与其所属语义块关联。</summary>
+/// <param name="Ticket">本次短句调用的身份，其中音频范围和源版本属于整个语义块。</param><param name="Source">本次提交给模型的完整短句。</param>
 public sealed record TranslationInput(PipelineRequest Ticket, string Source);
 
 /// <summary>返回原始译文与可核实终止状态，不等同于语义质量通过。</summary>
@@ -19,8 +19,8 @@ public sealed record TranslationResult(TranslationInput Input, string Text, bool
 /// <summary>隔离可取消的翻译边界以验证工作流失败与生命周期。</summary>
 public interface ITranslationService
 {
-    /// <summary>翻译完整块，截断和服务失败不得被包装成成功。</summary>
-    /// <param name="input">当前完整块和版本。</param><param name="cancellationToken">实际调用取消信号。</param>
+    /// <summary>翻译当前短句并返回实际生成状态。</summary>
+    /// <param name="input">短句原文与关联的调用票据。</param><param name="cancellationToken">实际调用取消信号。</param>
     /// <returns>原始响应及完成证据。</returns>
     Task<TranslationResult> TranslateAsync(TranslationInput input, CancellationToken cancellationToken);
 }

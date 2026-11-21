@@ -37,12 +37,12 @@
       <Border Name="LockAnchor" Grid.Column="1" Width="40" Height="40" VerticalAlignment="Top" />
       <ScrollViewer Name="SubtitleScroll" Grid.Row="1" Grid.ColumnSpan="2" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"
                     AutomationProperties.Name="实时字幕正文">
-        <ItemsControl ItemsSource="{Binding OverlayRows}">
+        <ItemsControl Name="PhraseList" ItemsSource="{Binding OverlayPhrases}">
           <ItemsControl.ItemTemplate>
-            <DataTemplate DataType="vm:SubtitleRow">
+            <DataTemplate DataType="vm:LivePhraseItem">
               <StackPanel Spacing="4" Margin="0,4,0,8">
                 <TextBlock Classes="source" IsVisible="{DynamicResource SourceVisible}" FontSize="{DynamicResource SourceFontSize}"
-                           Text="{Binding Source}" TextWrapping="Wrap" Foreground="#C4D2DF" />
+                           Text="{Binding Phrase.Source}" TextWrapping="Wrap" Foreground="#C4D2DF" />
                 <TextBlock Classes="translation" IsVisible="{DynamicResource TranslationVisible}" FontSize="{DynamicResource TranslationFontSize}"
                            Text="{Binding Translation}" TextWrapping="Wrap" FontWeight="SemiBold" Foreground="White" />
                 <TextBlock Classes="subtitle-state" Text="{Binding StatusText}" FontSize="12" Foreground="#A9BBCB" />

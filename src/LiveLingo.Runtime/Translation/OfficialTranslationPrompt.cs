@@ -4,7 +4,7 @@ namespace LiveLingo.Runtime.Translation;
 public static class OfficialTranslationPrompt
 {
     /// <summary>格式化单条 user 正文，不附加未经采用的实验规则。</summary>
-    /// <param name="source">完整原文。</param><returns>与 M2 golden 一致的提示正文。</returns>
+    /// <param name="source">本次调用的短句原文。</param><returns>与 M2 golden 一致的提示正文。</returns>
     /// <exception cref="ArgumentException">原文为空或超出有界上下文输入长度。</exception>
     public static string Format(string source)
     {

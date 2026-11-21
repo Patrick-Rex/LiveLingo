@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
@@ -27,6 +29,7 @@ public sealed class DesktopSession(string contentRoot, DesktopHistory? history =
     private long sequence;
     private string captureState = "等待模型";
     private PipelineSnapshot? latest;
+    private string? gapNotice;
 
     /// <inheritdoc />
     public event Action<DesktopUpdate>? Updated;
@@ -70,7 +73,7 @@ public sealed class DesktopSession(string contentRoot, DesktopHistory? history =
                 settings.TranslationBackend == ModelBackend.Local ? new[] { settings.OllamaModelsPath } : []))
                 if (!Directory.Exists(path)) throw new DirectoryNotFoundException("权重目录缺失：" + path);
             stop?.Dispose(); stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            sequence = 0; latest = null; captureState = VerificationInput is null ? "等待模型" : "显式 WAV 回放"; LastError = null; LastOwned = []; RemainingOwned = [];
+            sequence = 0; latest = null; gapNotice = null; captureState = VerificationInput is null ? "等待模型" : "显式 WAV 回放"; LastError = null; LastOwned = []; RemainingOwned = [];
             var token = stop.Token;
             running = Task.Run(() => RunAsync(sessionId, target, settings, token), CancellationToken.None);
         }
@@ -89,7 +92,7 @@ public sealed class DesktopSession(string contentRoot, DesktopHistory? history =
     /// <param name="id">会话身份。</param><param name="target">外部目标。</param><param name="settings">固定设置。</param><param name="token">会话取消。</param><returns>全部资源收敛任务。</returns>
     private async Task RunAsync(Guid id, DesktopTarget target, DesktopSettings settings, CancellationToken token)
     {
-        var owned = new List<OwnedWorkerConnection>();
+        var owned = new ConcurrentQueue<OwnedWorkerConnection>();
         var temporary = new List<string>();
         LocalPipelineModels? models = null;
         ContinuousAudioStore? store = null;
@@ -113,20 +116,22 @@ public sealed class DesktopSession(string contentRoot, DesktopHistory? history =
                 using var reservation = new TcpListener(IPAddress.Loopback, 0);
                 reservation.Start(); port = ((IPEndPoint)reservation.LocalEndpoint).Port;
             }
-            var options = new PipelineOptions();
+            var options = new PipelineOptions { ResumeLiveAfterBacklog = VerificationInput is null };
             models = new(epoch =>
             {
                 var connection = new OwnedWorkerConnection(settings.PythonPath, ["-u", "-m", "workers.qwen_asr.service", "--profile", profilePath,
                     "--model", settings.ModelPath, "--worker-epoch", epoch.ToString(CultureInfo.InvariantCulture)], contentRoot, "desktop-qwen", environment);
-                owned.Add(connection); return connection;
+                owned.Enqueue(connection); return connection;
             }, () =>
             {
                 var ollamaEnvironment = new Dictionary<string, string>(environment)
                 { ["OLLAMA_HOST"] = $"127.0.0.1:{port}", ["OLLAMA_MODELS"] = settings.OllamaModelsPath, ["OLLAMA_CONTEXT_LENGTH"] = "4096", ["OLLAMA_NUM_PARALLEL"] = "1", ["OLLAMA_MAX_LOADED_MODELS"] = "1" };
                 var connection = new OwnedWorkerConnection(settings.OllamaPath, ["serve"], contentRoot, "desktop-ollama", ollamaEnvironment);
-                owned.Add(connection); return connection;
+                owned.Enqueue(connection); return connection;
             }, new Uri($"http://127.0.0.1:{port}/"), expected, options);
             var generation = 0;
+            var handledGaps = 0;
+            var auditClock = Stopwatch.StartNew();
             var pipeline = new SubtitlePipeline(new(id, 1, 1, 1), new(settings.EffectiveTranslationModel, settings.AsrLanguage, settings.AsrBackend, settings.TranslationBackend, settings.AsrApi, settings.TranslationApi), options, () =>
             {
                 var parent = Path.Combine(settings.DataPath, "pipeline-cache"); Directory.CreateDirectory(parent);
@@ -135,12 +140,26 @@ public sealed class DesktopSession(string contentRoot, DesktopHistory? history =
             }, models, snapshot =>
             {
                 recorder?.Offer(snapshot.Subtitles);
-                lock (updates) { latest = snapshot; Publish(id, true); }
-                foreach (var process in owned) process.ObserveMembers();
+                string? notice = null;
+                while (handledGaps < snapshot.Gaps.Length)
+                {
+                    var gap = snapshot.Gaps[handledGaps++];
+                    if (gap.Reason != "audio_backlog_capacity" || gap.Range.Length == 0) continue;
+                    recorder?.RecordBacklogGap(gap.CaptureEpoch, gap.Range);
+                    notice = $"采集片段 {gap.CaptureEpoch} 的 {gap.Range.Start / 16000.0:F1}–{gap.Range.End / 16000.0:F1} 秒未识别";
+                }
+                lock (updates) { latest = snapshot; gapNotice = notice ?? gapNotice; Publish(id, true); }
+                // 关闭 Job 前仍会完整核对进程树，运行中按秒巡检，避免每个音频包重复查询 Windows 进程。
+                if (auditClock.Elapsed >= TimeSpan.FromSeconds(1))
+                {
+                    foreach (var process in owned) process.ObserveMembers();
+                    auditClock.Restart();
+                }
                 PipelineUpdated?.Invoke(snapshot);
             });
             var input = VerificationInput is { } verification ? verification(id, token) : CaptureAsync(target.Identity, id, token);
-            await pipeline.RunAsync(input, token).ConfigureAwait(false);
+            var final = await pipeline.RunAsync(input, token).ConfigureAwait(false);
+            if (final.Status is not ("completed" or "stopped")) LastError = "会话已中断 · " + DescribeStatus(final.Status);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (Exception error) { LastError = error.GetType().Name + ": " + error.Message; }
@@ -163,9 +182,30 @@ public sealed class DesktopSession(string contentRoot, DesktopHistory? history =
     /// <summary>发布串行完整快照；最终停止发布发生在所有清理之后。</summary><param name="id">会话。</param><param name="active">是否仍拥有运行资源。</param>
     private void Publish(Guid id, bool active)
     {
-        var state = active ? $"{latest?.Status ?? "starting"} · 采集 {captureState}" : LastError ?? $"已停止 · {latest?.Status ?? "cancelled"}";
+        var state = active ? $"{DescribeStatus(latest?.Status ?? "starting")} · 采集 {captureState}" : LastError ?? "已停止";
+        if (gapNotice is not null) state += " · " + gapNotice;
         Updated?.Invoke(new(id, ++sequence, latest?.Subtitles, state, (latest?.BacklogSamples ?? 0) / 16000.0, active));
     }
+
+    /// <summary>将运行和恢复原因转换为可读的状态，未知诊断保留原始原因码。</summary>
+    /// <param name="code">流水线状态码。</param><returns>可在实时页及异常结束记录中阅读的说明。</returns>
+    private static string DescribeStatus(string code) => code switch
+    {
+        "starting" => "正在准备模型",
+        "running" => "翻译中",
+        "recovering_models" => "正在恢复识别和翻译",
+        "ambiguous_text_overlap" or "repeated_overlap_ambiguous" or "audio_overlap_required" => "前后识别结果的衔接待确认",
+        "recognition_incomplete" => "语音识别未完整返回",
+        "translation_incomplete" => "部分译文未完成",
+        "audio_backlog_capacity" => "音频积压达到上限",
+        "audio_storage_pressure" => "音频缓存容量不足",
+        "model_recovery_budget" => "模型自动恢复次数已达上限",
+        _ when code.StartsWith("model_recovery_budget:http_", StringComparison.Ordinal) =>
+            "模型自动恢复次数已达上限 · HTTP " + code["model_recovery_budget:http_".Length..],
+        "stopped" => "正在停止",
+        "completed" => "处理完成",
+        _ => code
+    };
 
     /// <summary>复用 M1 原生采集与恢复，将真实代次和缺口交给 M3 转换器。</summary>
     /// <param name="target">外部应用身份。</param><param name="id">会话。</param><param name="token">取消捕获。</param><returns>连续音频和重置输入。</returns>
@@ -178,7 +218,26 @@ public sealed class DesktopSession(string contentRoot, DesktopHistory? history =
         var coordinator = new CaptureCoordinator(new WindowsLoopbackCapture(), policy, ingress,
             identity => WindowsTargets.Query(identity.ProcessId).Identity is { } actual && identity.SameInstance(actual),
             identity => WindowsTargets.UniqueMatch(identity, WindowsTargets.Enumerate(), excluded),
-            diagnostic => { lock (updates) { captureState = diagnostic.State.ToString(); Publish(id, true); } });
+            diagnostic =>
+            {
+                var label = diagnostic.State switch
+                {
+                    SessionState.Starting => "正在连接",
+                    SessionState.Running => "已连接",
+                    SessionState.Recovering => "正在重连",
+                    SessionState.WaitingForTarget => "等待目标应用重新出现",
+                    SessionState.Suspended => "等待系统恢复",
+                    SessionState.Faulted => "恢复失败",
+                    SessionState.Stopping => "正在停止",
+                    _ => "已停止"
+                };
+                lock (updates)
+                {
+                    if (captureState == label) return;
+                    captureState = label;
+                    Publish(id, true);
+                }
+            });
         using var devices = new DeviceNotifications(detail => coordinator.Post(new(SessionEventKind.DeviceChanged, Detail: detail)));
         using var power = new PowerNotifications(suspended => coordinator.Post(new(suspended ? SessionEventKind.Suspend : SessionEventKind.Resume)));
         var capturing = coordinator.RunAsync(target, id, cancellation.Token);

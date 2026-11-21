@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 using System.Threading.Channels;
 using LiveLingo.Core.Audio;
 using LiveLingo.Core.Subtitles;
@@ -93,6 +94,77 @@ public sealed class SubtitlePipelineTests
         Assert.All(operations.Where(x => x.Request.Kind == PipelineRequestKind.Recognition), x => Assert.Equal(x.Request.Range, x.Window));
     }
 
+    /// <summary>开放块逐句发布已译前缀，积压识别可修订未译尾句，同文的两次发言各保留一条。</summary>
+    /// <returns>真实调度、增量快照及逐次短句输入的验证任务。</returns>
+    [Fact]
+    public async Task GrowingSourcePublishesPhrasePairsAndReusesTheTranslatedPrefix()
+    {
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var buffered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var snapshots = new ConcurrentQueue<PipelineSnapshot>();
+        var operations = new ConcurrentQueue<PipelineOperation>();
+        var models = new ControlledModels
+        {
+            TranslationDelayFromCall = 2, TranslationDelay = release.Task,
+            TranslateText = source => source == "はい。" ? "是的！对。" : "新的译文"
+        };
+        var input = Channel.CreateBounded<PipelineInput>(8);
+        var pipeline = Create(models, state =>
+        {
+            snapshots.Enqueue(state);
+            if (state.AudioEnd == 64000) buffered.TrySetResult();
+        }, publishOperation: operations.Enqueue);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var run = pipeline.RunAsync(input.Reader.ReadAllAsync(timeout.Token), timeout.Token);
+        await input.Writer.WriteAsync(Audio(0, 32000), timeout.Token);
+        (await models.NextAsync(timeout.Token)).Reply.SetResult("はい。はい。訂正前。");
+        Assert.Equal("はい。", await models.Translated.Reader.ReadAsync(timeout.Token));
+        Assert.Equal("はい。", await models.Translated.Reader.ReadAsync(timeout.Token));
+        Assert.Contains(snapshots, state => state.Subtitles.Segments.Any(segment =>
+            segment.TranslationState == TranslationState.Pending && segment.PhraseTranslations.Length == 1 &&
+            segment.PhraseTranslations[0].Translation == "是的！对。"));
+        await input.Writer.WriteAsync(Audio(32000, 64000), timeout.Token);
+        await buffered.Task.WaitAsync(timeout.Token);
+        release.SetResult();
+        (await models.NextAsync(timeout.Token)).Reply.SetResult("はい。はい。訂正後。");
+        input.Writer.Complete();
+        var final = await run.WaitAsync(timeout.Token);
+
+        Assert.Equal("completed", final.Status);
+        Assert.Equal("訂正後。", await models.Translated.Reader.ReadAsync(timeout.Token));
+        Assert.False(models.Translated.Reader.TryRead(out _));
+        var segment = Assert.Single(final.Subtitles.Segments);
+        Assert.Equal(["はい。", "はい。", "訂正後。"], segment.PhraseTranslations.Select(phrase => phrase.Source));
+        Assert.Equal(["是的！对。", "是的！对。", "新的译文"], segment.PhraseTranslations.Select(phrase => phrase.Translation));
+        Assert.Equal(segment.SourceRevision, segment.TranslatedSourceRevision);
+        Assert.Equal(3, final.TranslationCalls);
+        Assert.Equal(3, operations.Count(operation => operation.Request.Kind == PipelineRequestKind.Translation && operation.CountedAttempt));
+        Assert.Equal(1, models.MaximumConcurrent);
+    }
+
+    /// <summary>单条翻译截断时保留已经完成的短句，块级状态保持失败，后续正文等待新版本。</summary>
+    /// <returns>验证局部失败快照与实际模型调用数的任务。</returns>
+    [Fact]
+    public async Task IncompletePhraseKeepsEarlierPairsWithoutCompletingTheBlock()
+    {
+        var models = new ControlledModels { IncompleteTranslationCall = 2 };
+        var input = Channel.CreateBounded<PipelineInput>(8);
+        var pipeline = Create(models, _ => { });
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var run = pipeline.RunAsync(input.Reader.ReadAllAsync(timeout.Token), timeout.Token);
+        await input.Writer.WriteAsync(Audio(0, 32000), timeout.Token);
+        (await models.NextAsync(timeout.Token)).Reply.SetResult("一つ。二つ。三つ。");
+        input.Writer.Complete();
+        var final = await run.WaitAsync(timeout.Token);
+
+        var segment = Assert.Single(final.Subtitles.Segments);
+        Assert.Equal("translation_incomplete", final.Status);
+        Assert.Equal(TranslationState.Failed, segment.TranslationState);
+        Assert.Equal("一つ。", Assert.Single(segment.PhraseTranslations).Source);
+        Assert.Null(segment.TranslatedSourceRevision);
+        Assert.Equal(2, final.TranslationCalls);
+    }
+
     /// <summary>慢计算期间只留下覆盖全部音频的最新开放快照，不删除真实重复。</summary>
     /// <returns>处理有意积压输入的任务。</returns>
     [Fact]
@@ -153,6 +225,53 @@ public sealed class SubtitlePipelineTests
         Assert.True(models.Disposed);
     }
 
+    /// <summary>直播积压超限后保留原采集段证据，在同一输入流继续，并可再接受真实设备重连。</summary>
+    /// <returns>验证未识别区间、样本重定位、迟到结果隔离与模型资源释放。</returns>
+    [Fact]
+    public async Task LiveBacklogResumesFromCurrentAudioAndPreservesPhysicalResets()
+    {
+        var models = new ControlledModels();
+        var snapshots = new ConcurrentQueue<PipelineSnapshot>();
+        var input = Channel.CreateBounded<PipelineInput>(8);
+        var options = new PipelineOptions { ResumeLiveAfterBacklog = true, AlignmentRecoverySamples = 0,
+            MaximumWindowSamples = 32000, MaximumBacklogSamples = 64000 };
+        var pipeline = Create(models, snapshots.Enqueue, options);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(10));
+        var token = timeout.Token;
+        var run = pipeline.RunAsync(input.Reader.ReadAllAsync(token), token);
+        await input.Writer.WriteAsync(Audio(0, 32000), token);
+        (await models.NextAsync(token)).Reply.SetResult("最初の発言");
+        Assert.Equal("最初の発言", await models.Translated.Reader.ReadAsync(token));
+        await input.Writer.WriteAsync(Audio(32000, 64000), token);
+        var delayed = await models.NextAsync(token);
+        await input.Writer.WriteAsync(Audio(64000, 96000), token);
+        await input.Writer.WriteAsync(Audio(96000, 128000), token);
+        var resumed = await models.NextAsync(token);
+        Assert.Equal(2, resumed.Request.Ticket.Identity.CaptureEpoch);
+        Assert.Equal(new SampleRange(0, 32000), resumed.Request.WindowRange);
+        delayed.Reply.TrySetResult("遅れた発言");
+        resumed.Reply.SetResult("再開した発言");
+        Assert.Equal("再開した発言", await models.Translated.Reader.ReadAsync(token));
+        await input.Writer.WriteAsync(new PipelineCaptureReset(2, "device_changed"), token);
+        await input.Writer.WriteAsync(Audio(0, 32000) with { CaptureEpoch = 2 }, token);
+        var afterDeviceReset = await models.NextAsync(token);
+        Assert.Equal(3, afterDeviceReset.Request.Ticket.Identity.CaptureEpoch);
+        afterDeviceReset.Reply.SetResult("新しい機器");
+        input.Writer.Complete();
+
+        var final = await run.WaitAsync(token);
+        Assert.Equal("completed", final.Status);
+        Assert.Equal(new PipelineGap(1, new(32000, 96000), "audio_backlog_capacity"), final.Gaps[0]);
+        Assert.Equal("device_changed", final.Gaps[1].Reason);
+        Assert.Contains(snapshots, snapshot => snapshot.Subtitles.Identity.CaptureEpoch == 1 &&
+            snapshot.Subtitles.Segments.Any(segment => segment.Source == "最初の発言"));
+        Assert.DoesNotContain(snapshots, snapshot => snapshot.Subtitles.Segments.Any(segment => segment.Source == "遅れた発言"));
+        Assert.Equal("新しい機器", Assert.Single(final.Subtitles.Segments).Source);
+        Assert.Equal(0, final.Pins);
+        Assert.Equal(1, models.MaximumConcurrent);
+    }
+
     /// <summary>缓存预算耗尽时明确给出包括被拒绝输入的范围，并等待取消中的模型退出。</summary>
     /// <returns>过载停止及资源清理完成任务。</returns>
     [Fact]
@@ -199,6 +318,38 @@ public sealed class SubtitlePipelineTests
         Assert.Equal(1, models.MaximumConcurrent);
     }
 
+    /// <summary>切换模型后，相同原文的已译前缀也按新配置重译，在途的旧尾句不能进入新字幕。</summary>
+    /// <returns>两次后端配置下真实短句调用及最终版本的验证任务。</returns>
+    [Fact]
+    public async Task ConfigurationChangeRetranslatesAlreadyPublishedPhrases()
+    {
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var models = new ControlledModels { TranslationDelay = release.Task, TranslationDelayFromCall = 2 };
+        var input = Channel.CreateBounded<PipelineInput>(8);
+        var operations = new ConcurrentQueue<PipelineOperation>();
+        var pipeline = Create(models, _ => { }, publishOperation: operations.Enqueue);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var run = pipeline.RunAsync(input.Reader.ReadAllAsync(timeout.Token), timeout.Token);
+        await input.Writer.WriteAsync(Audio(0, 32000), timeout.Token);
+        (await models.NextAsync(timeout.Token)).Reply.SetResult("一つ。二つ。");
+        Assert.Equal("一つ。", await models.Translated.Reader.ReadAsync(timeout.Token));
+        Assert.Equal("二つ。", await models.Translated.Reader.ReadAsync(timeout.Token));
+        await input.Writer.WriteAsync(new PipelineConfiguration(new("translategemma:4b")), timeout.Token);
+        var next = await models.NextAsync(timeout.Token);
+        Assert.Equal(2, next.Request.Ticket.Identity.ConfigEpoch);
+        next.Reply.SetResult("一つ。二つ。");
+        release.SetResult();
+        input.Writer.Complete();
+        var final = await run.WaitAsync(timeout.Token);
+
+        Assert.Equal("一つ。", await models.Translated.Reader.ReadAsync(timeout.Token));
+        Assert.Equal("二つ。", await models.Translated.Reader.ReadAsync(timeout.Token));
+        Assert.Equal(4, final.TranslationCalls);
+        Assert.Equal(2, Assert.Single(final.Subtitles.Segments).PhraseTranslations.Length);
+        Assert.Contains(operations, operation => operation.Request.Kind == PipelineRequestKind.Translation &&
+            operation.Request.Identity.ConfigEpoch == 1 && operation.Disposition == "control_invalidated");
+    }
+
     /// <summary>配置变化撤销已闭合待翻译块的边界后，该范围必须重新获得识别机会而非永久占住缓存。</summary>
     /// <param name="withOpenTail">配置前是否已经收到新的未识别音频。</param>
     /// <returns>闭合翻译取消、旧音频重识别和旧块撤销验证任务。</returns>
@@ -209,7 +360,7 @@ public sealed class SubtitlePipelineTests
     {
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var configured = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var models = new ControlledModels { TranslationDelay = release.Task, TranslationDelayFromCall = 2 };
+        var models = new ControlledModels { IncompleteTranslationCall = 1, TranslationDelay = release.Task, TranslationDelayFromCall = 2 };
         var input = Channel.CreateBounded<PipelineInput>(8);
         var pipeline = Create(models, snapshot => { if (snapshot.Subtitles.Identity.ConfigEpoch == 2) configured.TrySetResult(); });
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
@@ -267,6 +418,67 @@ public sealed class SubtitlePipelineTests
         Assert.Equal(0, final.BacklogSamples);
     }
 
+    /// <summary>翻译占用模型时保留已观察的安静尾部，下一轮增长识别仍能确认真实采样边界。</summary>
+    /// <returns>安静候选未被后续连续发声覆盖且新块重识别的验证任务。</returns>
+    [Fact]
+    public async Task QuietWindowSurvivesCoalescingWithLaterSpeech()
+    {
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var buffered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var models = new ControlledModels { TranslationDelay = release.Task };
+        var input = Channel.CreateBounded<PipelineInput>(8);
+        var pipeline = Create(models, state => { if (state.AudioEnd == 96000) buffered.TrySetResult(); });
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var run = pipeline.RunAsync(input.Reader.ReadAllAsync(timeout.Token), timeout.Token);
+        await input.Writer.WriteAsync(Audio(0, 32000), timeout.Token);
+        (await models.NextAsync(timeout.Token)).Reply.SetResult("今から");
+        await models.Translated.Reader.ReadAsync(timeout.Token);
+        await input.Writer.WriteAsync(Audio(32000, 64000), timeout.Token);
+        await input.Writer.WriteAsync(Audio(64000, 96000, quietTail: false), timeout.Token);
+        await buffered.Task.WaitAsync(timeout.Token);
+        release.SetResult();
+        var pause = await models.NextAsync(timeout.Token);
+        Assert.Equal(new SampleRange(0, 64000), pause.Request.WindowRange);
+        pause.Reply.SetResult("今から始めます。");
+        (await models.NextAsync(timeout.Token)).Reply.SetResult("今から始めます。次に進みます。");
+        var next = await models.NextAsync(timeout.Token);
+        Assert.Equal(new SampleRange(64000, 96000), next.Request.WindowRange);
+        next.Reply.SetResult("次に進みます。");
+        input.Writer.Complete();
+        var final = await run.WaitAsync(timeout.Token);
+        Assert.Equal(SubtitlePhase.Final, final.Subtitles.Segments[0].Phase);
+        Assert.Equal(new SampleRange(0, 64000), final.Subtitles.Segments[0].Range);
+        Assert.Equal(0, final.BacklogSamples);
+    }
+
+    /// <summary>长开放块持续获得识别和翻译时，旧音频不重复占用尚未处理的积压额度。</summary>
+    /// <returns>跨越多个完整积压预算后的连续覆盖和逐版翻译验证任务。</returns>
+    [Fact]
+    public async Task LongOpenBlockOnlyChargesOutstandingAudioToWorkQueues()
+    {
+        var models = new ControlledModels();
+        var input = Channel.CreateBounded<PipelineInput>(8);
+        var options = new PipelineOptions { AlignmentRecoverySamples = 0, MaximumWindowSamples = 64000,
+            RefreshSamples = 16000, MemorySamples = 192000, MaximumBacklogSamples = 64000 };
+        var pipeline = Create(models, _ => { }, options);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var run = pipeline.RunAsync(input.Reader.ReadAllAsync(timeout.Token), timeout.Token);
+        for (var index = 1; index <= 5; index++)
+        {
+            await input.Writer.WriteAsync(Audio((index - 1) * 32000, index * 32000), timeout.Token);
+            var text = "今から詳しい説明をするので" + new string('あ', index);
+            (await models.NextAsync(timeout.Token)).Reply.SetResult(text);
+            Assert.Equal(text, await models.Translated.Reader.ReadAsync(timeout.Token));
+        }
+        input.Writer.Complete();
+        var final = await run.WaitAsync(timeout.Token);
+        Assert.Equal("completed", final.Status);
+        Assert.Equal(160000, final.RecognizedEnd);
+        Assert.Equal(5, final.TranslationCalls);
+        Assert.Empty(final.Gaps);
+        Assert.Single(final.Subtitles.Segments);
+    }
+
     /// <summary>超过窗口的积压按保留重叠的有序窗口追赶，配置切换不回退已接受范围。</summary>
     /// <returns>长块配置切换及完整覆盖验证任务。</returns>
     [Fact]
@@ -274,7 +486,8 @@ public sealed class SubtitlePipelineTests
     {
         var models = new ControlledModels();
         var input = Channel.CreateBounded<PipelineInput>(8);
-        var pipeline = Create(models, _ => { });
+        var covered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var pipeline = Create(models, state => { if (state.RecognizedEnd == 640000) covered.TrySetResult(); });
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var run = pipeline.RunAsync(input.Reader.ReadAllAsync(timeout.Token), timeout.Token);
         await input.Writer.WriteAsync(Audio(0, 32000), TestContext.Current.CancellationToken);
@@ -290,9 +503,7 @@ public sealed class SubtitlePipelineTests
         var tail = await models.NextAsync(timeout.Token);
         Assert.Equal(new SampleRange(160000, 640000), tail.Request.WindowRange);
         tail.Reply.SetResult("後半の内容なので、さらに続きますが");
-        await models.Translated.Reader.ReadAsync(timeout.Token);
-        // 等待完整 40 秒版本进入翻译，避免测试控制事件取消上述有效提交。
-        while (await models.Translated.Reader.ReadAsync(timeout.Token) is var text && !text.EndsWith("さらに続きますが", StringComparison.Ordinal)) { }
+        await covered.Task.WaitAsync(timeout.Token);
         await input.Writer.WriteAsync(new PipelineConfiguration(new("translategemma:4b")), TestContext.Current.CancellationToken);
         var switched = await models.NextAsync(timeout.Token);
         Assert.Equal(new SampleRange(160000, 640000), switched.Request.WindowRange);
@@ -331,6 +542,93 @@ public sealed class SubtitlePipelineTests
         Assert.Equal(1, models.MaximumConcurrent);
     }
 
+    /// <summary>慢速重置期间继续消费有界入口直到 EOF，就绪后仅对最后一个采集代次缓存的音频发起识别。</summary>
+    /// <param name="resumeAfterBacklog">首个缺口是否由同一物理输入的积压续接触发。</param>
+    /// <param name="resetAgain">是否在重置仍未完成时再切换一次物理采集代次。</param>
+    /// <returns>加载、输入消费、EOF 排空与连续窗口身份的验证任务。</returns>
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task CaptureResetBuffersNewEpochThroughEofWhileModelsLoad(bool resumeAfterBacklog, bool resetAgain)
+    {
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var eof = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var buffered = new TaskCompletionSource<PipelineSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var models = new ControlledModels { ResetDelay = release.Task };
+        var input = Channel.CreateBounded<PipelineInput>(1);
+        var expectedEpoch = resetAgain ? 3 : 2;
+        var pipeline = Create(models, state =>
+        {
+            if (state.Subtitles.Identity.CaptureEpoch == expectedEpoch && state.AudioEnd == 48000) buffered.TrySetResult(state);
+        }, new() { ResumeLiveAfterBacklog = true, AlignmentRecoverySamples = 0, MaximumWindowSamples = 64000, MaximumBacklogSamples = 128000 });
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var run = pipeline.RunAsync(ReadThroughEofAsync(input.Reader, eof, timeout.Token), timeout.Token);
+        await input.Writer.WriteAsync(Audio(0, 32000), timeout.Token);
+        await models.NextAsync(timeout.Token);
+        var physicalEpoch = 1;
+        var origin = 0;
+        if (resumeAfterBacklog)
+        {
+            origin = 128000;
+            await input.Writer.WriteAsync(Audio(32000, origin), timeout.Token);
+        }
+        else await input.Writer.WriteAsync(new PipelineCaptureReset(++physicalEpoch, "device_invalidated"), timeout.Token);
+        if (resetAgain)
+        {
+            await input.Writer.WriteAsync(Audio(origin, origin + 16000) with { CaptureEpoch = physicalEpoch }, timeout.Token);
+            await input.Writer.WriteAsync(new PipelineCaptureReset(++physicalEpoch, "device_invalidated"), timeout.Token);
+            origin = 0;
+        }
+        for (var start = origin; start < origin + 48000; start += 16000)
+            await input.Writer.WriteAsync(Audio(start, start + 16000) with { CaptureEpoch = physicalEpoch }, timeout.Token);
+        input.Writer.Complete();
+        var pending = await buffered.Task.WaitAsync(timeout.Token);
+        await eof.Task.WaitAsync(timeout.Token);
+        Assert.Equal("recovering_models", pending.Status);
+        Assert.Equal(1, pending.RecognitionCalls);
+        Assert.Equal(48000, pending.BacklogSamples);
+        Assert.False(run.IsCompleted);
+        release.SetResult();
+        var current = await models.NextAsync(timeout.Token);
+        Assert.Equal(expectedEpoch, current.Request.Ticket.Identity.CaptureEpoch);
+        Assert.Equal(new SampleRange(0, 48000), current.Request.WindowRange);
+        current.Reply.SetResult("新しい音声です。");
+        var final = await run.WaitAsync(timeout.Token);
+        Assert.Equal("completed", final.Status);
+        Assert.Equal(0, final.BacklogSamples);
+        Assert.Equal("新しい音声です。", Assert.Single(final.Subtitles.Segments).Source);
+        Assert.Equal(resetAgain ? 2 : 1, final.Gaps.Length);
+        Assert.Equal(1, models.MaximumConcurrent);
+        Assert.True(models.Disposed);
+    }
+
+    /// <summary>停止发生在新代次加载期间时，先取消并等待加载退出，再释放模型和有限音频缓存。</summary>
+    /// <returns>取消未释放的加载屏障、实际模型并发和最终停止状态的验证任务。</returns>
+    [Fact]
+    public async Task StoppingDuringCaptureResetWaitsForLoaderExit()
+    {
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var buffered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var models = new ControlledModels { ResetDelay = release.Task };
+        var input = Channel.CreateBounded<PipelineInput>(1);
+        var pipeline = Create(models, state => { if (state.Status == "recovering_models" && state.AudioEnd == 32000) buffered.TrySetResult(); });
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token);
+        var run = pipeline.RunAsync(input.Reader.ReadAllAsync(stop.Token), stop.Token);
+        await input.Writer.WriteAsync(new PipelineCaptureReset(2, "device_invalidated"), timeout.Token);
+        await input.Writer.WriteAsync(Audio(0, 32000) with { CaptureEpoch = 2 }, timeout.Token);
+        await buffered.Task.WaitAsync(timeout.Token);
+        Assert.Equal(1, models.Concurrent);
+        stop.Cancel();
+        var final = await run.WaitAsync(timeout.Token);
+        Assert.Equal("stopped", final.Status);
+        Assert.Equal(0, final.RecognitionCalls);
+        Assert.Equal(0, final.MemorySamples);
+        Assert.Equal(0, models.Concurrent);
+        Assert.True(models.Disposed);
+    }
+
     /// <summary>跨窗口无法对齐时保留最后可信原文，不在 EOF 无限制重复同一推理。</summary>
     /// <returns>有限失败与剩余积压可见验证任务。</returns>
     [Fact]
@@ -358,6 +656,99 @@ public sealed class SubtitlePipelineTests
         Assert.Equal("この長い文章の続きが", rejected.Previous!.Text);
         Assert.Equal("別の認識結果なので", rejected.Current.Text);
         Assert.Equal("ambiguous_text_overlap", rejected.Reason);
+    }
+
+    /// <summary>到达旧步长上限且识别失败后，新音频允许短连接窗口或不同终点重新对齐可信原文。</summary>
+    /// <param name="recoverOnShorterWindow">较短步长能否直接找到唯一重叠。</param><returns>发生停滞后的可验证推进任务。</returns>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task NewAudioCanRecoverAfterTheMaximumAdvanceFailed(bool recoverOnShorterWindow)
+    {
+        var models = new ControlledModels();
+        var input = Channel.CreateBounded<PipelineInput>(8);
+        var rejected = Channel.CreateBounded<RecognitionRejection>(4);
+        var options = new PipelineOptions { AlignmentRecoverySamples = 0, MaximumWindowSamples = 128000, RefreshSamples = 32000 };
+        var pipeline = Create(models, _ => { }, options, publishRejection: failure => rejected.Writer.TryWrite(failure));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var run = pipeline.RunAsync(input.Reader.ReadAllAsync(timeout.Token), timeout.Token);
+        await input.Writer.WriteAsync(Audio(0, 128000), timeout.Token);
+        (await models.NextAsync(timeout.Token)).Reply.SetResult("最初の内容と窓の重なりを確かめますが");
+        await models.Translated.Reader.ReadAsync(timeout.Token);
+        await input.Writer.WriteAsync(Audio(128000, 192000), timeout.Token);
+        (await models.NextAsync(timeout.Token)).Reply.SetResult("不一致なので");
+        Assert.Equal(192000, (await rejected.Reader.ReadAsync(timeout.Token)).Request.Range.End);
+        await input.Writer.WriteAsync(Audio(192000, 224000), timeout.Token);
+        var bridge = await models.NextAsync(timeout.Token);
+        Assert.Equal(new SampleRange(32000, 160000), bridge.Request.WindowRange);
+        const string aligned = "窓の重なりを確かめますがここからの説明も続いていますが";
+        bridge.Reply.SetResult(recoverOnShorterWindow ? aligned : "まだ不一致なので");
+        var lastEnd = 224000;
+        if (!recoverOnShorterWindow)
+        {
+            Assert.Equal(160000, (await rejected.Reader.ReadAsync(timeout.Token)).Request.Range.End);
+            lastEnd = 256000;
+            await input.Writer.WriteAsync(Audio(224000, lastEnd), timeout.Token);
+            var later = await models.NextAsync(timeout.Token);
+            Assert.Equal(new SampleRange(96000, 224000), later.Request.WindowRange);
+            later.Reply.SetResult(aligned);
+        }
+        var tail = await models.NextAsync(timeout.Token);
+        Assert.Equal(lastEnd, tail.Request.WindowRange.End);
+        tail.Reply.SetResult("ここからの説明も続いていますが、さらに話します");
+        input.Writer.Complete();
+        var final = await run.WaitAsync(timeout.Token);
+        Assert.Equal("completed", final.Status);
+        Assert.Equal(lastEnd, final.RecognizedEnd);
+        Assert.Empty(final.Gaps);
+        Assert.EndsWith("さらに話します", Assert.Single(final.Subtitles.Segments).Source);
+    }
+
+    /// <summary>可信原文接近 120 秒上限时，用短连接的完整扩窗重新取得原始锚点，再处理仍在缓存的新音频。</summary>
+    /// <returns>使用真实 30/60/120 秒预算从 117 秒进度继续的验证任务。</returns>
+    [Fact]
+    public async Task ShorterBridgeRestoresOriginalAnchorAfterLongestRecoveryFailed()
+    {
+        var models = new ControlledModels();
+        var input = Channel.CreateBounded<PipelineInput>(8);
+        var coverage = Channel.CreateBounded<long>(new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropOldest });
+        var rejected = Channel.CreateBounded<RecognitionRejection>(8);
+        var pipeline = Create(models, state => coverage.Writer.TryWrite(state.RecognizedEnd), new() { AlignmentRecoverySamples = 1920000 },
+            publishRejection: failure => rejected.Writer.TryWrite(failure));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var run = pipeline.RunAsync(input.Reader.ReadAllAsync(timeout.Token), timeout.Token);
+        await FeedStableWindowsAsync(models, input.Writer, coverage.Reader, 105 * 16000, timeout.Token);
+        await input.Writer.WriteAsync(Audio(105 * 16000, 117 * 16000), timeout.Token);
+        (await models.NextAsync(timeout.Token)).Reply.SetResult("冒頭の文章が続いていますが");
+        while (await coverage.Reader.ReadAsync(timeout.Token) < 117 * 16000) { }
+        await input.Writer.WriteAsync(Audio(117 * 16000, 132 * 16000), timeout.Token);
+        foreach (var seconds in new[] { 30, 60, 120 })
+        {
+            var attempt = await models.NextAsync(timeout.Token);
+            Assert.Equal(new SampleRange((132 - seconds) * 16000, 132 * 16000), attempt.Request.WindowRange);
+            attempt.Reply.SetResult("読み方が違うので");
+            await rejected.Reader.ReadAsync(timeout.Token);
+        }
+        await input.Writer.WriteAsync(Audio(132 * 16000, 134 * 16000), timeout.Token);
+        foreach (var seconds in new[] { 30, 60 })
+        {
+            var attempt = await models.NextAsync(timeout.Token);
+            Assert.Equal(new SampleRange((119 - seconds) * 16000, 119 * 16000), attempt.Request.WindowRange);
+            attempt.Reply.SetResult("まだ読み方が違うので");
+        }
+        var anchored = await models.NextAsync(timeout.Token);
+        Assert.Equal(new SampleRange(0, 119 * 16000), anchored.Request.WindowRange);
+        Assert.Equal(2048, anchored.Request.MaxNewTokens);
+        anchored.Reply.SetResult("冒頭の文章が続いていますが、この先の発言を確かめますが");
+        var tail = await models.NextAsync(timeout.Token);
+        Assert.Equal(new SampleRange(104 * 16000, 134 * 16000), tail.Request.WindowRange);
+        tail.Reply.SetResult("この先の発言を確かめますが、あとも続きます");
+        input.Writer.Complete();
+        var final = await run.WaitAsync(timeout.Token);
+        Assert.Equal("completed", final.Status);
+        Assert.Equal(134 * 16000, final.RecognizedEnd);
+        Assert.Equal(0, final.BacklogSamples);
+        Assert.Empty(final.Gaps);
     }
 
     /// <summary>只在失败后扩充同一范围上下文；完整重识别保留原始重复，截断结果仍拒收。</summary>
@@ -454,15 +845,11 @@ public sealed class SubtitlePipelineTests
     {
         var models = new ControlledModels();
         var input = Channel.CreateBounded<PipelineInput>(8);
-        var pipeline = Create(models, _ => { }, new() { AlignmentRecoverySamples = budget * 16000 });
+        var coverage = Channel.CreateBounded<long>(new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropOldest });
+        var pipeline = Create(models, state => coverage.Writer.TryWrite(state.RecognizedEnd), new() { AlignmentRecoverySamples = budget * 16000 });
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var run = pipeline.RunAsync(input.Reader.ReadAllAsync(timeout.Token), timeout.Token);
-        for (var end = 480000; end <= 960000; end += 240000)
-        {
-            await input.Writer.WriteAsync(Audio(end == 480000 ? 0 : end - 240000, end), TestContext.Current.CancellationToken);
-            (await models.NextAsync(timeout.Token)).Reply.SetResult("冒頭の文章が続いていますが");
-            await models.Translated.Reader.ReadAsync(timeout.Token);
-        }
+        await FeedStableWindowsAsync(models, input.Writer, coverage.Reader, 960000, timeout.Token);
         await input.Writer.WriteAsync(Audio(960000, 1200000), TestContext.Current.CancellationToken);
         input.Writer.Complete();
         (await models.NextAsync(timeout.Token)).Reply.SetResult("異なる読み方なので");
@@ -489,15 +876,11 @@ public sealed class SubtitlePipelineTests
     {
         var models = new ControlledModels();
         var input = Channel.CreateBounded<PipelineInput>(8);
-        var pipeline = Create(models, _ => { }, new() { AlignmentRecoverySamples = 1920000 });
+        var coverage = Channel.CreateBounded<long>(new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropOldest });
+        var pipeline = Create(models, state => coverage.Writer.TryWrite(state.RecognizedEnd), new() { AlignmentRecoverySamples = 1920000 });
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var run = pipeline.RunAsync(input.Reader.ReadAllAsync(timeout.Token), timeout.Token);
-        for (var end = 480000; end <= 1920000; end += 240000)
-        {
-            await input.Writer.WriteAsync(Audio(end == 480000 ? 0 : end - 240000, end), TestContext.Current.CancellationToken);
-            (await models.NextAsync(timeout.Token)).Reply.SetResult("冒頭の文章が続いていますが");
-            await models.Translated.Reader.ReadAsync(timeout.Token);
-        }
+        await FeedStableWindowsAsync(models, input.Writer, coverage.Reader, 1920000, timeout.Token);
         await input.Writer.WriteAsync(Audio(1920000, 2160000), TestContext.Current.CancellationToken);
         input.Writer.Complete();
         foreach (var length in new[] { 480000, 960000, 1920000 })
@@ -641,6 +1024,33 @@ public sealed class SubtitlePipelineTests
         Assert.True(models.Disposed); Assert.Equal(0, result.Pins);
     }
 
+    /// <summary>在消费方实际读到流末尾时通知测试，区别于生产方关闭输入通道。</summary>
+    /// <param name="input">容量受限的音频和控制流。</param><param name="eof">消费方实际到达 EOF 的确认。</param>
+    /// <param name="token">本场会话取消信号。</param><returns>保留原始顺序的管道输入。</returns>
+    private static async IAsyncEnumerable<PipelineInput> ReadThroughEofAsync(ChannelReader<PipelineInput> input, TaskCompletionSource eof,
+        [EnumeratorCancellation] CancellationToken token)
+    {
+        await foreach (var item in input.ReadAllAsync(token)) yield return item;
+        eof.TrySetResult();
+    }
+
+    /// <summary>逐窗提交相同原文，并在权威快照覆盖该窗口后才继续送入音频。</summary>
+    /// <param name="models">接受受控识别答复的后端。</param><param name="input">连续测试音频入口。</param>
+    /// <param name="coverage">最近快照已接受的音频终点。</param><param name="lastEnd">最后一个稳定窗口的采样终点。</param>
+    /// <param name="token">本次测试的有限取消信号。</param><returns>所有稳定窗口均已覆盖时完成的任务。</returns>
+    private static async Task FeedStableWindowsAsync(ControlledModels models, ChannelWriter<PipelineInput> input, ChannelReader<long> coverage,
+        long lastEnd, CancellationToken token)
+    {
+        for (var end = 480000; end <= lastEnd; end += 240000)
+        {
+            await input.WriteAsync(Audio(end == 480000 ? 0 : end - 240000, end), token);
+            (await models.NextAsync(token)).Reply.SetResult("冒頭の文章が続いていますが");
+            long acceptedEnd;
+            do { acceptedEnd = await coverage.ReadAsync(token); } while (acceptedEnd < end);
+            Assert.Equal(end, acceptedEnd);
+        }
+    }
+
     /// <summary>为每个测试建立独占 D 盘临时缓存。</summary>
     /// <param name="models">受控后端。</param><param name="publish">快照观察者。</param><param name="options">可选限额。</param>
     /// <param name="publishOperation">可选逐次操作证据。</param>
@@ -656,11 +1066,11 @@ public sealed class SubtitlePipelineTests
     }
 
     /// <summary>生成含非零音频和真实静音尾部的有限输入，不把纯数字静音误当讲话。</summary>
-    /// <param name="start">连续起点。</param><param name="end">连续终点。</param><returns>受控输入。</returns>
-    private static PipelineAudio Audio(long start, long end)
+    /// <param name="start">连续起点。</param><param name="end">连续终点。</param><param name="quietTail">末尾是否有半秒静音。</param><returns>受控输入。</returns>
+    private static PipelineAudio Audio(long start, long end, bool quietTail = true)
     {
         var samples = new float[checked((int)(end - start))];
-        Array.Fill(samples, 0.1f, 0, samples.Length - 8000);
+        Array.Fill(samples, 0.1f, 0, quietTail ? samples.Length - 8000 : samples.Length);
         return new(1, new(new(start, end), samples));
     }
 
@@ -688,15 +1098,27 @@ public sealed class SubtitlePipelineTests
         public bool FailCleanup { get; init; }
         /// <summary>获取可选翻译计算屏障，仅在实际解除或取消后退出调用。</summary>
         public Task? TranslationDelay { get; init; }
+        /// <summary>获取首次启动之后的模型加载屏障，可由新控制或会话停止取消。</summary>
+        public Task? ResetDelay { get; init; }
         /// <summary>获取从第几次实际翻译开始等待屏障。</summary>
         public int TranslationDelayFromCall { get; init; } = 1;
+        /// <summary>获取返回截断响应的翻译调用序号；零表示每次都正常终止。</summary>
+        public int IncompleteTranslationCall { get; init; }
+        /// <summary>获取输入短句的受控译文，可模拟与原文标点不同的模型输出。</summary>
+        public Func<string, string> TranslateText { get; init; } = static source => source;
         /// <summary>获取空结果是否模拟模型完整无语音终止。</summary>
         public bool NoSpeechForEmpty { get; init; }
         /// <summary>取得下一次实际识别调用。</summary><param name="token">有限测试取消。</param><returns>可控请求。</returns>
         public ValueTask<PendingRecognition> NextAsync(CancellationToken token) => calls.Reader.ReadAsync(token);
         /// <inheritdoc />
-        public Task ResetAsync(PipelineIdentity identity, PipelineModelSelection selection, CancellationToken cancellationToken)
-        { Assert.Equal(0, Concurrent); return Task.CompletedTask; }
+        public async Task ResetAsync(PipelineIdentity identity, PipelineModelSelection selection, CancellationToken cancellationToken)
+        {
+            Assert.Equal(0, Concurrent);
+            if (identity.WorkerEpoch == 1 || ResetDelay is null) return;
+            MaximumConcurrent = Math.Max(MaximumConcurrent, Interlocked.Increment(ref concurrent));
+            try { await ResetDelay.WaitAsync(cancellationToken); }
+            finally { Interlocked.Decrement(ref concurrent); }
+        }
         /// <inheritdoc />
         public async Task<IpcHeader> RecognizeAsync(AsrRequest request, AudioWindowLease window, CancellationToken cancellationToken)
         {
@@ -723,7 +1145,8 @@ public sealed class SubtitlePipelineTests
                 Assert.True(Translated.Writer.TryWrite(input.Source));
                 if (++translationCalls >= TranslationDelayFromCall && TranslationDelay is not null) await TranslationDelay.WaitAsync(cancellationToken);
                 if (FailTranslations > 0) { FailTranslations--; throw new IOException("translation_service_failed"); }
-                return new TranslationResult(input, input.Source, true, "stop", TimeSpan.Zero, new('a', 64), 0, 0, 1);
+                var complete = translationCalls != IncompleteTranslationCall;
+                return new TranslationResult(input, TranslateText(input.Source), complete, complete ? "stop" : "length", TimeSpan.Zero, new('a', 64), 0, 0, 1);
             }
             finally { Interlocked.Decrement(ref concurrent); }
         }

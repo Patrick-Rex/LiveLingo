@@ -1,3 +1,4 @@
+using LiveLingo.Core.Audio;
 using LiveLingo.Core.Subtitles;
 
 namespace LiveLingo.Core.History;
@@ -37,7 +38,7 @@ public sealed record HistorySessionInfo(Guid SessionId, string ApplicationName, 
 /// <summary>提供历史列表所需的摘要，正文按需读取。</summary>
 /// <param name="Info">固定会话信息。</param><param name="EndedAt">结束时间，未结束时为空。</param>
 /// <param name="State">当前或恢复后的状态。</param><param name="EntryCount">已知有效字幕条数。</param>
-/// <param name="Error">会话或持久化错误，不包含字幕正文。</param>
+/// <param name="Error">会话、持久化错误或未识别范围提示，不包含字幕正文。</param>
 public sealed record HistorySessionSummary(HistorySessionInfo Info, DateTimeOffset? EndedAt, HistorySessionState State, int EntryCount, string? Error)
 {
     /// <summary>获取可用于选择、删除和读取的会话身份。</summary>
@@ -82,6 +83,10 @@ public interface IHistoryRecorder
     event Action<HistorySaveStatus>? StatusChanged;
     /// <summary>接收完整快照，不在调用线程执行磁盘操作。</summary><param name="snapshot">权威字幕快照。</param>
     void Offer(SubtitleSnapshot snapshot);
+    /// <summary>记录因积压跳过的未识别音频范围，并异步保存会话提示。</summary>
+    /// <param name="captureEpoch">范围所属的独立采集代次。</param><param name="range">该代次内 16 kHz 音频的半开采样范围。</param>
+    /// <exception cref="ArgumentOutOfRangeException">采集代次不是正数。</exception>
+    void RecordBacklogGap(long captureEpoch, SampleRange range);
     /// <summary>关闭记录入口并冲刷最后版本；失败通过状态返回，保留可重试内容。</summary>
     /// <param name="error">会话结束原因，正常停止为空。</param><param name="cancellationToken">等待预算，不取消已经登记的安全写入。</param><returns>冲刷完成任务。</returns>
     Task CompleteAsync(string? error = null, CancellationToken cancellationToken = default);

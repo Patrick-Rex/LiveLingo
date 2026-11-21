@@ -94,14 +94,30 @@ public sealed class SubtitleReducer
         var changed = source != segment.Source || request.Range != segment.Range;
         var revision = changed ? checked(segment.SourceRevision + 1) : segment.SourceRevision;
         var translationCurrent = !changed && segment.TranslatedSourceRevision == revision && segment.TranslationState == TranslationState.Complete;
+        var retained = segment.PhraseTranslations;
+        var translation = string.IsNullOrWhiteSpace(source) ? null : segment.Translation;
+        var translatedRevision = translation is null ? null : segment.TranslatedSourceRevision;
+        if (changed && !retained.IsEmpty)
+        {
+            var phrases = SubtitlePhrases.Split(source);
+            var count = 0;
+            while (count < retained.Length && count < phrases.Length && retained[count].Source == phrases[count]) count++;
+            if (count < retained.Length)
+            {
+                retained = retained[..count];
+                translation = count == 0 ? null : string.Join('\n', retained.Select(pair => pair.Translation));
+            }
+            translationCurrent = count > 0 && count == phrases.Length;
+            translatedRevision = translationCurrent ? revision : null;
+        }
         segments[segment.Key.Id] = segment with
         {
             Range = request.Range, Source = source, SourceRevision = revision,
             SubtitleRevision = checked(segment.SubtitleRevision + 1), Boundary = boundary,
             Phase = boundary.CanClose && translationCurrent ? SubtitlePhase.Final : segment.SourceRevision == 0 ? SubtitlePhase.Draft : SubtitlePhase.Revised,
-            TranslationState = changed ? string.IsNullOrWhiteSpace(source) ? TranslationState.None : TranslationState.Pending : segment.TranslationState,
-            Translation = string.IsNullOrWhiteSpace(source) ? null : segment.Translation,
-            TranslatedSourceRevision = string.IsNullOrWhiteSpace(source) ? null : segment.TranslatedSourceRevision,
+            TranslationState = translationCurrent ? TranslationState.Complete :
+                changed ? string.IsNullOrWhiteSpace(source) ? TranslationState.None : TranslationState.Pending : segment.TranslationState,
+            Translation = translation, TranslatedSourceRevision = translatedRevision, PhraseTranslations = retained,
             Error = null
         };
         Commit();
@@ -123,9 +139,39 @@ public sealed class SubtitleReducer
         }
         segments[segment.Key.Id] = segment with
         {
-            Translation = translation, TranslatedSourceRevision = segment.SourceRevision,
+            Translation = translation, TranslatedSourceRevision = segment.SourceRevision, PhraseTranslations = [],
             SubtitleRevision = checked(segment.SubtitleRevision + 1), TranslationState = TranslationState.Complete,
             Phase = segment.Boundary.CanClose ? SubtitlePhase.Final : segment.Phase, Error = null
+        };
+        Commit();
+        return true;
+    }
+
+    /// <summary>将一次译文回填到当前源版本的下一条短句，末句完成时提交整块译文。</summary>
+    /// <param name="request">为该次短句翻译登记的完整票据。</param><param name="phrase">服务实际接收的原句及其完整译文。</param>
+    /// <returns>原句、次序和版本均匹配且译文非空时为 true。</returns>
+    public bool AcceptPhraseTranslation(PipelineRequest request, SubtitlePhraseTranslation phrase)
+    {
+        if (request.Kind != PipelineRequestKind.Translation) return Reject("wrong_request_kind");
+        if (!ValidateResult(request, out var segment)) return false;
+        var sources = SubtitlePhrases.Split(segment.Source);
+        var index = segment.PhraseTranslations.Length;
+        if (index >= sources.Length || sources[index] != phrase.Source) return Reject("unexpected_source_phrase");
+        requests.Remove(request.Id);
+        if (string.IsNullOrWhiteSpace(phrase.Translation))
+        {
+            SetTranslationFailure(segment, "incomplete_translation");
+            return Reject("incomplete_translation");
+        }
+        var complete = index + 1 == sources.Length;
+        segments[segment.Key.Id] = segment with
+        {
+            PhraseTranslations = segment.PhraseTranslations.Add(phrase),
+            Translation = index == 0 ? phrase.Translation : string.Concat(segment.Translation, "\n", phrase.Translation),
+            TranslatedSourceRevision = complete ? segment.SourceRevision : null,
+            TranslationState = complete ? TranslationState.Complete : TranslationState.Pending,
+            Phase = complete && segment.Boundary.CanClose ? SubtitlePhase.Final : segment.Phase,
+            SubtitleRevision = checked(segment.SubtitleRevision + 1), Error = null
         };
         Commit();
         return true;
@@ -181,7 +227,7 @@ public sealed class SubtitleReducer
         CancelSegment(id);
         value = value with { Key = new(id, checked(value.Key.Generation + 1)), SourceRevision = checked(value.SourceRevision + 1),
             SubtitleRevision = checked(value.SubtitleRevision + 1), Phase = SubtitlePhase.Revised,
-            TranslationState = TranslationState.Pending, Boundary = BoundaryDecision.Pending, Error = null };
+            TranslationState = TranslationState.Pending, PhraseTranslations = [], Boundary = BoundaryDecision.Pending, Error = null };
         segments[id] = value;
         Commit();
         return value;
@@ -228,6 +274,7 @@ public sealed class SubtitleReducer
             foreach (var value in segments.Values.Where(x => x.Phase != SubtitlePhase.Final).ToArray()) segments[value.Key.Id] = value with
             {
                 TranslationState = string.IsNullOrWhiteSpace(value.Source) ? TranslationState.None : TranslationState.Pending,
+                Translation = null, TranslatedSourceRevision = null, PhraseTranslations = [],
                 Phase = SubtitlePhase.Revised, SubtitleRevision = checked(value.SubtitleRevision + 1),
                 Boundary = BoundaryDecision.Pending, Error = null
             };

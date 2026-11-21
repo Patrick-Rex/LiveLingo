@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using LiveLingo.Core.Desktop;
+using LiveLingo.Core.History;
 using LiveLingo.Desktop.Windows;
 using LiveLingo.Runtime.Pipeline;
 
@@ -13,9 +14,12 @@ namespace LiveLingo.Windows.Tests;
 public sealed class ApiSessionTests
 {
     /// <summary>真实本机 HTTP 请求贯通识别、翻译与字幕，整个会话无需任何本地推理资产。</summary>
+    /// <param name="resume">是否先模拟有未识别音频的积压续接通知。</param>
     /// <returns>字幕完成、服务关闭及进程清理验证任务。</returns>
-    [Fact]
-    public async Task AllApiSessionProducesSubtitlesOverHttpWithoutLocalAssets()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AllApiSessionProducesSubtitlesOverHttpWithoutLocalAssets(bool resume)
     {
         var root = Path.Combine(Path.GetTempPath(), "api-http-session-" + Guid.NewGuid().ToString("N"));
         await using var server = new LoopbackApi();
@@ -26,36 +30,58 @@ public sealed class ApiSessionTests
             TranslationApi = new() { BaseUrl = server.BaseUrl, Model = "text-fixture", ApiKey = "translation-fixture-key" },
             PythonPath = "", ModelPath = "", OllamaPath = "", OllamaModelsPath = "", DataPath = root, CachePath = Path.Combine(root, "cache")
         };
-        var session = new DesktopSession(Path.Combine(root, "missing-content")) { VerificationInput = AudioInput };
+        var history = new DesktopHistory(root);
+        var session = new DesktopSession(Path.Combine(root, "missing-content"), history)
+            { VerificationInput = (_, token) => AudioInput(resume, token) };
         var stopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var id = Guid.NewGuid();
+        DesktopUpdate? lastUpdate = null;
         PipelineSnapshot? final = null;
         session.PipelineUpdated += value => final = value;
-        session.Updated += value => { if (!value.Active) stopped.TrySetResult(); };
+        session.Updated += value => { if (!value.Active) { lastUpdate = value; stopped.TrySetResult(); } };
         try
         {
-            await session.StartAsync(Guid.NewGuid(), new("HTTP fixture", new(123, DateTimeOffset.UtcNow, @"D:\fixture.exe")), settings, TestContext.Current.CancellationToken);
+            await session.StartAsync(id, new("HTTP fixture", new(123, DateTimeOffset.UtcNow, @"D:\fixture.exe")), settings, TestContext.Current.CancellationToken);
             await stopped.Task.WaitAsync(TimeSpan.FromSeconds(20), TestContext.Current.CancellationToken);
             Assert.Null(session.LastError);
             Assert.NotNull(final); Assert.Equal("completed", final.Status);
             var segment = Assert.Single(final.Subtitles.Segments);
-            Assert.Equal("今日は行きません。", segment.Source); Assert.Equal("今天不去。", segment.Translation);
-            Assert.True(server.RecognitionCalls > 0); Assert.True(server.TranslationCalls > 0);
+            Assert.Equal("今日は行きません。また明日。", segment.Source);
+            Assert.Equal(["今日は行きません。", "また明日。"], segment.PhraseTranslations.Select(pair => pair.Source));
+            Assert.Equal(["今天不去。", "再见。明天见！"], segment.PhraseTranslations.Select(pair => pair.Translation));
+            Assert.True(server.RecognitionCalls > 0); Assert.Equal(2, server.TranslationCalls);
+            var saved = await history.Store!.ReadAsync(id, TestContext.Current.CancellationToken);
+            Assert.Equal(HistorySessionState.Completed, saved.Summary.State);
+            Assert.Equal(resume ? 2 : 1, Assert.Single(saved.Entries).Key.CaptureEpoch);
+            if (resume)
+            {
+                Assert.Contains("未识别", lastUpdate!.Status);
+                Assert.Contains("采集片段 1，0–0.5 秒", saved.Summary.Error);
+            }
+            else Assert.Null(saved.Summary.Error);
             Assert.Empty(session.LastOwned); Assert.Empty(session.RemainingOwned); Assert.Empty(session.RemainingTemporary);
         }
         finally
         {
             await session.StopAsync();
+            await history.DisposeAsync();
             if (Directory.Exists(root)) Directory.Delete(root, true);
         }
     }
 
-    /// <summary>提供四秒有声样本触发实际 API 调用，音频本身不作为模型质量证据。</summary>
-    /// <param name="id">会话身份。</param><param name="token">测试生命周期。</param><returns>单个连续音频块。</returns>
-    private static async IAsyncEnumerable<PipelineInput> AudioInput(Guid id, [EnumeratorCancellation] CancellationToken token)
+    /// <summary>可先提供积压缺口，再从当前采集代次提供四秒有声样本触发实际 API 调用。</summary>
+    /// <param name="resume">是否在完整音频前触发续接。</param><param name="token">测试生命周期。</param><returns>有界的采集输入。</returns>
+    private static async IAsyncEnumerable<PipelineInput> AudioInput(bool resume, [EnumeratorCancellation] CancellationToken token)
     {
         await Task.Yield(); token.ThrowIfCancellationRequested();
+        if (resume)
+        {
+            var missed = new float[8000]; Array.Fill(missed, 0.1f);
+            yield return new PipelineAudio(1, new(new(0, missed.Length), missed));
+            yield return new PipelineCaptureReset(2, "audio_backlog_capacity");
+        }
         var samples = new float[64000]; Array.Fill(samples, 0.1f);
-        yield return new PipelineAudio(1, new(new(0, samples.Length), samples));
+        yield return new PipelineAudio(resume ? 2 : 1, new(new(0, samples.Length), samples));
     }
 
     /// <summary>提供有界的本机 OpenAI 兼容测试端点，验证真实请求后返回确定文本。</summary>
@@ -103,7 +129,7 @@ public sealed class ApiSessionTests
                     Assert.Equal("Bearer asr-fixture-key", headers["Authorization"]);
                     Assert.StartsWith("multipart/form-data;", headers["Content-Type"]);
                     Assert.True(body.AsSpan().IndexOf("RIFF"u8) >= 0);
-                    RecognitionCalls++; response = "{\"text\":\"今日は行きません。\"}";
+                    RecognitionCalls++; response = "{\"text\":\"今日は行きません。また明日。\"}";
                 }
                 else
                 {
@@ -111,8 +137,10 @@ public sealed class ApiSessionTests
                     Assert.Equal("Bearer translation-fixture-key", headers["Authorization"]);
                     using var json = JsonDocument.Parse(body);
                     Assert.Equal("text-fixture", json.RootElement.GetProperty("model").GetString());
-                    Assert.Equal("今日は行きません。", json.RootElement.GetProperty("messages")[1].GetProperty("content").GetString());
-                    TranslationCalls++; response = "{\"choices\":[{\"message\":{\"content\":\"今天不去。\"},\"finish_reason\":\"stop\"}]}";
+                    Assert.Equal(TranslationCalls == 0 ? "今日は行きません。" : "また明日。",
+                        json.RootElement.GetProperty("messages")[1].GetProperty("content").GetString());
+                    var translation = TranslationCalls++ == 0 ? "今天不去。" : "再见。明天见！";
+                    response = JsonSerializer.Serialize(new { choices = new[] { new { message = new { content = translation }, finish_reason = "stop" } } });
                 }
                 var payload = Encoding.UTF8.GetBytes(response);
                 await stream.WriteAsync(Encoding.ASCII.GetBytes($"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {payload.Length}\r\nConnection: close\r\n\r\n"), stop.Token);
@@ -131,34 +159,47 @@ public sealed class ApiSessionTests
         }
     }
 
-    /// <summary>缺少 profile、worker 和全部本地模型路径仍可启动空输入会话并正常清理。</summary><returns>真实宿主生命周期检查任务。</returns>
-    [Fact]
-    public async Task AllApiSessionNeedsNoLocalAssetsOrProcesses()
+    /// <summary>全 API 宿主正常退出或因输入异常停止时，界面和落盘档案均反映真实结束原因。</summary>
+    /// <param name="disconnect">是否制造采集连续性错误。</param><returns>宿主生命周期及档案状态检查。</returns>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AllApiSessionNeedsNoLocalAssetsOrProcesses(bool disconnect)
     {
         var root = Path.Combine(Path.GetTempPath(), "api-session-" + Guid.NewGuid().ToString("N"));
         var api = new OpenAiApiSettings { Model = "test-model", BaseUrl = "https://example.invalid/v1" };
         var settings = new DesktopSettings { AsrBackend = ModelBackend.OpenAiCompatible, TranslationBackend = ModelBackend.OpenAiCompatible,
             AsrApi = api, TranslationApi = api, PythonPath = "", ModelPath = "", OllamaPath = "", OllamaModelsPath = "", DataPath = root, CachePath = Path.Combine(root, "cache") };
-        var session = new DesktopSession(Path.Combine(root, "missing-content")) { VerificationInput = EmptyInput };
+        var id = Guid.NewGuid();
+        var history = new DesktopHistory(root);
+        var session = new DesktopSession(Path.Combine(root, "missing-content"), history)
+            { VerificationInput = (_, token) => EndInput(disconnect, token) };
         var stopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         session.Updated += update => { if (!update.Active) stopped.TrySetResult(); };
         try
         {
-            await session.StartAsync(Guid.NewGuid(), new("fixture", new(123, DateTimeOffset.UtcNow, @"D:\fixture.exe")), settings, TestContext.Current.CancellationToken);
+            await session.StartAsync(id, new("fixture", new(123, DateTimeOffset.UtcNow, @"D:\fixture.exe")), settings, TestContext.Current.CancellationToken);
             await stopped.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
-            Assert.Null(session.LastError); Assert.Empty(session.LastOwned); Assert.Empty(session.RemainingTemporary);
+            var saved = await history.Store!.ReadAsync(id, TestContext.Current.CancellationToken);
+            Assert.Equal(disconnect ? HistorySessionState.Interrupted : HistorySessionState.Completed, saved.Summary.State);
+            Assert.Equal(session.LastError, saved.Summary.Error);
+            if (disconnect) Assert.Contains("会话已中断", session.LastError);
+            else Assert.Null(session.LastError);
+            Assert.Empty(session.LastOwned); Assert.Empty(session.RemainingTemporary);
         }
         finally
         {
             await session.StopAsync();
+            await history.DisposeAsync();
             if (Directory.Exists(root)) Directory.Delete(root, true);
         }
     }
 
-    /// <summary>提供无采集、无远程调用的已结束输入。</summary>
-    /// <param name="id">本次会话。</param><param name="token">生命周期取消。</param><returns>空输入序列。</returns>
-    private static async IAsyncEnumerable<PipelineInput> EmptyInput(Guid id, [EnumeratorCancellation] CancellationToken token)
+    /// <summary>提供正常 EOF 或错误起点的音频，以验证在模型调用前退出的路径。</summary>
+    /// <param name="disconnect">是否发送非连续输入。</param><param name="token">生命周期取消。</param><returns>有界验证输入。</returns>
+    private static async IAsyncEnumerable<PipelineInput> EndInput(bool disconnect, [EnumeratorCancellation] CancellationToken token)
     {
-        await Task.Yield(); token.ThrowIfCancellationRequested(); yield break;
+        await Task.Yield(); token.ThrowIfCancellationRequested();
+        if (disconnect) yield return new PipelineAudio(1, new(new(1, 2), [0.1f]));
     }
 }

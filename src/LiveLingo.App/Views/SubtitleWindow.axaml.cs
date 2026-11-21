@@ -16,6 +16,7 @@ public partial class SubtitleWindow : Window
 {
     private bool interactive;
     private readonly ScrollViewer subtitleScroll;
+    private readonly ItemsControl phraseList;
     private StandardCursorType cursorType = StandardCursorType.Arrow;
 
     /// <summary>获取贴合字幕右上角的锁定按钮窗口，其生命周期从属于字幕窗。</summary>
@@ -26,6 +27,7 @@ public partial class SubtitleWindow : Window
     {
         AvaloniaXamlLoader.Load(this);
         subtitleScroll = this.FindControl<ScrollViewer>("SubtitleScroll")!;
+        phraseList = this.FindControl<ItemsControl>("PhraseList")!;
         ApplyAppearance(new());
         AddHandler(PointerPressedEvent, Drag, RoutingStrategies.Tunnel);
         AddHandler(PointerWheelChangedEvent, ZoomText, RoutingStrategies.Tunnel);
@@ -119,12 +121,17 @@ public partial class SubtitleWindow : Window
         args.Handled = true;
     }
 
-    /// <summary>布局完成后跟随当前完整内容的末尾；尺寸与字体改变也重新定位，不排队旧快照回调。</summary><param name="sender">字幕滚动区。</param><param name="args">布局通知。</param>
+    /// <summary>跟随当前原译对，下一句等待翻译时优先为刚回填的译文保留可见空间。</summary><param name="sender">字幕滚动区。</param><param name="args">布局通知。</param>
     private void FollowTail(object? sender, EventArgs args)
     {
-        if (DataContext is DesktopViewModel { FollowLatest: true } &&
-            subtitleScroll.Extent.Height - subtitleScroll.Viewport.Height - subtitleScroll.Offset.Y > 1)
-            subtitleScroll.ScrollToEnd();
+        if (DataContext is not DesktopViewModel { FollowLatest: true } model) return;
+        var target = Math.Max(0, subtitleScroll.Extent.Height - subtitleScroll.Viewport.Height);
+        var phrases = model.OverlayPhrases;
+        if (model.CurrentSettings.DisplayMode != SubtitleDisplayMode.SourceOnly && phrases.Count >= 2 &&
+            phrases[^1].Phrase.Chinese is null && phrases[^2].Phrase.Chinese is not null &&
+            phraseList.ContainerFromIndex(phrases.Count - 2) is { } pair && pair.TranslatePoint(default, phraseList) is { } start)
+            target = Math.Min(target, start.Y + Math.Max(0, pair.Bounds.Height - subtitleScroll.Viewport.Height));
+        if (Math.Abs(target - subtitleScroll.Offset.Y) > 1) subtitleScroll.Offset = subtitleScroll.Offset.WithY(target);
     }
 
     /// <summary>只在有可滚动内容时暂停跟随，保留当前滚动位置与阅读身份。</summary>

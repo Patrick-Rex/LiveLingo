@@ -31,7 +31,11 @@ public sealed class AsrWorkerClientTests
         var key = new SegmentKey(Guid.NewGuid(), 1);
         await manager.StartAsync(1, CancellationToken.None);
         long sequence = 0;
-        foreach (var range in new LiveLingo.Core.Audio.SampleRange[] { new(480000, 960000), new(0, 960000), new(480000, 1920000), new(0, 1920000) })
+        foreach (var range in new LiveLingo.Core.Audio.SampleRange[]
+        {
+            new(480000, 960000), new(240000, 720000), new(0, 960000), new(320000, 800000),
+            new(480000, 1920000), new(0, 1920000)
+        })
         {
             var request = new AsrRequest(new(Guid.NewGuid(), ++sequence, PipelineRequestKind.Recognition, identity, key,
                 new(0, range.End), 0), range, range.Start, "auto", 2048);

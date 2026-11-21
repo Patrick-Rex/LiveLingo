@@ -6,6 +6,51 @@ namespace LiveLingo.Core.Tests.Subtitles;
 /// <summary>用乱序与撤销行为验证字幕权威状态，拒绝结果不得改变快照。</summary>
 public sealed class SubtitleReducerTests
 {
+    /// <summary>短句按原始顺序保留复合标点、引语、小数和未说完的尾句，空行不发起翻译。</summary>
+    [Fact]
+    public void PhrasesKeepOriginalPunctuationAndRepeatedSpeech()
+    {
+        Assert.Equal(["はい！？", "はい！？", "「3.14？」と聞いた。", "次の話"],
+            SubtitlePhrases.Split(" はい！？はい！？\r\n\n「3.14？」と聞いた。次の話 "));
+        Assert.Equal(["「本当？」", "「はい！」"], SubtitlePhrases.Split("「本当？」「はい！」"));
+        Assert.Equal(["「本当？」。", "次です。"], SubtitlePhrases.Split("「本当？」。次です。"));
+        Assert.Empty(SubtitlePhrases.Split(" \r\n "));
+    }
+
+    /// <summary>原文修订保留连续一致的句对；过期或错序回传不得补到新句，删除尾句可直接确认剩余译文。</summary>
+    [Fact]
+    public void RevisedPhraseKeepsOnlyTheMatchingPrefix()
+    {
+        var reducer = NewReducer();
+        var id = Guid.NewGuid();
+        reducer.Add(id, new(0, 0));
+        Source(reducer, id, 1, 16000, "朝です。雨です。");
+        var first = Request(reducer, id, PipelineRequestKind.Translation, 1);
+        Assert.True(reducer.Register(first));
+        Assert.True(reducer.AcceptPhraseTranslation(first, new("朝です。", "早上了。")));
+        var late = Request(reducer, id, PipelineRequestKind.Translation, 2);
+        Assert.True(reducer.Register(late));
+        Source(reducer, id, 2, 32000, "朝です。晴れです。");
+        Assert.False(reducer.AcceptPhraseTranslation(late, new("雨です。", "下雨了。")));
+        var next = Request(reducer, id, PipelineRequestKind.Translation, 3);
+        Assert.True(reducer.Register(next));
+        Assert.False(reducer.AcceptPhraseTranslation(next, new("雨です。", "下雨了。")));
+        Assert.True(reducer.AcceptPhraseTranslation(next, new("晴れです。", "天晴了。")));
+        var translated = Assert.Single(reducer.Snapshot().Segments);
+        Assert.Equal("早上了。\n天晴了。", translated.Translation);
+        Assert.Equal(translated.SourceRevision, translated.TranslatedSourceRevision);
+        Source(reducer, id, 3, 48000, "朝です。");
+        var revised = Assert.Single(reducer.Snapshot().Segments);
+        Assert.Equal("早上了。", revised.Translation);
+        Assert.Single(revised.PhraseTranslations);
+        Assert.Equal(revised.SourceRevision, revised.TranslatedSourceRevision);
+        Source(reducer, id, 4, 64000, "夜です。");
+        var changed = Assert.Single(reducer.Snapshot().Segments);
+        Assert.Empty(changed.PhraseTranslations);
+        Assert.Null(changed.Translation);
+        Assert.Null(changed.TranslatedSourceRevision);
+    }
+
     /// <summary>完整空原文撤销过期译文显示与关联，旧结果不得恢复被无语音证据撤销的块。</summary>
     [Fact]
     public void EmptySourceClearsStaleTranslationBeforeRetirement()

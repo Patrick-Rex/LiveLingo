@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using LiveLingo.App.Services;
 using LiveLingo.Core.Desktop;
@@ -22,6 +23,8 @@ public sealed partial class DesktopViewModel : ObservableObject
     private bool loadingSettings;
     private bool allowAutoSave;
     private bool closing;
+    private bool transcriptStopped;
+    private (Guid SessionId, long CaptureEpoch, long Sequence) projected;
 
     /// <summary>绑定会话、设置及 UI 调度边界。</summary><param name="session">独占会话。</param><param name="store">设置文件服务。</param><param name="post">UI 调度。</param>
     public DesktopViewModel(IDesktopSession session, IDesktopSettingsStore store, Action<Action> post)
@@ -83,7 +86,8 @@ public sealed partial class DesktopViewModel : ObservableObject
         {
             if (closing || !Enum.IsDefined((SubtitleDisplayMode)value) || value == DisplayModeIndex) return;
             settings = settings with { DisplayMode = (SubtitleDisplayMode)value };
-            OnPropertyChanged(); OnPropertyChanged(nameof(PreviewSourceVisible)); OnPropertyChanged(nameof(PreviewTranslationVisible)); PreviewAppearance();
+            OnPropertyChanged(); OnPropertyChanged(nameof(PreviewSourceVisible)); OnPropertyChanged(nameof(PreviewTranslationVisible));
+            UpdateOverlayRows(); PreviewAppearance();
         }
     }
     /// <summary>获取可用功能键编号。</summary>
@@ -101,6 +105,15 @@ public sealed partial class DesktopViewModel : ObservableObject
     [ObservableProperty, NotifyPropertyChangedFor(nameof(CanToggle))] public partial DesktopTarget? SelectedTarget { get; set; }
     /// <summary>获取流水线是否仍活动。</summary>
     [ObservableProperty, NotifyPropertyChangedFor(nameof(CanEdit)), NotifyPropertyChangedFor(nameof(CanToggle)), NotifyPropertyChangedFor(nameof(SessionButtonText))] public partial bool Active { get; set; }
+
+    /// <summary>会话启停时更新实时阅读提示，即使最后一帧字幕的版本仍相同。</summary>
+    /// <param name="value">会话是否仍可接收字幕。</param>
+    partial void OnActiveChanged(bool value)
+    {
+        transcriptStopped = !value;
+        foreach (var item in LivePhrases) item.Stopped = transcriptStopped;
+        foreach (var item in OverlayPhrases) item.Stopped = transcriptStopped;
+    }
     /// <summary>获取正在执行的交互操作状态。</summary>
     [ObservableProperty, NotifyPropertyChangedFor(nameof(CanEdit)), NotifyPropertyChangedFor(nameof(CanToggle)), NotifyPropertyChangedFor(nameof(SessionButtonText))] public partial bool Busy { get; set; }
     /// <summary>获取设置与目标是否允许改变。</summary>
@@ -157,6 +170,15 @@ public sealed partial class DesktopViewModel : ObservableObject
     [ObservableProperty] public partial string Backlog { get; set; } = "积压 0.0 秒";
     /// <summary>获取完整有效字幕历史，不按文本删除真实重复。</summary>
     [ObservableProperty, NotifyPropertyChangedFor(nameof(HasLiveHistory))] public partial IReadOnlyList<SubtitleRow> History { get; set; } = [];
+    /// <summary>获取实时页的短句序列，修订和新增内容时保留其他阅读项。</summary>
+    public ObservableCollection<LivePhraseItem> LivePhrases { get; } = [];
+    /// <summary>获取主窗跟随的最近已译短句，尚未收到翻译时停在第一句。</summary>
+    public int LivePhraseIndex { get; private set; }
+    /// <summary>获取或设置主窗是否正在手动回看。</summary>
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(CanResumeReading))]
+    public partial bool ReviewingTranscript { get; set; }
+    /// <summary>获取主窗是否应提供返回实时位置的操作。</summary>
+    public bool CanResumeReading => ReviewingTranscript || IsReviewing;
     /// <summary>获取实时页是否已收到有效字幕。</summary>
     public bool HasLiveHistory => History.Count > 0;
     /// <summary>获取合成字幕预览是否显示原文。</summary>
@@ -167,8 +189,10 @@ public sealed partial class DesktopViewModel : ObservableObject
     public double PreviewSourceFontSize => FontSize * 18 / 28;
     /// <summary>获取字幕窗最近两块或回看锁定身份的当前有效版本。</summary>
     [ObservableProperty] public partial IReadOnlyList<SubtitleRow> OverlayRows { get; set; } = [];
+    /// <summary>获取浮窗当前跟随或回看范围内的原译短句。</summary>
+    public ObservableCollection<LivePhraseItem> OverlayPhrases { get; } = [];
     /// <summary>获取是否跟随最新字幕；暂停时只更新当前阅读身份的权威版本。</summary>
-    [ObservableProperty, NotifyPropertyChangedFor(nameof(IsReviewing))]
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(IsReviewing)), NotifyPropertyChangedFor(nameof(CanResumeReading))]
     public partial bool FollowLatest { get; private set; } = true;
     /// <summary>获取是否显示回看提示及返回最新入口。</summary>
     public bool IsReviewing => !FollowLatest;
@@ -257,7 +281,7 @@ public sealed partial class DesktopViewModel : ObservableObject
             if (SelectedTarget is null) throw new InvalidOperationException("请先选择可核实的应用根进程。");
             settings.Validate();
             SessionId = Guid.NewGuid(); pump.SwitchSession(SessionId);
-            History = []; OverlayRows = []; FollowLatest = true; Active = true; Status = "正在加载模型…";
+            History = []; OverlayRows = []; FollowLatest = true; ReviewingTranscript = false; Active = true; Status = "正在加载模型…";
             await session.StartAsync(SessionId, SelectedTarget, settings, lifetime.Token);
         }
         catch (Exception error) { Active = false; Error = error.Message; Status = "未启动或启动失败"; }
@@ -418,6 +442,9 @@ public sealed partial class DesktopViewModel : ObservableObject
         FollowLatest = true; UpdateOverlayRows();
     }
 
+    /// <summary>从主窗恢复当前会话的实时阅读位置，并恢复浮窗跟随。</summary>
+    [RelayCommand] private void ResumeReading() { if (!closing) { ReviewingTranscript = false; ResumeFollowing(); } }
+
     /// <summary>把双语字幕放大一档，运行中也可操作。</summary>
     [RelayCommand] private void IncreaseSubtitleFont() => AdjustSubtitleFontSize(2);
 
@@ -462,16 +489,82 @@ public sealed partial class DesktopViewModel : ObservableObject
         if (!value.Active) pump.SwitchSession(Guid.Empty);
         Active = value.Active; Status = value.Status; Backlog = $"积压 {value.BacklogSeconds:F1} 秒";
         if (value.Subtitles is not { } subtitles) return;
-        History = subtitles.Segments.Where(x => !subtitles.RetiredIds.Contains(x.Key.Id) && !string.IsNullOrWhiteSpace(x.Source)).Select(x => new SubtitleRow(x)).ToArray();
+        var epoch = subtitles.Identity.CaptureEpoch;
+        if (projected.SessionId == value.SessionId && (epoch < projected.CaptureEpoch ||
+            epoch == projected.CaptureEpoch && subtitles.StateSequence <= projected.Sequence)) return;
+        projected = (value.SessionId, epoch, subtitles.StateSequence);
+        var previous = History.ToDictionary(x => x.Segment.Key);
+        History = subtitles.Segments.Where(x => !subtitles.RetiredIds.Contains(x.Key.Id) && !string.IsNullOrWhiteSpace(x.Source))
+            .Select(x => previous.TryGetValue(x.Key, out var row) && row.Segment == x ? row : new SubtitleRow(x)).ToArray();
         UpdateOverlayRows();
     }
 
-    /// <summary>跟随时取最近两块；回看时按完整身份更新修订，撤销或空块立即移除。</summary>
+    /// <summary>跟随当前译文和相邻语义块，回看时按身份保持正在阅读的块。</summary>
     private void UpdateOverlayRows()
     {
-        if (FollowLatest) { OverlayRows = History.TakeLast(2).ToArray(); return; }
+        if (FollowLatest)
+        {
+            var first = Math.Max(0, History.Count - 2);
+            if (settings.DisplayMode != SubtitleDisplayMode.SourceOnly && LivePhrases.Count != 0)
+            {
+                var active = LivePhrases[LivePhraseIndex].Phrase.Key;
+                first = Math.Min(first, History.TakeWhile(x => x.Segment.Key != active).Count());
+            }
+            OverlayRows = History.Skip(first).Take(2).ToArray();
+            return;
+        }
         var reading = OverlayRows.Select(x => x.Segment.Key).ToHashSet();
         OverlayRows = History.Where(x => reading.Contains(x.Segment.Key)).ToArray();
+    }
+
+    /// <summary>在译文逐句回填时显示到下一句待译原文，保持当前译文可以跟读。</summary>
+    /// <param name="value">可读语义块。</param>
+    partial void OnOverlayRowsChanged(IReadOnlyList<SubtitleRow> value)
+    {
+        var phrases = value.SelectMany(row => row.Phrases).ToArray();
+        if (FollowLatest && settings.DisplayMode != SubtitleDisplayMode.SourceOnly && phrases.Length > 0)
+        {
+            var last = Array.FindLastIndex(phrases, phrase => phrase.Chinese is not null);
+            if (last + 2 < phrases.Length) phrases = phrases[..(last + 2)];
+        }
+        UpdatePhrases(OverlayPhrases, phrases);
+    }
+
+    /// <summary>按块身份与句序更新虚拟列表，保留未变条目的容器、展开状态和回看位置。</summary>
+    /// <param name="value">有效语义块快照。</param>
+    partial void OnHistoryChanged(IReadOnlyList<SubtitleRow> value)
+    {
+        var phrases = value.SelectMany(row => row.Phrases).ToArray();
+        LivePhraseIndex = Math.Max(0, Array.FindLastIndex(phrases, phrase => phrase.Chinese is not null));
+        UpdatePhrases(LivePhrases, phrases);
+    }
+
+    /// <summary>原位修订对应的短句，只有身份新增或消失时才改变列表结构。</summary>
+    /// <param name="items">当前视图的短句显示项。</param><param name="phrases">按播放顺序排列的新内容。</param>
+    private void UpdatePhrases(ObservableCollection<LivePhraseItem> items, SubtitlePhraseRow[] phrases)
+    {
+        var first = 0;
+        var oldEnd = items.Count;
+        var newEnd = phrases.Length;
+        while (first < oldEnd && first < newEnd && UpdateMatchingPhrase(items[first], phrases[first])) first++;
+        while (oldEnd > first && newEnd > first && UpdateMatchingPhrase(items[oldEnd - 1], phrases[newEnd - 1]))
+        {
+            oldEnd--;
+            newEnd--;
+        }
+        for (var index = oldEnd - 1; index >= first; index--) items.RemoveAt(index);
+        for (var index = first; index < newEnd; index++) items.Insert(index, new(phrases[index]) { Stopped = transcriptStopped });
+    }
+
+    /// <summary>为同一短句位置更新当前版本，内容保持相同则保留原对象。</summary>
+    /// <param name="item">该位置原有的显示项。</param><param name="phrase">新快照中的短句。</param>
+    /// <returns>两个位置是否属于同一短句身份。</returns>
+    private static bool UpdateMatchingPhrase(LivePhraseItem item, SubtitlePhraseRow phrase)
+    {
+        var old = item.Phrase;
+        if (old.Key != phrase.Key || old.Index != phrase.Index) return false;
+        item.Phrase = phrase;
+        return true;
     }
 
     /// <summary>将编辑输入和最近布局组合为本次不可变设置。</summary><returns>完整设置。</returns>

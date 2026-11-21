@@ -21,6 +21,8 @@ public sealed record PipelineOptions
     public int ClosedQueueCapacity { get; init; } = 32;
     /// <summary>获取最大积压采样数，超过后必须显式报告压力。</summary>
     public long MaximumBacklogSamples { get; init; } = 16000L * 600;
+    /// <summary>获取直播是否在识别积压达到上限时记录未识别区间，并从下一包建立新的字幕时间轴。</summary>
+    public bool ResumeLiveAfterBacklog { get; init; }
     /// <summary>获取模型初始化的总限时。</summary>
     public TimeSpan StartupTimeout { get; init; } = TimeSpan.FromMinutes(2);
     /// <summary>获取单次模型调用的总限时。</summary>

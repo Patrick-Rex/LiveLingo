@@ -8,7 +8,7 @@ using LiveLingo.Runtime.Api;
 
 namespace LiveLingo.Runtime.Translation;
 
-/// <summary>通过标准非流式 Chat Completions 翻译完整原文，不要求本地 Ollama 或固定模型摘要。</summary>
+/// <summary>通过标准非流式 Chat Completions 翻译每次提交的完整短句。</summary>
 public sealed class OpenAiTranslationService : ITranslationService, IDisposable
 {
     private readonly OpenAiClient client;

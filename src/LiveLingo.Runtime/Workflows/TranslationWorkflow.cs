@@ -4,7 +4,7 @@ using Microsoft.Agents.AI.Workflows;
 
 namespace LiveLingo.Runtime.Workflows;
 
-/// <summary>每块一个有限强类型图；工作流输出仍须由字幕归约器校验身份。</summary>
+/// <summary>每条短句运行一个有限强类型图，输出由字幕归约器校验身份。</summary>
 public sealed class TranslationWorkflow
 {
     private readonly ITranslationService service;
@@ -14,7 +14,7 @@ public sealed class TranslationWorkflow
     public TranslationWorkflow(ITranslationService service) => this.service = service;
 
     /// <summary>执行校验、翻译和结果校验三步，消费全部有限事件并确保运行已释放。</summary>
-    /// <param name="input">当前完整原文及身份。</param><param name="cancellationToken">取消整个运行的信号。</param>
+    /// <param name="input">当前短句原文及所属语义块的请求票据。</param><param name="cancellationToken">取消整个运行的信号。</param>
     /// <returns>唯一匹配本次请求的结果，不包含自动重试。</returns>
     public async Task<TranslationResult> RunAsync(TranslationInput input, CancellationToken cancellationToken)
     {
@@ -37,7 +37,7 @@ public sealed class TranslationWorkflow
         return result ?? throw new InvalidDataException("工作流结束但没有完整输出。");
     }
 
-    /// <summary>验证输入只包含一个完整有效语义块。</summary>
+    /// <summary>验证块级票据和本次短句输入的长度。</summary>
     private sealed class ValidateInput : Executor<TranslationInput, TranslationInput>
     {
         /// <summary>建立固定图节点。</summary>
