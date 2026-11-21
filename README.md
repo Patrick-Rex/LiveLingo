@@ -69,7 +69,7 @@ dotnet restore LiveLingo.slnx --locked-mode
 dotnet build LiveLingo.slnx -c Release --no-restore --disable-build-servers -clp:ErrorsOnly
 # 存储测试需要非 C 盘临时目录；先按 tests/README.md 设置 TEMP/TMP。
 dotnet test --solution LiveLingo.slnx -c Release --no-build --no-progress
-./scripts/New-LiveLingoRelease.ps1 -Version 0.2.5 -DownloadPrevious
+./scripts/New-LiveLingoRelease.ps1 -Version 0.2.6 -DownloadPrevious
 ```
 
 增量发布默认输出到 `artifacts/releases`，固定 Velopack/vpk 1.2.161；同一输出目录保留上一版完整包以生成差分，或使用 `-DownloadPrevious` 获取上一公开版本。示例版本须按实际发布调整，同版本不覆盖。旧 ZIP 打包脚本 `New-LiveLingoPackage.ps1` 仍输出到 `artifacts/packages`，安装目录为 `app\desktop`。完整的打包、包测试、备份、安装替换、核对与回退步骤见 [交付说明](docs/packaging.md)。构建或打包成功不会自动替换已安装程序。
