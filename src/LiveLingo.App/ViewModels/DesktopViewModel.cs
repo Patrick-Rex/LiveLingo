@@ -187,7 +187,7 @@ public sealed partial class DesktopViewModel : ObservableObject
     public bool PreviewTranslationVisible => settings.DisplayMode != SubtitleDisplayMode.SourceOnly;
     /// <summary>获取与实际浮窗一致的原文字号。</summary>
     public double PreviewSourceFontSize => FontSize * 18 / 28;
-    /// <summary>获取字幕窗最近两块或回看锁定身份的当前有效版本。</summary>
+    /// <summary>获取浮窗可回看的有效语义块，手动回看时保留阅读身份。</summary>
     [ObservableProperty] public partial IReadOnlyList<SubtitleRow> OverlayRows { get; set; } = [];
     /// <summary>获取浮窗当前跟随或回看范围内的原译短句。</summary>
     public ObservableCollection<LivePhraseItem> OverlayPhrases { get; } = [];
@@ -499,33 +499,37 @@ public sealed partial class DesktopViewModel : ObservableObject
         UpdateOverlayRows();
     }
 
-    /// <summary>跟随当前译文和相邻语义块，回看时按身份保持正在阅读的块。</summary>
+    /// <summary>浮窗保留可回看的语义块，手动回看期间继续接收这些块的修订和撤销。</summary>
     private void UpdateOverlayRows()
     {
         if (FollowLatest)
         {
-            var first = Math.Max(0, History.Count - 2);
-            if (settings.DisplayMode != SubtitleDisplayMode.SourceOnly && LivePhrases.Count != 0)
-            {
-                var active = LivePhrases[LivePhraseIndex].Phrase.Key;
-                first = Math.Min(first, History.TakeWhile(x => x.Segment.Key != active).Count());
-            }
-            OverlayRows = History.Skip(first).Take(2).ToArray();
+            if (ReferenceEquals(OverlayRows, History)) OnOverlayRowsChanged(History);
+            else OverlayRows = History;
             return;
         }
         var reading = OverlayRows.Select(x => x.Segment.Key).ToHashSet();
         OverlayRows = History.Where(x => reading.Contains(x.Segment.Key)).ToArray();
     }
 
+    /// <summary>获取浮窗应保持可读的短句序号。</summary>
+    internal int OverlayPhraseIndex { get; private set; }
+
     /// <summary>在译文逐句回填时显示到下一句待译原文，保持当前译文可以跟读。</summary>
     /// <param name="value">可读语义块。</param>
     partial void OnOverlayRowsChanged(IReadOnlyList<SubtitleRow> value)
     {
         var phrases = value.SelectMany(row => row.Phrases).ToArray();
+        if (settings.DisplayMode == SubtitleDisplayMode.SourceOnly)
+            phrases = phrases.Where(phrase => phrase.CurrentSource is not null)
+                .Select(phrase => phrase.IsPreviousTranslation ? phrase with
+                    { Source = phrase.CurrentSource!, Chinese = null, IsPreviousTranslation = false, StatusText = "更新中" } : phrase).ToArray();
+        OverlayPhraseIndex = settings.DisplayMode == SubtitleDisplayMode.SourceOnly
+            ? Math.Max(0, phrases.Length - 1) : ReadingIndex(phrases);
         if (FollowLatest && settings.DisplayMode != SubtitleDisplayMode.SourceOnly && phrases.Length > 0)
         {
-            var last = Array.FindLastIndex(phrases, phrase => phrase.Chinese is not null);
-            if (last + 2 < phrases.Length) phrases = phrases[..(last + 2)];
+            var lastReadable = Array.FindLastIndex(phrases, phrase => phrase.Chinese is not null);
+            if (lastReadable + 2 < phrases.Length) phrases = phrases[..(lastReadable + 2)];
         }
         UpdatePhrases(OverlayPhrases, phrases);
     }
@@ -535,8 +539,19 @@ public sealed partial class DesktopViewModel : ObservableObject
     partial void OnHistoryChanged(IReadOnlyList<SubtitleRow> value)
     {
         var phrases = value.SelectMany(row => row.Phrases).ToArray();
-        LivePhraseIndex = Math.Max(0, Array.FindLastIndex(phrases, phrase => phrase.Chinese is not null));
+        LivePhraseIndex = ReadingIndex(phrases);
         UpdatePhrases(LivePhrases, phrases);
+    }
+
+    /// <summary>优先跟随最新的当前译文，原文重译期间可跟随上一版译文。</summary>
+    /// <param name="phrases">按播放顺序排列的短句。</param><returns>可阅读的短句位置；初次待译时从首句开始。</returns>
+    private static int ReadingIndex(SubtitlePhraseRow[] phrases)
+    {
+        var last = Array.FindLastIndex(phrases, phrase => phrase.Chinese is not null);
+        if (last < 0) return 0;
+        for (var index = last; index >= 0 && phrases[index].Key == phrases[last].Key; index--)
+            if (!phrases[index].IsPreviousTranslation && phrases[index].Chinese is not null) return index;
+        return last;
     }
 
     /// <summary>原位修订对应的短句，只有身份新增或消失时才改变列表结构。</summary>

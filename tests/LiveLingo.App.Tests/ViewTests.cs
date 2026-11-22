@@ -318,6 +318,76 @@ public sealed class ViewTests
         finally { overlay.Close(); control.Close(); }
     }
 
+    /// <summary>新块加入后两个窗口继续展示相邻的译文，浮窗向上滚动可以回到更早的块。</summary>
+    [AvaloniaFact]
+    public void NewPendingBlockKeepsEarlierTranslationsInView()
+    {
+        var rows = Enumerable.Range(1, 8).Select(index => new SubtitleRow(new(new(Guid.NewGuid(), 1),
+            new(index * 16000, (index + 1) * 16000), 1, 2, $"原句{index}。", $"译文{index}。", 1,
+            SubtitlePhase.Final, TranslationState.Complete, null, BoundaryDecision.Pending))).ToArray();
+        var pending = new SubtitleRow(new(new(Guid.NewGuid(), 1), new(144000, 160000), 1, 1,
+            "下一句还在识别。", null, null, SubtitlePhase.Draft, TranslationState.Pending, null, BoundaryDecision.Pending));
+        var vm = new DesktopViewModel(new FakeSession(), new FakeStore(), action => action());
+        var control = new ControlWindow { DataContext = vm };
+        var overlay = new SubtitleWindow { DataContext = vm, Width = 520, Height = 260 };
+        try
+        {
+            vm.History = rows; vm.ResumeFollowingCommand.Execute(null);
+            control.Show(); overlay.Show(); control.UpdateLayout(); overlay.UpdateLayout();
+            vm.History = [..rows, pending]; vm.ResumeFollowingCommand.Execute(null);
+            control.UpdateLayout(); overlay.UpdateLayout(); Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            control.UpdateLayout(); overlay.UpdateLayout();
+            var scroll = overlay.FindControl<ScrollViewer>("SubtitleScroll")!;
+            var body = overlay.FindControl<ItemsControl>("PhraseList")!;
+            var list = control.FindControl<ListBox>("HistoryList")!;
+            foreach (var index in new[] { 6, 7 })
+            {
+                foreach (var (items, viewport) in new (ItemsControl, Control)[] { (body, scroll), (list, list) })
+                {
+                    var pair = items.ContainerFromIndex(index)!;
+                    var translation = pair.GetVisualDescendants().OfType<TextBlock>().Single(x => x.Text == $"译文{index + 1}。");
+                    var top = translation.TranslatePoint(default, viewport)!.Value.Y;
+                    Assert.InRange(top, -1, viewport.Bounds.Height - translation.Bounds.Height + 1);
+                }
+            }
+            overlay.SetInteractive(true); overlay.UpdateLayout();
+            var pointer = scroll.TranslatePoint(new Point(60, 35), overlay)!.Value;
+            overlay.MouseWheel(pointer, new Vector(0, 20)); overlay.UpdateLayout();
+            Assert.False(vm.FollowLatest);
+            scroll.ScrollToHome(); overlay.UpdateLayout(); Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            overlay.UpdateLayout();
+            Assert.Contains(body.ContainerFromIndex(0)!.GetVisualDescendants().OfType<TextBlock>(), x => x.Text == "译文1。");
+        }
+        finally { overlay.Close(); control.Close(); }
+    }
+
+    /// <summary>双语重译等待时仍能读到上一版，首个新译文返回后跟随该句，切换仅原文展示本次识别。</summary>
+    [AvaloniaFact]
+    public void RevisingCaptionsFollowTheNewTranslationAndSourceOnlyShowsCurrentText()
+    {
+        var previous = Enumerable.Range(1, 20).Select(index => new SubtitlePhraseTranslation($"旧{index}。", $"旧译{index}。")).ToImmutableArray();
+        var segment = new SubtitleSegment(new(Guid.NewGuid(), 1), new(0, 16000), 2, 2, "新甲。新乙。", null, null,
+            SubtitlePhase.Revised, TranslationState.Pending, null, BoundaryDecision.Pending) { PreviousPhraseTranslations = previous };
+        var vm = new DesktopViewModel(new FakeSession(), new FakeStore(), action => action());
+        var overlay = new SubtitleWindow { DataContext = vm, Width = 520, Height = 260 };
+        try
+        {
+            vm.History = [new(segment)]; vm.ResumeFollowingCommand.Execute(null);
+            overlay.Show(); overlay.UpdateLayout(); Avalonia.Threading.Dispatcher.UIThread.RunJobs(); overlay.UpdateLayout();
+            var scroll = overlay.FindControl<ScrollViewer>("SubtitleScroll")!;
+            Assert.True(scroll.Offset.Y > 0);
+            Assert.Equal("旧译20。", vm.OverlayPhrases[^1].Translation);
+            vm.History = [new(segment with { PhraseTranslations = [new("新甲。", "译文甲。")] })];
+            vm.ResumeFollowingCommand.Execute(null); overlay.UpdateLayout(); Avalonia.Threading.Dispatcher.UIThread.RunJobs(); overlay.UpdateLayout();
+            Assert.Equal(0, scroll.Offset.Y);
+            Assert.Equal("译文甲。", vm.OverlayPhrases[0].Translation);
+            Assert.Equal("旧译2。", vm.OverlayPhrases[1].Translation);
+            vm.DisplayModeIndex = (int)Core.Desktop.SubtitleDisplayMode.SourceOnly;
+            Assert.Equal(new[] { "新甲。", "新乙。" }, vm.OverlayPhrases.Select(item => item.Phrase.Source));
+        }
+        finally { overlay.Close(); }
+    }
+
     /// <summary>鼠标停在当前会话行上时，音频状态和其他短句的回填不会重建悬停行或收起详情。</summary>
     /// <returns>真实视图接收会话更新的验证任务。</returns>
     [AvaloniaFact]

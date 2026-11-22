@@ -51,14 +51,24 @@ public sealed record SubtitleRow
             return [new(Segment.Key, 0, Source, whole, StatusText, Detail, final)];
 
         var sources = SubtitlePhrases.Split(Source);
-        var result = new SubtitlePhraseRow[sources.Length];
+        var previous = Segment.PreviousPhraseTranslations;
+        var result = new SubtitlePhraseRow[Math.Max(sources.Length, previous.Length)];
         var translated = translations.IsDefault ? 0 : translations.Length;
         var pendingStatus = StatusText;
         var translatedStatus = Segment.Phase switch { SubtitlePhase.Final => "已定稿", SubtitlePhase.Draft => "草稿", _ => "更新中" };
         var detail = Detail;
-        for (var index = 0; index < sources.Length; index++)
+        for (var index = 0; index < result.Length; index++)
         {
-            if (index < translated && sources[index] != translations[index].Source) translated = index;
+            if (index < translated && (index >= sources.Length || sources[index] != translations[index].Source)) translated = index;
+            if (index >= translated && index < previous.Length)
+            {
+                var old = previous[index];
+                var status = Segment.TranslationState == TranslationState.Failed ? "上一版 · 重译未完成" : "上一版 · 正在重译";
+                var revision = index < sources.Length ? $"当前识别：{sources[index]}" : "当前识别已缩短";
+                result[index] = new(Segment.Key, index, old.Source, old.Translation, status, $"{detail} · {revision}", false, true)
+                    { CurrentSource = index < sources.Length ? sources[index] : null };
+                continue;
+            }
             var chinese = index < translated ? translations[index].Translation : null;
             result[index] = new(Segment.Key, index, sources[index], chinese, chinese is null ? pendingStatus : translatedStatus, detail, final);
         }
@@ -70,8 +80,12 @@ public sealed record SubtitleRow
 /// <param name="Key">语义块身份。</param><param name="Index">块内短句序号。</param>
 /// <param name="Source">识别原句。</param><param name="Chinese">当前原句的译文，等待时为空。</param>
 /// <param name="StatusText">阅读状态。</param><param name="Detail">所属块的版本详情。</param><param name="IsFinal">该块已按当前译文定稿。</param>
-public sealed record SubtitlePhraseRow(SegmentKey Key, int Index, string Source, string? Chinese, string StatusText, string Detail, bool IsFinal)
+/// <param name="IsPreviousTranslation">正在显示上一版原译对，等待此位置的新译文。</param>
+public sealed record SubtitlePhraseRow(SegmentKey Key, int Index, string Source, string? Chinese, string StatusText, string Detail, bool IsFinal, bool IsPreviousTranslation = false)
 {
+    /// <summary>获取此位置的最新识别原文，供仅原文模式跟随。修订已删除该位置时为空。</summary>
+    public string? CurrentSource { get; init; } = Source;
+
     /// <summary>获取译文或当前等待提示。</summary>
     public string Translation => Chinese ?? "等待中文…";
 }
@@ -88,7 +102,7 @@ public sealed partial class LivePhraseItem(SubtitlePhraseRow phrase) : Observabl
     [ObservableProperty] public partial bool Stopped { get; internal set; }
     /// <summary>获取当前的阅读状态，停止后区分定稿、已译未定稿和缺少可用译文。</summary>
     public string StatusText => Stopped && !Phrase.IsFinal
-        ? Phrase.Chinese is null ? "已停止 · 翻译未完成" : "已停止 · 未定稿"
+        ? Phrase.IsPreviousTranslation ? "已停止 · 上一版译文" : Phrase.Chinese is null ? "已停止 · 翻译未完成" : "已停止 · 未定稿"
         : Phrase.StatusText;
     /// <summary>获取对应译文，尚未收到的译文在会话停止后结束等待。</summary>
     public string Translation => Stopped && Phrase.Chinese is null ? "尚无译文" : Phrase.Translation;

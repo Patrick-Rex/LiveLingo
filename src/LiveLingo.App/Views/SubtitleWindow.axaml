@@ -38,6 +38,7 @@
       <ScrollViewer Name="SubtitleScroll" Grid.Row="1" Grid.ColumnSpan="2" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"
                     AutomationProperties.Name="实时字幕正文">
         <ItemsControl Name="PhraseList" ItemsSource="{Binding OverlayPhrases}">
+          <ItemsControl.ItemsPanel><ItemsPanelTemplate><VirtualizingStackPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
           <ItemsControl.ItemTemplate>
             <DataTemplate DataType="vm:LivePhraseItem">
               <StackPanel Spacing="4" Margin="0,4,0,8">

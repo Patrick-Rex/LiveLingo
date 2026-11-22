@@ -90,6 +90,10 @@ public sealed record SubtitleSegment(SegmentKey Key, SampleRange Range, long Sou
     /// <summary>获取实时会话已逐句完成的原译对，按原文顺序排列。档案通过 Translation 保存当前译文正文。</summary>
     [JsonIgnore]
     public ImmutableArray<SubtitlePhraseTranslation> PhraseTranslations { get; init; } = [];
+
+    /// <summary>获取同一块重译期间可供回看的原译对。仅用于实时显示，不能作为新原文的译文交付或归档。</summary>
+    [JsonIgnore]
+    public ImmutableArray<SubtitlePhraseTranslation> PreviousPhraseTranslations { get; init; } = [];
 }
 
 /// <summary>供消费者按单调版本替换的完整权威快照。</summary>

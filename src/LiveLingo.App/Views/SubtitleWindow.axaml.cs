@@ -124,13 +124,17 @@ public partial class SubtitleWindow : Window
     /// <summary>跟随当前原译对，下一句等待翻译时优先为刚回填的译文保留可见空间。</summary><param name="sender">字幕滚动区。</param><param name="args">布局通知。</param>
     private void FollowTail(object? sender, EventArgs args)
     {
-        if (DataContext is not DesktopViewModel { FollowLatest: true } model) return;
-        var target = Math.Max(0, subtitleScroll.Extent.Height - subtitleScroll.Viewport.Height);
-        var phrases = model.OverlayPhrases;
-        if (model.CurrentSettings.DisplayMode != SubtitleDisplayMode.SourceOnly && phrases.Count >= 2 &&
-            phrases[^1].Phrase.Chinese is null && phrases[^2].Phrase.Chinese is not null &&
-            phraseList.ContainerFromIndex(phrases.Count - 2) is { } pair && pair.TranslatePoint(default, phraseList) is { } start)
-            target = Math.Min(target, start.Y + Math.Max(0, pair.Bounds.Height - subtitleScroll.Viewport.Height));
+        if (DataContext is not DesktopViewModel { FollowLatest: true } model || model.OverlayPhrases.Count == 0 ||
+            subtitleScroll.Viewport.Height <= 0) return;
+        var index = model.OverlayPhraseIndex;
+        if (phraseList.ContainerFromIndex(index) is not { } pair)
+        {
+            phraseList.ScrollIntoView(index);
+            return;
+        }
+        if (phraseList.ItemsPanelRoot is not { } panel || pair.TranslatePoint(new Point(0, pair.Bounds.Height), panel) is not { } bottom) return;
+        var target = Math.Clamp(bottom.Y - subtitleScroll.Viewport.Height, 0,
+            Math.Max(0, subtitleScroll.Extent.Height - subtitleScroll.Viewport.Height));
         if (Math.Abs(target - subtitleScroll.Offset.Y) > 1) subtitleScroll.Offset = subtitleScroll.Offset.WithY(target);
     }
 

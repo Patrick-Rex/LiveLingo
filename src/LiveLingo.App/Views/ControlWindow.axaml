@@ -56,7 +56,12 @@
                 </StackPanel>
                 <ListBox Name="HistoryList" Classes="transcript" ItemsSource="{Binding LivePhrases}" IsVisible="{Binding HasLiveHistory}" AutoScrollToSelectedItem="False" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                   <ListBox.ItemTemplate><DataTemplate DataType="vm:LivePhraseItem">
-                    <StackPanel Spacing="8"><TextBlock Text="{Binding StatusText}" Classes="caption" /><TextBlock Text="{Binding Phrase.Source}" TextWrapping="Wrap" Foreground="{DynamicResource DesktopSecondaryText}" /><TextBlock Text="{Binding Translation}" TextWrapping="Wrap" FontSize="19" /><Expander Header="详细信息" HorizontalAlignment="Stretch"><TextBlock Text="{Binding Phrase.Detail}" Classes="caption" /></Expander></StackPanel>
+                    <StackPanel Spacing="3">
+                      <TextBlock Text="{Binding Phrase.Source}" TextWrapping="Wrap" Foreground="{DynamicResource DesktopSecondaryText}" />
+                      <TextBlock Text="{Binding Translation}" TextWrapping="Wrap" FontSize="19" />
+                      <Expander Header="{Binding StatusText}" AutomationProperties.Name="字幕状态与详细信息" HorizontalAlignment="Stretch"
+                                MinHeight="0" Padding="6,1"><TextBlock Text="{Binding Phrase.Detail}" Classes="caption" /></Expander>
+                    </StackPanel>
                   </DataTemplate></ListBox.ItemTemplate>
                 </ListBox>
               </Grid>

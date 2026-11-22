@@ -6,7 +6,7 @@
 
 固定 SDK 与本地 CLI 为 1.2.161（MIT）；不使用 Velopack Flow。生产程序保持 framework-dependent，安装器声明 `net10.0-x64-runtime`，缺失时在线安装；外部 .NET 安装脚本使用 winget。模型、Python 环境、Ollama、驱动与 .NET 不入包，必要脚本、worker、profile/锁和第三方许可随包。
 
-当前稳定版本为 [v0.2.6](https://github.com/Patrick-Rex/LiveLingo/releases/tag/v0.2.6)，包含双语短句滚动、识别窗口重试和直播积压续接。v0.2.1 因原生增量清单冲突已标记为预发布，不再用于稳定更新。以下命令以 0.2.6 的构建和差分验证为例，在仓库根目录使用 PowerShell 7 执行。
+当前稳定版本为 [v0.2.7](https://github.com/Patrick-Rex/LiveLingo/releases/tag/v0.2.7)，支持无标点语音的短句滚动，重译期间保留上一版原译对。v0.2.1 因原生增量清单冲突已标记为预发布，不再用于稳定更新。以下命令以 0.2.6 的构建和差分验证为例，在仓库根目录使用 PowerShell 7 执行。
 
 ```powershell
 # 保留 artifacts/releases 的上一 full 包；CI/新目录可显式下载上一公开稳定版本。

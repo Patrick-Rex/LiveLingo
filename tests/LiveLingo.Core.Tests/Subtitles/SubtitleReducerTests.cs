@@ -17,6 +17,54 @@ public sealed class SubtitleReducerTests
         Assert.Empty(SubtitlePhrases.Split(" \r\n "));
     }
 
+    /// <summary>现场同长度的无标点输入在持续增长和尾部纠正时，先前已划出的日语短句保持可复用。</summary>
+    [Fact]
+    public void UnpunctuatedSpeechRollsWithoutMovingCompletedBoundaries()
+    {
+        const string clause = "今日はここから新しい話を始めます";
+        var source = string.Concat(Enumerable.Repeat(clause, 40))[..595];
+        var final = SubtitlePhrases.Split(source);
+        Assert.Equal(source, string.Concat(final));
+        Assert.True(final.Length > 20);
+        Assert.All(final, phrase => Assert.InRange(phrase.Length, 1, 28));
+        Assert.Equal(clause, final[0]);
+        for (var length = 1; length < source.Length; length += 7)
+        {
+            var draft = SubtitlePhrases.Split(source[..length]);
+            Assert.Equal(final.Take(draft.Length - 1), draft.SkipLast(1));
+        }
+        var corrected = SubtitlePhrases.Split(source[..^3] + "話します");
+        Assert.Equal(final.SkipLast(1), corrected.Take(final.Length - 1));
+    }
+
+    /// <summary>逗号、词界和完整字素可用于阅读断句；相邻的真实重复、长英文词和数值保持完整。</summary>
+    [Fact]
+    public void ReadingBreaksRespectClausesWordsAndGraphemes()
+    {
+        const string clause = "我们先把今天要说明的内容讲完，";
+        Assert.Equal([clause, clause, "然后继续。"], SubtitlePhrases.Split(clause + clause + "然后继续。"));
+        const string words = "There are currently 1,234 people waiting outside and the next group will enter soon.";
+        var english = SubtitlePhrases.Split(words);
+        Assert.True(english.Length >= 2);
+        Assert.Equal(words, string.Join(' ', english));
+        Assert.Contains(english, phrase => phrase.Contains("1,234", StringComparison.Ordinal));
+        var longWord = new string('x', 90);
+        Assert.Equal([longWord, "next word"], SubtitlePhrases.Split(longWord + " next word"));
+        var largeNumber = new string('1', 56) + ",234.50";
+        Assert.Equal([largeNumber, "next"], SubtitlePhrases.Split(largeNumber + " next"));
+        const string combined = "か\u3099👩‍💻";
+        var repeated = string.Concat(Enumerable.Repeat(combined, 40));
+        var graphemes = SubtitlePhrases.Split(repeated);
+        Assert.Equal(repeated, string.Concat(graphemes));
+        var boundaries = System.Globalization.StringInfo.ParseCombiningCharacters(repeated).ToHashSet();
+        var offset = 0;
+        foreach (var phrase in graphemes)
+        {
+            Assert.Contains(offset, boundaries);
+            offset += phrase.Length;
+        }
+    }
+
     /// <summary>原文修订保留连续一致的句对；过期或错序回传不得补到新句，删除尾句可直接确认剩余译文。</summary>
     [Fact]
     public void RevisedPhraseKeepsOnlyTheMatchingPrefix()
@@ -73,6 +121,41 @@ public sealed class SubtitleReducerTests
         reducer.RetireEmpty(id);
         Assert.Empty(reducer.Snapshot().Segments);
         Assert.Contains(id, reducer.Snapshot().RetiredIds);
+    }
+
+    /// <summary>连续多次重译时逐个替换已显示的旧句对，缩短原文后移除多余的旧句对。</summary>
+    [Fact]
+    public void OverlappingRevisionsKeepLastReadablePairsUntilReplacement()
+    {
+        var reducer = NewReducer();
+        var id = Guid.NewGuid();
+        reducer.Add(id, new(0, 0));
+        Source(reducer, id, 1, 16000, "春。夏。");
+        var spring = new SubtitlePhraseTranslation("春。", "春天。");
+        var summer = new SubtitlePhraseTranslation("夏。", "夏天。");
+        var autumn = new SubtitlePhraseTranslation("秋。", "秋天。");
+        foreach (var (sequence, pair) in new[] { (1, spring), (2, summer) })
+        {
+            var request = Request(reducer, id, PipelineRequestKind.Translation, sequence);
+            Assert.True(reducer.Register(request));
+            Assert.True(reducer.AcceptPhraseTranslation(request, pair));
+        }
+        Source(reducer, id, 2, 32000, "秋。冬。");
+        var waiting = Assert.Single(reducer.Snapshot().Segments);
+        Assert.Equal([spring, summer], waiting.PreviousPhraseTranslations);
+        Assert.Empty(waiting.PhraseTranslations);
+        Assert.Null(waiting.Translation);
+        var replacement = Request(reducer, id, PipelineRequestKind.Translation, 3);
+        Assert.True(reducer.Register(replacement));
+        Assert.True(reducer.AcceptPhraseTranslation(replacement, autumn));
+        Source(reducer, id, 3, 48000, "雪。");
+        Assert.Equal([autumn, summer], Assert.Single(reducer.Snapshot().Segments).PreviousPhraseTranslations);
+        var last = Request(reducer, id, PipelineRequestKind.Translation, 4);
+        Assert.True(reducer.Register(last));
+        Assert.True(reducer.AcceptPhraseTranslation(last, new("雪。", "下雪。")));
+        var ready = Assert.Single(reducer.Snapshot().Segments);
+        Assert.Empty(ready.PreviousPhraseTranslations);
+        Assert.Equal("下雪。", ready.Translation);
     }
 
     /// <summary>合并保留两次真实重复，原身份同时撤销且只提交一个状态版本。</summary>

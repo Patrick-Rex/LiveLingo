@@ -282,6 +282,25 @@ public sealed class DesktopBehaviorTests
         await vm.CloseAsync();
     }
 
+    /// <summary>重译中的行保留旧译实际对应的原句，并向仅原文模式提供最新识别。</summary>
+    [Fact]
+    public void PendingRevisionShowsItsOriginalPairBesideNewlyTranslatedPhrases()
+    {
+        var segment = Segment() with
+        {
+            Source = "秋。冬。", Translation = "秋天。", TranslatedSourceRevision = null,
+            Phase = SubtitlePhase.Revised, TranslationState = TranslationState.Pending,
+            PhraseTranslations = [new("秋。", "秋天。")],
+            PreviousPhraseTranslations = [new("春。", "春天。"), new("夏。", "夏天。"), new("雨。", "下雨。")]
+        };
+        var rows = new SubtitleRow(segment).Phrases;
+        Assert.Equal(["秋。", "夏。", "雨。"], rows.Select(row => row.Source));
+        Assert.Equal(["秋天。", "夏天。", "下雨。"], rows.Select(row => row.Chinese));
+        Assert.Equal(["秋。", "冬。", null], rows.Select(row => row.CurrentSource));
+        Assert.Equal([false, true, true], rows.Select(row => row.IsPreviousTranslation));
+        Assert.Equal("上一版 · 正在重译", new LivePhraseItem(rows[1]).StatusText);
+    }
+
     /// <summary>启动正在等待时，重复请求不会另建会话；停止与下一次启动使用不同身份。</summary><returns>竞态测试。</returns>
     [Fact]
     public async Task CommandsDoNotStartTwoSessions()
