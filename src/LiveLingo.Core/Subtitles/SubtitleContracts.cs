@@ -87,13 +87,28 @@ public sealed record SubtitleSegment(SegmentKey Key, SampleRange Range, long Sou
     long SubtitleRevision, string Source, string? Translation, long? TranslatedSourceRevision,
     SubtitlePhase Phase, TranslationState TranslationState, string? Error, BoundaryDecision Boundary)
 {
-    /// <summary>获取实时会话已逐句完成的原译对，按原文顺序排列。档案通过 Translation 保存当前译文正文。</summary>
-    [JsonIgnore]
-    public ImmutableArray<SubtitlePhraseTranslation> PhraseTranslations { get; init; } = [];
+    /// <summary>获取直播是否已从本段终点转入下一音频段。已固定的原文可继续翻译，语义定稿仍须有独立边界证据。</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool SourceRangeSealed { get; init; }
 
-    /// <summary>获取同一块重译期间可供回看的原译对。仅用于实时显示，不能作为新原文的译文交付或归档。</summary>
+    /// <summary>获取当前源版本各句位的原译对，中间待译位置为空，尾部待译位置省略。档案通过 Translation 保存当前译文正文。</summary>
     [JsonIgnore]
-    public ImmutableArray<SubtitlePhraseTranslation> PreviousPhraseTranslations { get; init; } = [];
+    public ImmutableArray<SubtitlePhraseTranslation?> PhraseTranslations { get; init; } = [];
+
+    /// <summary>获取同一块重译期间可回看的旧句对，已复用位置可为空。仅供实时显示。</summary>
+    [JsonIgnore]
+    public ImmutableArray<SubtitlePhraseTranslation?> PreviousPhraseTranslations { get; init; } = [];
+
+    /// <summary>获取首个待译句序，全部就绪时等于短句数。</summary>
+    [JsonIgnore]
+    public int NextPhraseIndex
+    {
+        get
+        {
+            var firstMissing = PhraseTranslations.IndexOf(null);
+            return firstMissing < 0 ? PhraseTranslations.Length : firstMissing;
+        }
+    }
 }
 
 /// <summary>供消费者按单调版本替换的完整权威快照。</summary>

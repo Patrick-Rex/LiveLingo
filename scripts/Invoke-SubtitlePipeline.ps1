@@ -1,6 +1,11 @@
+<#
+.PARAMETER LivePriority
+按桌面直播的短段识别和积压续接策略回放已有 WAV。进程采集自动使用该策略。
+#>
 [CmdletBinding(DefaultParameterSetName = 'Replay')]
 param(
     [Parameter(Mandatory, ParameterSetName = 'Replay')][string]$InputWave,
+    [Parameter(ParameterSetName = 'Replay')][switch]$LivePriority,
     [Parameter(Mandatory, ParameterSetName = 'Capture')][ValidateRange(1, 2147483647)][int]$TargetPid,
     [ValidateRange(0, 86400)][int]$DurationSeconds = 0,
     [ValidateSet('translategemma:4b', 'translategemma:12b')][string]$TranslationModel = 'translategemma:12b',
@@ -40,6 +45,7 @@ if ($PSCmdlet.ParameterSetName -eq 'Capture') {
     $InputWave = (Resolve-Path -LiteralPath $InputWave).ProviderPath
     $command = 'pipeline-replay'
     $arguments += @('--input', $InputWave)
+    if ($LivePriority) { $arguments += '--live-priority' }
     Write-Host '按真实音频时间回放；DurationSeconds=0 只播放文件一次，正数显式循环至指定时长。'
 }
 $arguments += @('--duration-seconds', $DurationSeconds.ToString())

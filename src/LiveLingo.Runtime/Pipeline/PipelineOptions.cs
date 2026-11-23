@@ -23,6 +23,8 @@ public sealed record PipelineOptions
     public long MaximumBacklogSamples { get; init; } = 16000L * 600;
     /// <summary>获取直播是否在识别积压达到上限时记录未识别区间，并从下一包建立新的字幕时间轴。</summary>
     public bool ResumeLiveAfterBacklog { get; init; }
+    /// <summary>获取是否在持续讲话或衔接失败时从可信终点开始连续短段，优先直播延迟。</summary>
+    public bool PreferLiveSegments { get; init; }
     /// <summary>获取模型初始化的总限时。</summary>
     public TimeSpan StartupTimeout { get; init; } = TimeSpan.FromMinutes(2);
     /// <summary>获取单次模型调用的总限时。</summary>

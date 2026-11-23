@@ -67,7 +67,7 @@ public sealed class SubtitleReducerTests
 
     /// <summary>原文修订保留连续一致的句对；过期或错序回传不得补到新句，删除尾句可直接确认剩余译文。</summary>
     [Fact]
-    public void RevisedPhraseKeepsOnlyTheMatchingPrefix()
+    public void RevisedPhraseRejectsObsoleteRequestsAndCompletesAShortenedSource()
     {
         var reducer = NewReducer();
         var id = Guid.NewGuid();
@@ -97,6 +97,49 @@ public sealed class SubtitleReducerTests
         Assert.Empty(changed.PhraseTranslations);
         Assert.Null(changed.Translation);
         Assert.Null(changed.TranslatedSourceRevision);
+    }
+
+    /// <summary>前句纠正及插入只留下相应空位；已译的后句在再次修订时仍按真实重复的先后顺序复用。</summary>
+    [Fact]
+    public void RevisionsPreserveTranslatedOccurrencesAfterGaps()
+    {
+        var reducer = NewReducer();
+        var id = Guid.NewGuid();
+        reducer.Add(id, new(0, 0));
+        Source(reducer, id, 1, 16000, "旧。同。末。同。");
+        var original = new SubtitlePhraseTranslation[] { new("旧。", "旧"), new("同。", "第一次"), new("末。", "中间"), new("同。", "第二次") };
+        foreach (var (index, pair) in original.Index())
+        {
+            var request = Request(reducer, id, PipelineRequestKind.Translation, index + 1);
+            Assert.True(reducer.Register(request));
+            Assert.True(reducer.AcceptPhraseTranslation(request, pair));
+        }
+        Source(reducer, id, 2, 32000, "新。追加。同。末。同。尾。");
+        var revised = Assert.Single(reducer.Snapshot().Segments);
+        Assert.Equal([null, null, original[1], original[2], original[3]], revised.PhraseTranslations);
+        Assert.Equal([original[0]], revised.PreviousPhraseTranslations);
+        Assert.Equal("第一次\n中间\n第二次", revised.Translation);
+        Assert.Null(revised.TranslatedSourceRevision);
+
+        Source(reducer, id, 3, 48000, "更。同。末。同。尾。");
+        revised = Assert.Single(reducer.Snapshot().Segments);
+        Assert.Equal([null, original[1], original[2], original[3]], revised.PhraseTranslations);
+        Assert.Equal(0, revised.NextPhraseIndex);
+        var first = Request(reducer, id, PipelineRequestKind.Translation, 5);
+        Assert.True(reducer.Register(first));
+        Assert.True(reducer.AcceptPhraseTranslation(first, new("更。", "更新")));
+        revised = Assert.Single(reducer.Snapshot().Segments);
+        Assert.Equal(4, revised.NextPhraseIndex);
+        Assert.Equal("更新\n第一次\n中间\n第二次", revised.Translation);
+
+        Source(reducer, id, 4, 64000, "更。新。同。同。同。末。");
+        revised = Assert.Single(reducer.Snapshot().Segments);
+        Assert.Equal([new("更。", "更新"), null, null, null, null, original[2]], revised.PhraseTranslations);
+        reducer.AdvanceIdentity(reducer.Identity with { ConfigEpoch = 2 });
+        var reset = Assert.Single(reducer.Snapshot().Segments);
+        Assert.Empty(reset.PhraseTranslations);
+        Assert.Empty(reset.PreviousPhraseTranslations);
+        Assert.Null(reset.Translation);
     }
 
     /// <summary>完整空原文撤销过期译文显示与关联，旧结果不得恢复被无语音证据撤销的块。</summary>

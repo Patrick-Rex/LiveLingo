@@ -38,11 +38,12 @@ internal static class Program
                         Required(options, "ollama"), "", Required(options, "output"), Number(options, "duration-seconds", 180),
                         options.GetValueOrDefault("translation-model") ?? "translategemma:12b", pipelinePid, RecoverySeconds(options), options.ContainsKey("preserve-observed-repetitions")).ConfigureAwait(false);
                 case "pipeline-replay":
-                    ValidateOptions(options, ["repository", "profile", "model", "ollama", "input", "output", "duration-seconds", "translation-model", "alignment-recovery-seconds", "preserve-observed-repetitions"]);
+                    ValidateOptions(options, ["repository", "profile", "model", "ollama", "input", "output", "duration-seconds", "translation-model", "alignment-recovery-seconds", "preserve-observed-repetitions", "live-priority"]);
                     return await PipelineReplayCheck.RunAsync(Required(options, "repository"), Required(options, "profile"), Required(options, "model"),
                         Required(options, "ollama"), Required(options, "input"), Required(options, "output"), Number(options, "duration-seconds", 0),
                         options.GetValueOrDefault("translation-model") ?? "translategemma:12b", alignmentRecoverySeconds: RecoverySeconds(options),
-                        preserveObservedRepetitions: options.ContainsKey("preserve-observed-repetitions")).ConfigureAwait(false);
+                        preserveObservedRepetitions: options.ContainsKey("preserve-observed-repetitions"),
+                        livePriority: options.ContainsKey("live-priority")).ConfigureAwait(false);
                 case "asr-worker-check":
                     ValidateOptions(options, ["repository", "profile", "model", "input", "output"]);
                     return await AsrWorkerCheck.RunAsync(Required(options, "repository"), Required(options, "profile"), Required(options, "model"),
@@ -230,7 +231,7 @@ internal static class Program
         foreach (var (key, value) in options)
         {
             if (!allowed.Contains(key, StringComparer.Ordinal)) throw new ArgumentException($"未知参数: --{key}");
-            if (key is "json" or "until-cancelled" or "preserve-observed-repetitions")
+            if (key is "json" or "until-cancelled" or "preserve-observed-repetitions" or "live-priority")
             {
                 if (value is not null) throw new ArgumentException($"--{key} 不接受值。");
             }

@@ -298,7 +298,25 @@ public sealed class DesktopBehaviorTests
         Assert.Equal(["秋天。", "夏天。", "下雨。"], rows.Select(row => row.Chinese));
         Assert.Equal(["秋。", "冬。", null], rows.Select(row => row.CurrentSource));
         Assert.Equal([false, true, true], rows.Select(row => row.IsPreviousTranslation));
-        Assert.Equal("上一版 · 正在重译", new LivePhraseItem(rows[1]).StatusText);
+        Assert.Equal(["已翻译", "上一版 · 待更新", "上一版 · 本次已移除"], rows.Select(row => row.StatusText));
+    }
+
+    /// <summary>前句修订时，后方已匹配的译文仍按当前句序显示，已移动的旧行不会重复出现。</summary>
+    [Fact]
+    public void RevisedCaptionKeepsTranslatedPhrasesAfterAnUntranslatedPosition()
+    {
+        var segment = Segment() with
+        {
+            Source = "秋。夏。", Translation = "夏天。", TranslatedSourceRevision = null,
+            Phase = SubtitlePhase.Revised, TranslationState = TranslationState.Pending,
+            PhraseTranslations = [null, new("夏。", "夏天。")],
+            PreviousPhraseTranslations = [new("春。", "春天。"), null, null]
+        };
+        var rows = new SubtitleRow(segment).Phrases;
+        Assert.Equal([0, 1], rows.Select(row => row.Index));
+        Assert.Equal(["秋。", "夏。"], rows.Select(row => row.CurrentSource));
+        Assert.Equal(["春天。", "夏天。"], rows.Select(row => row.Chinese));
+        Assert.Equal(["上一版 · 待更新", "已翻译"], rows.Select(row => row.StatusText));
     }
 
     /// <summary>启动正在等待时，重复请求不会另建会话；停止与下一次启动使用不同身份。</summary><returns>竞态测试。</returns>

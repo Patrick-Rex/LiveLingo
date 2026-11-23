@@ -47,8 +47,8 @@ public sealed class ApiSessionTests
             Assert.NotNull(final); Assert.Equal("completed", final.Status);
             var segment = Assert.Single(final.Subtitles.Segments);
             Assert.Equal("今日は行きません。また明日。", segment.Source);
-            Assert.Equal(["今日は行きません。", "また明日。"], segment.PhraseTranslations.Select(pair => pair.Source));
-            Assert.Equal(["今天不去。", "再见。明天见！"], segment.PhraseTranslations.Select(pair => pair.Translation));
+            Assert.Equal(["今日は行きません。", "また明日。"], segment.PhraseTranslations.Select(pair => pair?.Source));
+            Assert.Equal(["今天不去。", "再见。明天见！"], segment.PhraseTranslations.Select(pair => pair?.Translation));
             Assert.True(server.RecognitionCalls > 0); Assert.Equal(2, server.TranslationCalls);
             var saved = await history.Store!.ReadAsync(id, TestContext.Current.CancellationToken);
             Assert.Equal(HistorySessionState.Completed, saved.Summary.State);

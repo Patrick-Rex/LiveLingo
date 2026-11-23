@@ -65,7 +65,7 @@ public sealed class SubtitleReducer
         if (request.Kind == PipelineRequestKind.Translation && (request.Range != segment.Range || string.IsNullOrWhiteSpace(segment.Source)))
             return Reject("invalid_translation_source");
         if (request.Kind == PipelineRequestKind.Recognition &&
-            (request.Range.Start != segment.Range.Start || request.Range.End < segment.Range.End))
+            (segment.SourceRangeSealed || request.Range.Start != segment.Range.Start || request.Range.End < segment.Range.End))
             return Reject("stale_coverage");
         var key = (request.Segment.Id, request.Kind);
         if (latestSequences.TryGetValue(key, out var previous) && request.Sequence <= previous)
@@ -101,16 +101,14 @@ public sealed class SubtitleReducer
         if (changed && !retained.IsEmpty)
         {
             var phrases = SubtitlePhrases.Split(source);
-            var count = 0;
-            while (count < retained.Length && count < phrases.Length && retained[count].Source == phrases[count]) count++;
-            if (count < retained.Length)
+            var prefix = 0;
+            while (prefix < retained.Length && prefix < phrases.Length && retained[prefix]?.Source == phrases[prefix]) prefix++;
+            if (prefix < retained.Length && source != segment.Source)
             {
-                // 连续修订可能发生在重译中途。保存最近可读的每一对原译文，直到该位置有新版。
-                previous = retained.Length >= previous.Length ? retained : retained.AddRange(previous.AsSpan()[retained.Length..]);
-                retained = retained[..count];
-                translation = count == 0 ? null : string.Join('\n', retained.Select(pair => pair.Translation));
+                (retained, previous) = MatchRevisedPhrases(segment, phrases, prefix);
+                translation = JoinTranslations(retained);
             }
-            translationCurrent = count > 0 && count == phrases.Length;
+            translationCurrent = !retained.IsEmpty && retained.Length == phrases.Length && !retained.Contains(null);
             translatedRevision = translationCurrent ? revision : null;
         }
         segments[segment.Key.Id] = segment with
@@ -159,7 +157,7 @@ public sealed class SubtitleReducer
         if (request.Kind != PipelineRequestKind.Translation) return Reject("wrong_request_kind");
         if (!ValidateResult(request, out var segment)) return false;
         var sources = SubtitlePhrases.Split(segment.Source);
-        var index = segment.PhraseTranslations.Length;
+        var index = segment.NextPhraseIndex;
         if (index >= sources.Length || sources[index] != phrase.Source) return Reject("unexpected_source_phrase");
         requests.Remove(request.Id);
         if (string.IsNullOrWhiteSpace(phrase.Translation))
@@ -167,12 +165,14 @@ public sealed class SubtitleReducer
             SetTranslationFailure(segment, "incomplete_translation");
             return Reject("incomplete_translation");
         }
-        var complete = index + 1 == sources.Length;
+        var append = index == segment.PhraseTranslations.Length;
+        var pairs = append ? segment.PhraseTranslations.Add(phrase) : segment.PhraseTranslations.SetItem(index, phrase);
+        var complete = pairs.Length == sources.Length && !pairs.Contains(null);
         segments[segment.Key.Id] = segment with
         {
-            PhraseTranslations = segment.PhraseTranslations.Add(phrase),
-            PreviousPhraseTranslations = complete || index + 1 >= segment.PreviousPhraseTranslations.Length ? [] : segment.PreviousPhraseTranslations,
-            Translation = index == 0 ? phrase.Translation : string.Concat(segment.Translation, "\n", phrase.Translation),
+            PhraseTranslations = pairs,
+            PreviousPhraseTranslations = complete ? [] : segment.PreviousPhraseTranslations,
+            Translation = append && index > 0 ? string.Concat(segment.Translation, "\n", phrase.Translation) : JoinTranslations(pairs),
             TranslatedSourceRevision = complete ? segment.SourceRevision : null,
             TranslationState = complete ? TranslationState.Complete : TranslationState.Pending,
             Phase = complete && segment.Boundary.CanClose ? SubtitlePhase.Final : segment.Phase,
@@ -181,6 +181,49 @@ public sealed class SubtitleReducer
         Commit();
         return true;
     }
+
+    /// <summary>按同一源版本中每种原句的出现顺序一一复用已确认译文。未匹配的旧译文只留在原来的显示位置。</summary>
+    /// <param name="segment">修订前同块同配置的权威快照。</param><param name="sources">新版本的短句。</param>
+    /// <param name="prefix">已确认逐位相同的起始句数。</param><returns>新版本的有效句对及仅供回看的旧句对。</returns>
+    private static (ImmutableArray<SubtitlePhraseTranslation?> Current, ImmutableArray<SubtitlePhraseTranslation?> Previous)
+        MatchRevisedPhrases(SubtitleSegment segment, ImmutableArray<string> sources, int prefix)
+    {
+        var current = new SubtitlePhraseTranslation?[sources.Length];
+        var previous = new SubtitlePhraseTranslation?[Math.Max(segment.PhraseTranslations.Length, segment.PreviousPhraseTranslations.Length)];
+        segment.PreviousPhraseTranslations.CopyTo(previous);
+        for (var index = 0; index < segment.PhraseTranslations.Length; index++)
+        {
+            if (index < prefix)
+                current[index] = segment.PhraseTranslations[index];
+            else if (segment.PhraseTranslations[index] is { } pair)
+                previous[index] = pair;
+        }
+        var oldOccurrences = SubtitlePhrases.Split(segment.Source).Index().Skip(prefix)
+            .ToLookup(entry => entry.Item, entry => entry.Index, StringComparer.Ordinal);
+        foreach (var group in sources.Index().Skip(prefix).GroupBy(entry => entry.Item, entry => entry.Index, StringComparer.Ordinal))
+        {
+            var oldIndices = oldOccurrences[group.Key];
+            // 出现次数改变时无法逐次对应，保留所有重复位置，交给各自的独立翻译请求。
+            if (oldIndices.Count() != group.Count()) continue;
+            foreach (var (oldIndex, newIndex) in oldIndices.Zip(group))
+            {
+                if (oldIndex >= segment.PhraseTranslations.Length || segment.PhraseTranslations[oldIndex] is not { } pair) continue;
+                current[newIndex] = pair;
+                previous[oldIndex] = null;
+            }
+        }
+        return (TrimEmptyTail(current), TrimEmptyTail(previous));
+    }
+
+    /// <summary>保留中间的待译句位，只省略最后一条译文之后的空位。</summary>
+    /// <param name="pairs">按句序填入的原译对。</param><returns>可传入快照的不可变句位数组。</returns>
+    private static ImmutableArray<SubtitlePhraseTranslation?> TrimEmptyTail(SubtitlePhraseTranslation?[] pairs) =>
+        ImmutableArray.Create(pairs, 0, Array.FindLastIndex(pairs, pair => pair is not null) + 1);
+
+    /// <summary>按当前识别顺序汇总已确认的句对。</summary>
+    /// <param name="pairs">允许中间有待译空位的当前译文。</param><returns>已译正文，尚无译文时为空。</returns>
+    private static string? JoinTranslations(ImmutableArray<SubtitlePhraseTranslation?> pairs) =>
+        pairs.IsEmpty ? null : string.Join('\n', pairs.OfType<SubtitlePhraseTranslation>().Select(pair => pair.Translation));
 
     /// <summary>后续增长窗口确认旧完整前缀与既有右侧证据，不把新增语音错误归入旧块。</summary>
     /// <param name="evidence">覆盖旧块且包含新增音频的已登记识别请求。</param>
@@ -209,6 +252,22 @@ public sealed class SubtitleReducer
         CancelSegment(id); segments.Remove(id); retired.Add(id); Commit();
     }
 
+    /// <summary>固定已接受的直播音频范围，撤销其识别许可，保留原文、边界证据与当前版本的逐句翻译。</summary>
+    /// <param name="id">已有完整识别结果的源块。</param>
+    /// <returns>已固定音频范围的字幕快照。</returns>
+    /// <exception cref="InvalidOperationException">会话已停止或指定块缺少已识别的范围。</exception>
+    public SubtitleSegment SealSourceRange(Guid id)
+    {
+        if (Stopped || !segments.TryGetValue(id, out var segment) || segment.Range.Length == 0)
+            throw new InvalidOperationException("只能固定已识别的直播音频范围。");
+        foreach (var request in requests.Values.Where(x => x.Segment == segment.Key && x.Kind == PipelineRequestKind.Recognition).ToArray())
+            requests.Remove(request.Id);
+        var sealedSegment = segment with { SourceRangeSealed = true, SubtitleRevision = checked(segment.SubtitleRevision + 1) };
+        segments[id] = sealedSegment;
+        Commit();
+        return sealedSegment;
+    }
+
     /// <summary>使当前翻译错误可见，保留源文和旧译文的版本标记。</summary>
     /// <param name="request">失败调用关联字段。</param><param name="reason">不含正文的错误原因码。</param>
     /// <returns>错误属于当前版本时为 true。</returns>
@@ -233,7 +292,7 @@ public sealed class SubtitleReducer
         value = value with { Key = new(id, checked(value.Key.Generation + 1)), SourceRevision = checked(value.SourceRevision + 1),
             SubtitleRevision = checked(value.SubtitleRevision + 1), Phase = SubtitlePhase.Revised,
             TranslationState = TranslationState.Pending, PhraseTranslations = [], PreviousPhraseTranslations = value.PhraseTranslations,
-            Boundary = BoundaryDecision.Pending, Error = null };
+            Boundary = BoundaryDecision.Pending, SourceRangeSealed = false, Error = null };
         segments[id] = value;
         Commit();
         return value;
@@ -277,12 +336,13 @@ public sealed class SubtitleReducer
         }
         else if (identity.ConfigEpoch != Identity.ConfigEpoch)
         {
-            foreach (var value in segments.Values.Where(x => x.Phase != SubtitlePhase.Final).ToArray()) segments[value.Key.Id] = value with
+            foreach (var value in segments.Values.Where(x => x.Phase != SubtitlePhase.Final &&
+                !(x.SourceRangeSealed && x.TranslationState == TranslationState.Complete)).ToArray()) segments[value.Key.Id] = value with
             {
                 TranslationState = string.IsNullOrWhiteSpace(value.Source) ? TranslationState.None : TranslationState.Pending,
                 Translation = null, TranslatedSourceRevision = null, PhraseTranslations = [], PreviousPhraseTranslations = [],
                 Phase = SubtitlePhase.Revised, SubtitleRevision = checked(value.SubtitleRevision + 1),
-                Boundary = BoundaryDecision.Pending, Error = null
+                Boundary = value.SourceRangeSealed ? value.Boundary : BoundaryDecision.Pending, Error = null
             };
         }
         requests.Clear();

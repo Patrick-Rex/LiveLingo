@@ -116,7 +116,7 @@ public sealed class DesktopSession(string contentRoot, DesktopHistory? history =
                 using var reservation = new TcpListener(IPAddress.Loopback, 0);
                 reservation.Start(); port = ((IPEndPoint)reservation.LocalEndpoint).Port;
             }
-            var options = new PipelineOptions { ResumeLiveAfterBacklog = VerificationInput is null };
+            var options = new PipelineOptions { ResumeLiveAfterBacklog = VerificationInput is null, PreferLiveSegments = VerificationInput is null };
             models = new(epoch =>
             {
                 var connection = new OwnedWorkerConnection(settings.PythonPath, ["-u", "-m", "workers.qwen_asr.service", "--profile", profilePath,

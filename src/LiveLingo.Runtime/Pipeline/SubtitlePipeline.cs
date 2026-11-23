@@ -40,6 +40,7 @@ public sealed record PipelineSnapshot(long StateSequence, SubtitleSnapshot Subti
 /// <summary>持续消费音频且串行调度模型，全部权威状态只在同一个事件循环修改。</summary>
 public sealed class SubtitlePipeline
 {
+    private const int LiveSegmentSamples = 6 * 16000;
     private readonly PipelineOptions options;
     private readonly Func<ContinuousAudioStore> createStore;
     private readonly IPipelineModels models;
@@ -66,6 +67,7 @@ public sealed class SubtitlePipeline
     private bool used;
     private bool previousRightContext;
     private bool recognizeBeforeNextPhrase;
+    private bool usingShortLiveSegments;
     private string? recognitionIssue;
     private readonly float[] rightContextSamples = new float[8000];
     private int rightContextPosition, rightContextCount;
@@ -270,7 +272,21 @@ public sealed class SubtitlePipeline
         var reachableEnd = Math.Min(store.End, acceptedEnd + advance);
         var offeredEnd = failedRecognitionEnd < 0 ? store.End : reachableEnd;
         var recoveryWindow = 0;
-        if (reachableEnd <= failedRecognitionEnd)
+        if (options.PreferLiveSegments)
+        {
+            var limit = segment.Range.Start + LiveWindowLimit;
+            offeredEnd = Math.Min(store.End, limit);
+            if (failedRecognitionEnd >= limit)
+            {
+                // 连续短段的首次识别也可能被截断。最多再试一个不同的短窗口，保留不可用范围与积压。
+                if (triedShorterWindow || recognitionQueue.Running is not null || recognitionQueue.Pending is not null) return;
+                offeredEnd = Math.Min(offeredEnd, segment.Range.Start + options.RefreshSamples);
+                if (offeredEnd >= failedRecognitionEnd) return;
+                triedShorterWindow = true;
+            }
+            if (offeredEnd <= lastOfferedEnd) return;
+        }
+        else if (reachableEnd <= failedRecognitionEnd)
         {
             if (recognitionQueue.Running is not null || recognitionQueue.Pending is not null ||
                 store.End - audioEndAtFailure < options.RefreshSamples) return;
@@ -341,7 +357,7 @@ public sealed class SubtitlePipeline
             {
                 var segment = Segment(work.Request.Segment.Id);
                 var phrases = SubtitlePhrases.Split(segment.Source);
-                var input = new TranslationInput(work.Request, phrases[segment.PhraseTranslations.Length]);
+                var input = new TranslationInput(work.Request, phrases[segment.NextPhraseIndex]);
                 translationCalls++; counted = true;
                 var result = await gpu.RunAsync(token => models.TranslateAsync(input, token), cancellationToken).ConfigureAwait(false);
                 if (result.Input != input) throw new InvalidDataException("translation_correlation_mismatch");
@@ -423,6 +439,11 @@ public sealed class SubtitlePipeline
                     recognitionIssue = recognized.Complete != true ? "recognition_incomplete" : alignment.Reason;
                     disposition = "rejected:" + recognitionIssue;
                     publishRejection?.Invoke(new(ticket, hypothesis, current, recognitionIssue));
+                    if (options.PreferLiveSegments)
+                    {
+                        RecoverLiveSegment(ticket);
+                        Reclaim(); Emit(); return false;
+                    }
                     if (result.Work.RecoveryWindowSamples == 0 || ticket.Range.End > failedRecognitionEnd)
                         audioEndAtFailure = audioEndAtDispatch;
                     failedRecognitionEnd = Math.Max(failedRecognitionEnd, ticket.Range.End);
@@ -433,6 +454,7 @@ public sealed class SubtitlePipeline
                 }
                 else
                 {
+                    var acceptedShorterRetry = options.PreferLiveSegments && failedRecognitionEnd > ticket.Range.End;
                     recognitionIssue = null; failedRecognitionEnd = -1; triedShorterWindow = false;
                     var previous = hypothesis;
                     var previousBoundary = previous is null ? BoundaryDecision.Pending : JapaneseBoundaryPolicy.Evaluate(previous.Text, 2, previousRightContext, true);
@@ -464,6 +486,8 @@ public sealed class SubtitlePipeline
                             reducer.RetireEmpty(segment.Key.Id);
                             CloseOpen(ticket.Range.End);
                         }
+                        else if (options.PreferLiveSegments && !boundary.CanClose && (acceptedShorterRetry || segment.Range.Length >= LiveWindowLimit))
+                            SealLiveSegment(segment);
                         else
                         {
                             QueueTranslation(segment, boundary.CanClose, result.Work.UnprocessedRange);
@@ -492,10 +516,12 @@ public sealed class SubtitlePipeline
     }
 
     /// <summary>只为当前版本的下一条未译短句排队，完全复用或清空原文时撤回旧开放任务。</summary>
-    /// <param name="segment">当前有效块。</param><param name="closed">边界是否已确认。</param>
+    /// <param name="segment">当前有效块。</param><param name="closed">来源范围是否已固定，应按序译完。</param>
     /// <param name="unprocessed">本次识别新增或仍待翻译的音频负担；重新确认边界时没有新音频。</param>
     private void QueueTranslation(SubtitleSegment segment, bool closed, SampleRange? unprocessed = null)
     {
+        if (closed && options.PreferLiveSegments && !segment.SourceRangeSealed && segment.Phase != SubtitlePhase.Final)
+            segment = reducer.SealSourceRange(segment.Key.Id);
         if (string.IsNullOrWhiteSpace(segment.Source) || segment.TranslationState == TranslationState.Complete)
         {
             translationQueue.DiscardOpen(segment.Key);
@@ -522,6 +548,36 @@ public sealed class SubtitlePipeline
         }
     }
 
+    /// <summary>保留直播段的原文与翻译工作，从其已接受终点继续音频；本采集代次随后采用有界短段。</summary>
+    /// <param name="segment">最后可信来源，已登记范围均保持原样。</param>
+    private void SealLiveSegment(SubtitleSegment segment)
+    {
+        usingShortLiveSegments = true;
+        recognitionIssue = null;
+        QueueTranslation(segment, true);
+        CloseOpen(segment.Range.End);
+    }
+
+    /// <summary>直播候选不可用时从可信终点分段；首个窗口尚无可信文字时保留全部音频并尝试不同的较短窗口。</summary>
+    /// <param name="ticket">未通过完整性或衔接检查的识别请求。</param>
+    private void RecoverLiveSegment(PipelineRequest ticket)
+    {
+        if (hypothesis is not null)
+        {
+            SealLiveSegment(Segment(ticket.Segment.Id));
+            return;
+        }
+        usingShortLiveSegments = true;
+        recognitionQueue.InvalidatePending();
+        if (ticket.Range.Length == options.RefreshSamples) triedShorterWindow = true;
+        if (ticket.Range.Length <= LiveWindowLimit)
+            failedRecognitionEnd = Math.Max(failedRecognitionEnd, ticket.Range.End);
+        lastOfferedEnd = ticket.Range.Length >= LiveWindowLimit ? ticket.Range.Start : ticket.Range.End;
+    }
+
+    /// <summary>获取直播普通开放段或持续讲话短段允许覆盖的最大采样数。</summary>
+    private int LiveWindowLimit => usingShortLiveSegments ? Math.Min(LiveSegmentSamples, options.MaximumWindowSamples) : options.MaximumWindowSamples;
+
     /// <summary>处理已等待计算退出的采集或模型控制，旧许可全部撤销。</summary>
     /// <param name="input">控制事件。</param><param name="cancellationToken">恢复取消。</param><returns>模型重新就绪任务。</returns>
     private Task ApplyControlAsync(PipelineInput input, CancellationToken cancellationToken)
@@ -535,6 +591,7 @@ public sealed class SubtitlePipeline
             store.Dispose(); store = createStore(); openSegment = null; hypothesis = null;
             recognizedEnd = lastOfferedEnd = releaseBefore = observedEnd = 0; stableObservations = 0;
             recognitionIssue = null; previousRightContext = false;
+            usingShortLiveSegments = false;
             Array.Clear(rightContextSamples); rightContextPosition = rightContextCount = 0; rightContextEnergy = 0;
         }
         else if (input is PipelineConfiguration configuration)
@@ -552,7 +609,7 @@ public sealed class SubtitlePipeline
     /// <exception cref="InvalidOperationException">待恢复范围不连续或已不在缓存中，不能假装仍可重识别。</exception>
     private void ReopenUntranslatedRanges()
     {
-        var pending = reducer.Snapshot().Segments.Where(x => x.Phase != SubtitlePhase.Final).OrderBy(x => x.Range.Start).ToArray();
+        var pending = reducer.Snapshot().Segments.Where(x => x.Phase != SubtitlePhase.Final && !x.SourceRangeSealed).OrderBy(x => x.Range.Start).ToArray();
         if (!pending.Any(x => x.Key.Id != openSegment)) return;
         // 新音频可能只有尚未识别的空锚点；先撤销该身份，后续完整窗口仍从旧范围起点覆盖到 store.End。
         foreach (var empty in pending.Where(x => x.Range.Length == 0)) reducer.RetireEmpty(empty.Key.Id);
@@ -605,7 +662,8 @@ public sealed class SubtitlePipeline
     /// <summary>仅释放已完成且超过修订尾部的音频，闭合待翻译与开放块仍保留。</summary>
     private void Reclaim()
     {
-        var protectedStart = reducer.Snapshot().Segments.Where(x => x.Phase != SubtitlePhase.Final).Select(x => x.Range.Start).DefaultIfEmpty(store.End).Min();
+        var protectedStart = reducer.Snapshot().Segments.Where(x => x.Phase != SubtitlePhase.Final && !x.SourceRangeSealed)
+            .Select(x => x.Range.Start).DefaultIfEmpty(store.End).Min();
         var before = Math.Min(protectedStart, Math.Max(0, store.End - options.MaximumWindowSamples));
         if (before >= releaseBefore) { store.ReleaseBefore(before); releaseBefore = before; }
     }

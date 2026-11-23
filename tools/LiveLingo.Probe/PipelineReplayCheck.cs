@@ -25,9 +25,11 @@ internal static class PipelineReplayCheck
     /// <param name="translationModel">明确选定的翻译模型。</param><param name="targetPid">非零时采集该外部应用进程树，input 不使用。</param>
     /// <param name="alignmentRecoverySeconds">显式扩窗实验上限，零禁用，60 或 120 秒。</param>
     /// <param name="preserveObservedRepetitions">是否启用扩窗已观察重复减少拒收实验。</param>
+    /// <param name="livePriority">为 WAV 回放启用桌面直播的短段识别和积压续接策略。进程采集始终使用该策略。</param>
     /// <returns>运行和清理成功时为零，模型质量另看证据。</returns>
     public static async Task<int> RunAsync(string repository, string profilePath, string model, string ollamaExecutable, string input,
-        string output, double durationSeconds, string translationModel, int targetPid = 0, int alignmentRecoverySeconds = 120, bool preserveObservedRepetitions = false)
+        string output, double durationSeconds, string translationModel, int targetPid = 0, int alignmentRecoverySeconds = 120,
+        bool preserveObservedRepetitions = false, bool livePriority = false)
     {
         foreach (var path in new[] { repository, profilePath, model, ollamaExecutable }.Concat(targetPid == 0 ? [input] : Array.Empty<string>()))
             if (!Path.IsPathFullyQualified(path)) throw new ArgumentException("需要绝对路径。");
@@ -35,7 +37,14 @@ internal static class PipelineReplayCheck
         if (targetPid < 0 || targetPid != 0 && durationSeconds == 0) throw new ArgumentException("采集需要正的目标 PID 和有限时长。");
         var target = targetPid == 0 ? null : WindowsTargets.Query(targetPid).Identity ?? throw new ArgumentException("无法核实采集目标。");
         var selection = new PipelineModelSelection(translationModel); selection.Validate();
-        var options = new PipelineOptions { AlignmentRecoverySamples = checked(alignmentRecoverySeconds * 16000), PreserveObservedRepetitions = preserveObservedRepetitions };
+        var useLivePolicy = target is not null || livePriority;
+        var options = new PipelineOptions
+        {
+            PreferLiveSegments = useLivePolicy,
+            ResumeLiveAfterBacklog = useLivePolicy,
+            AlignmentRecoverySamples = checked(alignmentRecoverySeconds * 16000),
+            PreserveObservedRepetitions = preserveObservedRepetitions
+        };
         options.Validate();
         using var profile = JsonDocument.Parse(File.ReadAllBytes(profilePath));
         var profileRoot = profile.RootElement;

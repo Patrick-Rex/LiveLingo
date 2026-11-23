@@ -35,14 +35,20 @@ public sealed record SubtitleRow
     internal static string GetStatusText(SubtitleSegment segment) => segment.TranslationState == TranslationState.Failed ? "翻译未完成" :
         segment.Translation is null ? (segment.Phase == SubtitlePhase.Draft ? "草稿 · 等待中文" : "更新中 · 等待中文") :
         segment.TranslatedSourceRevision != segment.SourceRevision ? "更新中 · 中文待更新" :
-        segment.Phase switch { SubtitlePhase.Final when segment.TranslationState == TranslationState.Complete => "已定稿", SubtitlePhase.Draft => "草稿", _ => "更新中" };
+        segment.Phase switch
+        {
+            SubtitlePhase.Final when segment.TranslationState == TranslationState.Complete => "已定稿",
+            _ when segment.SourceRangeSealed && segment.TranslationState == TranslationState.Complete => "已翻译",
+            SubtitlePhase.Draft => "草稿",
+            _ => "更新中"
+        };
     /// <summary>获取精确版本和修订状态。</summary>
-    public string Detail => $"{Segment.Phase switch { SubtitlePhase.Final => "定稿", SubtitlePhase.Revised => "修订中", _ => "草稿" }} · 源 v{Segment.SourceRevision} / 字幕 v{Segment.SubtitleRevision}" +
+    public string Detail => $"{(Segment.SourceRangeSealed ? "实时分段 · 原文已固定" : Segment.Phase switch { SubtitlePhase.Final => "定稿", SubtitlePhase.Revised => "修订中", _ => "草稿" })} · 源 v{Segment.SourceRevision} / 字幕 v{Segment.SubtitleRevision}" +
         (Segment.TranslatedSourceRevision != Segment.SourceRevision ? " · 中文待更新" : "") + (Segment.Error is { } error ? " · " + error : "");
 
     /// <summary>按原句位置绑定已确认的译文，兼容只保存当前整块译文的旧字幕。</summary>
     /// <returns>当前原文对应的双语阅读单元。</returns>
-    private SubtitlePhraseRow[] CreatePhrases()
+    private IReadOnlyList<SubtitlePhraseRow> CreatePhrases()
     {
         var translations = Segment.PhraseTranslations;
         var final = Segment.Phase == SubtitlePhase.Final && Segment.TranslationState == TranslationState.Complete &&
@@ -52,25 +58,28 @@ public sealed record SubtitleRow
 
         var sources = SubtitlePhrases.Split(Source);
         var previous = Segment.PreviousPhraseTranslations;
-        var result = new SubtitlePhraseRow[Math.Max(sources.Length, previous.Length)];
-        var translated = translations.IsDefault ? 0 : translations.Length;
-        var pendingStatus = StatusText;
-        var translatedStatus = Segment.Phase switch { SubtitlePhase.Final => "已定稿", SubtitlePhase.Draft => "草稿", _ => "更新中" };
+        var count = Math.Max(sources.Length, previous.Length);
+        var result = new List<SubtitlePhraseRow>(count);
+        var failed = Segment.TranslationState == TranslationState.Failed;
         var detail = Detail;
-        for (var index = 0; index < result.Length; index++)
+        for (var index = 0; index < count; index++)
         {
-            if (index < translated && (index >= sources.Length || sources[index] != translations[index].Source)) translated = index;
-            if (index >= translated && index < previous.Length)
+            var source = index < sources.Length ? sources[index] : null;
+            if (!translations.IsDefaultOrEmpty && index < translations.Length && translations[index] is { } current && current.Source == source)
             {
-                var old = previous[index];
-                var status = Segment.TranslationState == TranslationState.Failed ? "上一版 · 重译未完成" : "上一版 · 正在重译";
-                var revision = index < sources.Length ? $"当前识别：{sources[index]}" : "当前识别已缩短";
-                result[index] = new(Segment.Key, index, old.Source, old.Translation, status, $"{detail} · {revision}", false, true)
-                    { CurrentSource = index < sources.Length ? sources[index] : null };
-                continue;
+                result.Add(new(Segment.Key, index, current.Source, current.Translation, final ? "已定稿" : "已翻译", detail, final));
             }
-            var chinese = index < translated ? translations[index].Translation : null;
-            result[index] = new(Segment.Key, index, sources[index], chinese, chinese is null ? pendingStatus : translatedStatus, detail, final);
+            else if (index < previous.Length && previous[index] is { } old)
+            {
+                var status = source is null ? "上一版 · 本次已移除" : failed ? "上一版 · 重译未完成" : "上一版 · 待更新";
+                var revision = source is null ? "当前识别已缩短" : $"当前识别：{source}";
+                result.Add(new(Segment.Key, index, old.Source, old.Translation, status, $"{detail} · {revision}", false, true)
+                    { CurrentSource = source });
+            }
+            else if (source is not null)
+            {
+                result.Add(new(Segment.Key, index, source, null, failed ? "翻译未完成" : "等待中文", detail, false));
+            }
         }
         return result;
     }

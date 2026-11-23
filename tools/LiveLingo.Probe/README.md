@@ -24,9 +24,10 @@ $probe = './tools/LiveLingo.Probe/bin/Release/net10.0-windows10.0.26100.0/LiveLi
 
 ```powershell
 ./scripts/Invoke-SubtitlePipeline.ps1 -InputWave '<已有PCM16 WAV绝对路径>'
+./scripts/Invoke-SubtitlePipeline.ps1 -InputWave '<已有PCM16 WAV绝对路径>' -LivePriority -DurationSeconds 180
 ./scripts/Invoke-SubtitlePipeline.ps1 -TargetPid <根PID> -DurationSeconds 180
 ```
 
-默认 cu130、Qwen 自动识别、TranslateGemma12B 串行，正常30秒窗口，对齐失败时最多120秒回退。可用 `-AlignmentRecoverySeconds 0` 关闭回退。每次运行使用私有模型服务、已准备资产和独立输出目录。
+默认使用 cu130、Qwen 自动识别和 TranslateGemma12B 串行推理。进程采集使用与桌面直播一致的短段识别和积压续接策略。WAV 默认沿用普通识别窗口和对齐恢复，可加 `-LivePriority`（底层参数 `--live-priority`）按桌面策略回放。普通回放可用 `-AlignmentRecoverySeconds 0` 关闭扩窗。每次运行使用私有模型服务、已准备资产和独立输出目录。
 
 底层命令为 `pipeline-replay` / `pipeline-capture`；输出中的 `stop.request` 可触发正常取消。报告保留实际字幕版本和资源状态，仅显式评测保存正文。图形使用方式见 [用户指南](../../packaging/USER-GUIDE.md)。
