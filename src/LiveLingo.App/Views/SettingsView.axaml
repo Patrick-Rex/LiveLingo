@@ -74,7 +74,6 @@
               <StackPanel Spacing="8">
                 <TextBlock Text="语音识别" Classes="section" />
                 <ComboBox ItemsSource="{Binding ModelBackends}" SelectedIndex="{Binding AsrBackendIndex}" HorizontalAlignment="Stretch" AutomationProperties.Name="语音识别来源" />
-                <TextBlock Text="本地 Qwen3-ASR-1.7B，需要 Python、CUDA 和 Qwen 权重。" IsVisible="{Binding IsLocalAsr}" Classes="caption" TextWrapping="Wrap" />
                 <StackPanel Spacing="6" IsVisible="{Binding IsApiAsr}">
                   <TextBlock Text="Base URL（含版本前缀，例如 /v1）" /><TextBox Text="{Binding AsrApiBaseUrl}" AutomationProperties.Name="识别 API 地址" />
                   <TextBlock Text="API 模型" /><TextBox Text="{Binding AsrApiModel}" AutomationProperties.Name="识别 API 模型" />
@@ -93,6 +92,9 @@
               </StackPanel>
               <StackPanel Spacing="6"><TextBlock Text="识别语言" /><ComboBox ItemsSource="{Binding Languages}" SelectedItem="{Binding AsrLanguage}" HorizontalAlignment="Stretch" AutomationProperties.Name="识别语言" /></StackPanel>
             </StackPanel>
+            <StackPanel Spacing="6" IsVisible="{Binding IsLocalAsr}">
+              <TextBlock Text="本地识别设备" /><ComboBox ItemsSource="{Binding RuntimeProfileLabels}" SelectedIndex="{Binding RuntimeProfileIndex}" HorizontalAlignment="Stretch" AutomationProperties.Name="本地识别设备" />
+            </StackPanel>
             <Expander Header="高级路径配置" HorizontalAlignment="Stretch" IsEnabled="{Binding CanEdit}">
               <StackPanel Spacing="12" Margin="0,8">
                 <TextBlock Text="应用新的数据目录会切换历史库，旧记录保留在原目录；模型和设置文件不会自动搬迁。" Classes="caption" />
@@ -100,8 +102,8 @@
                 <StackPanel Spacing="6" IsVisible="{Binding IsLocalAsr}"><TextBlock Text="Qwen 模型目录" /><Grid ColumnDefinitions="*,Auto" ColumnSpacing="8"><TextBox Text="{Binding ModelPath}" AutomationProperties.Name="Qwen 模型目录" /><Button Grid.Column="1" Content="浏览…" Tag="ModelPath" Click="BrowsePath_Click" AutomationProperties.Name="选择 Qwen 模型目录" /></Grid></StackPanel>
                 <StackPanel Spacing="6" IsVisible="{Binding IsLocalTranslation}"><TextBlock Text="Ollama 可执行文件" /><Grid ColumnDefinitions="*,Auto" ColumnSpacing="8"><TextBox Text="{Binding OllamaPath}" AutomationProperties.Name="Ollama 可执行文件" /><Button Grid.Column="1" Content="浏览…" Tag="OllamaPath" Click="BrowsePath_Click" AutomationProperties.Name="选择 Ollama 可执行文件" /></Grid></StackPanel>
                 <StackPanel Spacing="6" IsVisible="{Binding IsLocalTranslation}"><TextBlock Text="Ollama 模型目录" /><Grid ColumnDefinitions="*,Auto" ColumnSpacing="8"><TextBox Text="{Binding OllamaModelsPath}" AutomationProperties.Name="Ollama 模型目录" /><Button Grid.Column="1" Content="浏览…" Tag="OllamaModelsPath" Click="BrowsePath_Click" AutomationProperties.Name="选择 Ollama 模型目录" /></Grid></StackPanel>
-                <StackPanel Spacing="6"><TextBlock Text="数据目录（非 C 盘）" /><Grid ColumnDefinitions="*,Auto" ColumnSpacing="8"><TextBox Text="{Binding DataPath}" AutomationProperties.Name="数据目录" /><Button Grid.Column="1" Content="浏览…" Tag="DataPath" Click="BrowsePath_Click" AutomationProperties.Name="选择数据目录" /></Grid></StackPanel>
-                <StackPanel Spacing="6"><TextBlock Text="缓存目录（非 C 盘）" /><Grid ColumnDefinitions="*,Auto" ColumnSpacing="8"><TextBox Text="{Binding CachePath}" AutomationProperties.Name="缓存目录" /><Button Grid.Column="1" Content="浏览…" Tag="CachePath" Click="BrowsePath_Click" AutomationProperties.Name="选择缓存目录" /></Grid></StackPanel>
+                <StackPanel Spacing="6"><TextBlock Text="数据目录" /><Grid ColumnDefinitions="*,Auto" ColumnSpacing="8"><TextBox Text="{Binding DataPath}" AutomationProperties.Name="数据目录" /><Button Grid.Column="1" Content="浏览…" Tag="DataPath" Click="BrowsePath_Click" AutomationProperties.Name="选择数据目录" /></Grid></StackPanel>
+                <StackPanel Spacing="6"><TextBlock Text="缓存目录" /><Grid ColumnDefinitions="*,Auto" ColumnSpacing="8"><TextBox Text="{Binding CachePath}" AutomationProperties.Name="缓存目录" /><Button Grid.Column="1" Content="浏览…" Tag="CachePath" Click="BrowsePath_Click" AutomationProperties.Name="选择缓存目录" /></Grid></StackPanel>
                 <Button Name="CheckPathsButton" Content="检查路径" Click="CheckPaths_Click" HorizontalAlignment="Left" />
                 <TextBlock Name="PathCheckResult" Classes="caption" Text="检查文件和目录是否存在，不会下载模型或启动服务。" />
               </StackPanel>

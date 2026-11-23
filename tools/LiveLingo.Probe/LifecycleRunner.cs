@@ -23,7 +23,7 @@ internal sealed record LifecycleReport(int SchemaVersion, DateTimeOffset Utc, Li
 internal static class LifecycleRunner
 {
     /// <summary>执行正常退出、强杀宿主和创建后立即关闭 Job 的实际检查。</summary>
-    /// <param name="output">新的非 C 盘输出目录。</param><returns>契约退出码。</returns>
+    /// <param name="output">新的本地输出目录。</param><returns>契约退出码。</returns>
     public static async Task<int> RunAsync(string output)
     {
         var directory = OutputDirectory.Prepare(output);

@@ -1,6 +1,6 @@
-param([string]$Output = 'D:\Soft Ware\LiveLingo\data\fixtures\m1-tones-v1', [switch]$IncludeSecondTab)
+param([string]$Output = (Join-Path $env:LOCALAPPDATA 'LiveLingoData\data\fixtures\m1-tones-v1'), [switch]$IncludeSecondTab)
 $ErrorActionPreference = 'Stop'
-if (-not [IO.Path]::IsPathFullyQualified($Output) -or $Output.StartsWith('C:', [StringComparison]::OrdinalIgnoreCase)) { throw '夹具必须为非 C 盘绝对目录。' }
+if ($Output -notmatch '^[A-Za-z]:[\\/]') { throw '夹具必须为本机绝对目录。' }
 if (Test-Path -LiteralPath $Output) { throw '为保留指纹，拒绝覆盖已有夹具目录。' }
 New-Item -ItemType Directory -Path $Output | Out-Null
 $fixtures = @()

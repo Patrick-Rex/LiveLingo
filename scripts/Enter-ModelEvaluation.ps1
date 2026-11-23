@@ -1,7 +1,7 @@
-param([string]$CacheRoot = 'D:\Soft Ware\LiveLingo\cache')
+param([string]$CacheRoot = (Join-Path $env:LOCALAPPDATA 'LiveLingoData\cache'))
 # Process-local model caches; never change the user's persistent environment.
 $modelCacheRoot = [IO.Path]::GetFullPath($CacheRoot)
-if ($CacheRoot -notmatch '^[D-Zd-z]:[\\/]' -or $modelCacheRoot.StartsWith('C:', [StringComparison]::OrdinalIgnoreCase)) { throw 'Model cache requires a non-C local absolute path.' }
+if ($CacheRoot -notmatch '^[A-Za-z]:[\\/]') { throw 'Model cache requires a local absolute path.' }
 . (Join-Path $PSScriptRoot 'Enter-Development.ps1') -CacheRoot $modelCacheRoot
 $env:LIVELINGO_CACHE_ROOT = $modelCacheRoot
 $env:UV_CACHE_DIR = Join-Path $modelCacheRoot 'uv'

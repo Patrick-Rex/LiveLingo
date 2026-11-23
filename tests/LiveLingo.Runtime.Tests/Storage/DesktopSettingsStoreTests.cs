@@ -6,6 +6,34 @@ namespace LiveLingo.Runtime.Tests.Storage;
 /// <summary>验证真实文件原子设置保存和损坏保护，不启动模型。</summary>
 public sealed class DesktopSettingsStoreTests
 {
+    /// <summary>读取旧位置和自定义 cu130 解释器，首次保存写入新位置并优先使用新文件。</summary>
+    /// <returns>兼容迁移与新安装默认值的验证任务。</returns>
+    [Fact]
+    public async Task LegacyPathAndCustomInterpreterSurviveUpgrade()
+    {
+        var root = Directory.CreateTempSubdirectory().FullName;
+        var fresh = Path.Combine(root, "user data", "settings.json");
+        var legacy = Path.Combine(root, "legacy.json");
+        var store = new DesktopSettingsStore(fresh, legacyPath: legacy);
+        var token = TestContext.Current.CancellationToken;
+        try
+        {
+            Assert.Equal("win-x64-cpu", (await store.LoadAsync(token)).Settings.RuntimeProfile);
+            var custom = Path.Combine(root, "my environment", "Scripts", "python.exe");
+            await new DesktopSettingsStore(legacy).SaveAsync(new() { PythonPath = custom, FontSize = 37 }, token);
+            var oldSettings = System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(legacy, token))!.AsObject();
+            Assert.True(oldSettings.Remove("RuntimeProfile")); var oldContent = oldSettings.ToJsonString();
+            await File.WriteAllTextAsync(legacy, oldContent, token);
+            var loaded = await store.LoadAsync(token);
+            Assert.Null(loaded.Error); Assert.Equal("win-x64-cu130", loaded.Settings.RuntimeProfile);
+            Assert.Equal(custom, loaded.Settings.PythonPath); Assert.Equal(37, loaded.Settings.FontSize);
+            await store.SaveAsync(loaded.Settings with { FontSize = 40 }, token);
+            Assert.Equal(40, (await store.LoadAsync(token)).Settings.FontSize);
+            Assert.Equal(oldContent, await File.ReadAllTextAsync(legacy, token));
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
     /// <summary>旧文件默认双本地，整体 API 配置及明文 Key 可往返，非法来源保留原文件。</summary><returns>真实文件兼容检查任务。</returns>
     [Fact]
     public async Task ModelSourcesAndApiSettingsRoundTripWithoutLocalPaths()

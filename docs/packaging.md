@@ -38,8 +38,8 @@ Setup.exe 是普通用户唯一安装入口，.NET 缺项由安装器在线补�
 | --- | --- |
 | 源码与构建输出 | 仓库及各项目 bin/obj；构建成功不会替换正在使用的程序 |
 | 发布包 | 仓库 artifacts/packages，可用 -OutputDirectory 覆盖；ZIP 与同名 .zip.sha256 |
-| 正式安装 | D:\Soft Ware\LiveLingo\app\desktop |
-| 用户设置 | D:\Soft Ware\LiveLingo\data\settings.json；使用 --settings 时以实际路径为准 |
+| 正式安装 | %LOCALAPPDATA%\LiveLingoData\app\desktop |
+| 用户设置 | %LOCALAPPDATA%\LiveLingoData\data\settings.json；使用 --settings 时以实际路径为准 |
 | 模型、Python 环境及缓存 | models、runtimes、cache 和独立的 Ollama 权重目录；不随程序替换 |
 
 打包会读取当前工作树，包括未提交的代码与说明。发布前确认这些改动正是本次要交付的内容。文档状态或历史报告不证明当前安装已更新，须以实际安装文件核对。
@@ -48,13 +48,13 @@ Setup.exe 是普通用户唯一安装入口，.NET 缺项由安装器在线补�
 
 使用 PowerShell 7、Git 和 .NET 10 稳定 SDK（10.0.100 起，global.json 允许后续功能带及补丁）。运行机器需要 Windows 11 x64、.NET 10.0 x64 Runtime（兼容各稳定补丁版本，建议使用最新维护版本），以及所选本地阶段的模型环境或 API 配置；程序按依赖运行时方式发布，包不包含 .NET Runtime。
 
-以下命令在仓库根、同一 PowerShell 7 终端顺序执行。0.1.1 只是下一次打包的示例版本，不表示已发布；按本次实际版本修改。同版本 ZIP 或校验文件存在时脚本拒绝覆盖，可选新版本或新的可写输出目录，保留可回退旧包。源码与打包允许在 C 盘；只有正式安装及其回归测试仍要求非 C 本地盘，示例临时根按本机实际盘符修改。
+以下命令在仓库根、同一 PowerShell 7 终端顺序执行。0.1.1 只是下一次打包的示例版本，不表示已发布；按本次实际版本修改。同版本 ZIP 或校验文件存在时脚本拒绝覆盖，可选新版本或新的可写输出目录，保留可回退旧包。源码、打包、安装和回归测试均可使用本机可写盘。
 
 ```powershell
 $ErrorActionPreference = 'Stop'
 $packageVersion = '0.1.1'
 $packageOutput = Join-Path $PWD 'artifacts/packages'
-$installTestRoot = 'D:\Soft Ware\LiveLingo\cache\tmp'
+$installTestRoot = Join-Path $env:TEMP 'LiveLingo-package-tests'
 New-Item -ItemType Directory -Path $installTestRoot -Force | Out-Null
 $env:TEMP = $installTestRoot
 $env:TMP = $installTestRoot
@@ -83,9 +83,9 @@ $archive = Join-Path $packageOutput "LiveLingo-$packageVersion-win-x64.zip"
 
 New-LiveLingoPackage.ps1 内部使用 locked restore 和 `dotnet publish -c Release -r win-x64 --self-contained false`，只发布生产工程；不启用裁剪、AOT 或单文件。NuGet 使用本机配置及已有环境变量；如需指定开发缓存，预先执行 `. ./scripts/Enter-Development.ps1 -CacheRoot <可写绝对路径>`。第三方许可从还原结果记录的包目录收集，不要求设置 NUGET_PACKAGES。暂存位于仓库忽略的 artifacts/packaging/唯一目录，完成后清理。Publish-LiveLingo.ps1 默认输出到仓库 artifacts/publish/desktop，可用 -OutputDirectory 覆盖；它要求空输出目录，正式替换使用安装器。
 
-包内包含 desktop 程序、worker、cu130 profile/哈希锁、必要依赖准备脚本、整体模型配置模板 model-config.example.json、用户指南和第三方许可。第三方 NuGet 元数据原文以 `.nuspec.xml` 保存，避免原生增量还原后的 ZIP 顺序使其被误识别为应用清单；nupkg 只能有根 `LiveLingo.nuspec`。根目录含 Install.ps1、manifest.json、README.md、LICENSE、NOTICE。模型、虚拟环境、录音、测试、历史报告、缓存和 PDB 不入包。ZIP 校验覆盖整个归档，manifest 逐项校验 desktop 下的应用文件。
+包内包含 desktop 程序、worker、CPU、ROCm、cu128 和 cu130 profile 及哈希锁、必要依赖准备脚本、整体模型配置模板 model-config.example.json、用户指南和第三方许可。第三方 NuGet 元数据原文以 `.nuspec.xml` 保存，避免原生增量还原后的 ZIP 顺序使其被误识别为应用清单；nupkg 只能有根 `LiveLingo.nuspec`。根目录含 Install.ps1、manifest.json、README.md、LICENSE、NOTICE。模型、虚拟环境、录音、测试、历史报告、缓存和 PDB 不入包。ZIP 校验覆盖整个归档，manifest 逐项校验 desktop 下的应用文件。
 
-Test-LiveLingoPackage.ps1 在 -TemporaryRoot 指定的非 C 本地盘下创建独立临时目录（省略时使用当前 TEMP），执行 10 项检查，覆盖 ZIP/应用哈希、损坏/额外文件/越界路径拒绝、C 盘拒绝、首次安装、拒绝隐式覆盖、显式替换保留设置及安装文件一致性，完成后清理。它不会替换正式安装，也不会启动 GPU 模型。
+Test-LiveLingoPackage.ps1 在 -TemporaryRoot 指定的本地盘下创建独立临时目录（省略时使用当前 TEMP），执行 10 项检查，覆盖 ZIP/应用哈希、损坏/额外文件/越界路径拒绝、相对路径拒绝、首次安装、拒绝隐式覆盖、显式替换保留设置及安装文件一致性，完成后清理。它不会替换正式安装，也不会启动 GPU 模型。
 
 ## 3. 关闭程序并留存回退资料
 
@@ -94,10 +94,11 @@ Test-LiveLingoPackage.ps1 在 -TemporaryRoot 指定的非 C 本地盘下创建�
 替换前，按下列方式另存当前程序与设置；首次安装没有旧程序时只会备份实际存在的设置。下面变量在后续安装步骤继续使用；自定义设置路径须同步修改。
 
 ```powershell
-$applicationRoot = 'D:\Soft Ware\LiveLingo\app'
+$resourceRoot = Join-Path $env:LOCALAPPDATA 'LiveLingoData'
+$applicationRoot = Join-Path $resourceRoot 'app'
 $installedDirectory = Join-Path $applicationRoot 'desktop'
-$settingsPath = 'D:\Soft Ware\LiveLingo\data\settings.json'
-$backupRoot = Join-Path 'D:\Soft Ware\LiveLingo\backups' ((Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [guid]::NewGuid().ToString('N'))
+$settingsPath = Join-Path $resourceRoot 'data\settings.json'
+$backupRoot = Join-Path (Join-Path $resourceRoot 'backups') ((Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $backupRoot | Out-Null
 if (Test-Path -LiteralPath $installedDirectory) {
     Copy-Item -LiteralPath $installedDirectory -Destination (Join-Path $backupRoot 'desktop') -Recurse
@@ -120,13 +121,13 @@ $actualHash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
 if ($expectedHash -notmatch '^[a-fA-F0-9]{64}$' -or $actualHash -ne $expectedHash) {
     throw 'ZIP SHA-256 mismatch.'
 }
-$extractDirectory = Join-Path 'D:\Soft Ware\LiveLingo\packages\staging' ([guid]::NewGuid().ToString('N'))
+$extractDirectory = Join-Path (Join-Path $resourceRoot 'packages\staging') ([guid]::NewGuid().ToString('N'))
 Expand-Archive -LiteralPath $archive -DestinationPath $extractDirectory
 $installer = Join-Path $extractDirectory 'Install.ps1'
 & $installer -VerifyOnly
 ```
 
-解压目录必须位于非 C 盘，且在目标 app 目录之外。VerifyOnly 只核对包内容，不检查运行环境或证明程序可启动。核对包后，在下面两条命令中选择一条：
+解压目录须位于目标 app 目录之外。VerifyOnly 只核对包内容，不检查运行环境或证明程序可启动。核对包后，在下面两条命令中选择一条：
 
 ```powershell
 # 首次安装，目标 desktop 不存在：
@@ -136,7 +137,7 @@ $installer = Join-Path $extractDirectory 'Install.ps1'
 & $installer -ApplicationRoot $applicationRoot -ReplaceExisting
 ```
 
-安装器支持 64 位 PowerShell 5.1 或 7，要求目标是非 C 本地盘绝对路径，末级为 app，程序目录始终为 desktop。更改 ApplicationRoot 不迁移模型或设置。安装会检查运行时、应用占用、链接、越界和文件哈希，复制到 .desktop-install 并复核，再切换目录；切换失败时尝试恢复旧程序。成功后输出 Installed=版本和实际 EXE 路径，清理事务旧备份。
+安装器支持 64 位 PowerShell 5.1 或 7，要求目标是本机绝对路径，末级为 app，程序目录始终为 desktop。更改 ApplicationRoot 不迁移模型或设置。安装会检查运行时、应用占用、链接、越界和文件哈希，复制到 .desktop-install 并复核，再切换目录；切换失败时尝试恢复旧程序。成功后输出 Installed=版本和实际 EXE 路径，清理事务旧备份。
 
 安装不会启动程序、修改执行策略或注册开机启动。组织策略禁止执行时按组织规则处理，不用安装步骤绕过策略。
 
@@ -158,7 +159,7 @@ Write-Output "Installed files match package $($manifest.version)"
 & (Join-Path $installedDirectory 'LiveLingo.Desktop.Windows.exe')
 ```
 
-已有环境直接复用；首次使用先按 [用户指南](../packaging/USER-GUIDE.md#首次准备依赖)仅为所选本地阶段准备 Python/cu130、Qwen 或 TranslateGemma；全 API 只需配置接口。启动后检查路径和设置，选择实际发声应用，验证字幕、右上角解锁/锁定、拖动缩放、显示模式、热键及设置保存，最后关闭并确认自有模型进程退出。真实模型、原生输入和多屏等检查分别记录，不能从包哈希通过推断这些行为通过。
+已有环境直接复用；首次使用先按 [用户指南](../packaging/USER-GUIDE.md#首次准备依赖)仅为所选本地阶段准备 所选 Python 推理环境、Qwen 或 TranslateGemma；全 API 只需配置接口。启动后检查路径和设置，选择实际发声应用，验证字幕、右上角解锁/锁定、拖动缩放、显示模式、热键及设置保存，最后关闭并确认自有模型进程退出。真实模型、原生输入和多屏等检查分别记录，不能从包哈希通过推断这些行为通过。
 
 确认运行正常后可删除此次唯一解压目录，保留 ZIP、校验文件和回退备份。不要把 models、runtimes 或 data 当作安装暂存删除。需要记录本次结果时新建按日期/版本命名的记录，不继续追加首版 M4 报告。
 
@@ -181,7 +182,7 @@ Write-Output "Installed files match package $($manifest.version)"
 
 ## 7. 首次准备与卸载
 
-[用户指南](../packaging/USER-GUIDE.md)提供 Python/uv、cu130 环境、Qwen 固定 revision、Ollama 模型准备及常用操作。依赖准备只在首次使用或明确改变配置时进行，程序替换不等于重新初始化环境。
+[用户指南](../packaging/USER-GUIDE.md)提供 CPU、AMD ROCm 与 NVIDIA CUDA 独立环境、Qwen 固定 revision、Ollama 模型准备及常用操作。依赖准备只在首次使用或明确改变配置时进行，程序替换不等于重新初始化环境。
 
 卸载先退出程序，只处理目标 app/desktop；模型、Python 环境、设置及数据独立保留，按需要另外处理。不要删除其他应用共享的 Ollama 权重。上述卸载方式仅适用于旧 ZIP。Velopack 安装使用 Windows“已安装的应用”卸载；模型和数据独立保留。
 

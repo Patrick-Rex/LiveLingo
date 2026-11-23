@@ -8,7 +8,7 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools" / "model_eval"))
 sys.path.insert(0, str(ROOT))
-from common import new_output, non_system_path, write_json
+from common import local_path, new_output, write_json
 from workers.qwen_asr.output import parse_output
 from translation import prompt
 from quality import edit_distance, normalize, score
@@ -105,16 +105,16 @@ class EvaluationContracts(unittest.TestCase):
         del item["referenceVerification"]["alignmentEvidence"]
         self.assertFalse(score(item, {"text": "はい。", "complete": True})["scored"])
 
-    def test_reject_system_and_relative_paths(self):
-        """Evaluation writes cannot silently use the working or system drive."""
-        for value in ("relative", r"C:\Users\test", r"C:\Temp\..\Models"):
+    def test_require_local_absolute_paths(self):
+        """Accept the system drive and reject relative, drive-relative and UNC destinations."""
+        self.assertEqual(pathlib.Path(r"C:\Models"), local_path(r"C:\Temp\..\Models"))
+        for value in ("relative", r"C:relative", r"\\server\share\models"):
             with self.subTest(value=value), self.assertRaises(ValueError):
-                non_system_path(value)
+                local_path(value)
 
     def test_existing_evidence_is_never_overwritten(self):
         """Both run directories and individual reports are exclusive writes."""
-        base = pathlib.Path(r"D:\Soft Ware\LiveLingo\cache\tmp")
-        with tempfile.TemporaryDirectory(prefix="m2-contract-", dir=base) as directory:
+        with tempfile.TemporaryDirectory(prefix="m2-contract-") as directory:
             with self.assertRaises(FileExistsError):
                 new_output(directory)
             file = pathlib.Path(directory) / "report.json"

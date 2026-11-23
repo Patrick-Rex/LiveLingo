@@ -2,7 +2,7 @@
 .SYNOPSIS
 Checks or explicitly prepares external dependencies; never bundles models or drivers.
 .PARAMETER Component
-Check only reports paths. DotNet, Ollama, Runtime and Models perform the selected installation; Driver opens NVIDIA's installer page.
+Check reports paths. Driver opens the selected GPU vendor's driver page.
 .PARAMETER SettingsPath
 Existing applied settings to use for resource locations. This script never rewrites settings.
 #>
@@ -10,17 +10,24 @@ Existing applied settings to use for resource locations. This script never rewri
 [CmdletBinding()]
 param(
     [ValidateSet('Check', 'DotNet', 'Ollama', 'Runtime', 'Models', 'QwenModel', 'TranslationModel', 'Driver')][string]$Component = 'Check',
-    [string]$SettingsPath = 'D:\Soft Ware\LiveLingo\data\settings.json',
-    [string]$BasePython = (Join-Path $env:LOCALAPPDATA 'Programs\Python\Python313\python.exe')
+    [string]$SettingsPath = (Join-Path $env:LOCALAPPDATA 'LiveLingoData\data\settings.json'),
+    [string]$BasePython
 )
 $ErrorActionPreference = 'Stop'
 if (-not [Environment]::Is64BitProcess) { throw 'Use 64-bit PowerShell.' }
+$resourceRoot = Join-Path $env:LOCALAPPDATA 'LiveLingoData'
+if (-not $PSBoundParameters.ContainsKey('SettingsPath') -and -not (Test-Path -LiteralPath $SettingsPath -PathType Leaf)) {
+    $legacySettingsPath = 'D:\Soft Ware\LiveLingo\data\settings.json'
+    if (Test-Path -LiteralPath $legacySettingsPath -PathType Leaf) { $SettingsPath = $legacySettingsPath }
+}
+$ollamaCommand = Get-Command ollama.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
 $settings = [pscustomobject]@{
-    PythonPath = 'D:\Soft Ware\LiveLingo\runtimes\win-x64-cu130\Scripts\python.exe'
-    ModelPath = 'D:\Soft Ware\LiveLingo\models\Qwen3-ASR-1.7B-7278e1e'
-    OllamaPath = (Join-Path $env:LOCALAPPDATA 'Programs\Ollama\ollama.exe')
-    OllamaModelsPath = 'D:\Soft Ware\Ollama'
-    CachePath = 'D:\Soft Ware\LiveLingo\cache'
+    RuntimeProfile = 'win-x64-cpu'
+    PythonPath = ''
+    ModelPath = (Join-Path $resourceRoot 'models\Qwen3-ASR-1.7B-7278e1e')
+    OllamaPath = if ($ollamaCommand) { $ollamaCommand.Source } else { Join-Path $env:LOCALAPPDATA 'Programs\Ollama\ollama.exe' }
+    OllamaModelsPath = if ($env:OLLAMA_MODELS) { $env:OLLAMA_MODELS } else { Join-Path $env:USERPROFILE '.ollama\models' }
+    CachePath = (Join-Path $resourceRoot 'cache')
     TranslationModel = 'translategemma:12b'
     AsrBackend = 0
     TranslationBackend = 0
@@ -28,10 +35,13 @@ $settings = [pscustomobject]@{
 $saved = $null
 if ($Component -ne 'DotNet' -and (Test-Path -LiteralPath $SettingsPath -PathType Leaf)) {
     $saved = Get-Content -LiteralPath $SettingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    foreach ($name in @('PythonPath', 'ModelPath', 'OllamaPath', 'OllamaModelsPath', 'CachePath', 'TranslationModel')) {
+    foreach ($name in @('RuntimeProfile', 'PythonPath', 'ModelPath', 'OllamaPath', 'OllamaModelsPath', 'CachePath', 'TranslationModel')) {
         if ($saved.PSObject.Properties.Name -contains $name -and $saved.$name) { $settings.$name = $saved.$name }
     }
+    if ($saved.PythonPath -and -not $saved.RuntimeProfile) { $settings.RuntimeProfile = 'win-x64-cu130' }
 }
+if ($settings.RuntimeProfile -notin @('win-x64-cpu', 'win-x64-rocm', 'win-x64-cu128', 'win-x64-cu130')) { throw 'Unknown ASR runtime profile.' }
+if (-not $settings.PythonPath) { $settings.PythonPath = Join-Path $resourceRoot "runtimes\$($settings.RuntimeProfile)\Scripts\python.exe" }
 foreach ($name in @('AsrBackend', 'TranslationBackend')) {
     if ($saved -and $saved.PSObject.Properties.Name -contains $name) { $settings.$name = $saved.$name }
     if ($settings.$name -notin @(0, 1)) { throw 'Unknown model backend; expected 0 (local) or 1 (OpenAI compatible API).' }
@@ -41,10 +51,15 @@ $localTranslation = $settings.TranslationBackend -eq 0
 
 function Test-DotNetRuntime {
     <# .SYNOPSIS Tests the x64 shared .NET 10 runtime without requiring an SDK. #>
-    $exe = Join-Path $env:ProgramFiles 'dotnet\dotnet.exe'
-    if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { return $false }
-    $runtimes = & $exe --list-runtimes
-    return $LASTEXITCODE -eq 0 -and [bool]($runtimes -match '^Microsoft.NETCore.App 10\.0\.\d+ \[')
+    $registered = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\dotnet\Setup\InstalledVersions\x64' -ErrorAction SilentlyContinue
+    foreach ($root in @($env:DOTNET_ROOT_X64, $registered.InstallLocation, (Join-Path $env:ProgramFiles 'dotnet'))) {
+        if (-not $root) { continue }
+        $exe = Join-Path $root 'dotnet.exe'
+        if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { continue }
+        $runtimes = & $exe --list-runtimes
+        if ($LASTEXITCODE -eq 0 -and ($runtimes -match '^Microsoft.NETCore.App 10\.0\.\d+ \[')) { return $true }
+    }
+    return $false
 }
 function Install-WingetPackage {
     <# .SYNOPSIS Installs an explicitly selected package through the official winget source. #>
@@ -56,9 +71,9 @@ function Install-WingetPackage {
     if ($LASTEXITCODE -ne 0) { throw "winget failed for $Id (exit $LASTEXITCODE)." }
 }
 function Assert-ResourcePath {
-    <# .SYNOPSIS Rejects system-drive and remote model/cache locations. #>
+    <# .SYNOPSIS Requires local absolute paths and rejects links before writing assets. #>
     param([string]$Path)
-    if ($Path -notmatch '^[D-Zd-z]:[\\/]' -or [IO.Path]::GetFullPath($Path).StartsWith('C:', [StringComparison]::OrdinalIgnoreCase)) { throw "Use a non-C local absolute resource path: $Path" }
+    if ($Path -notmatch '^[A-Za-z]:[\\/]') { throw "Use a local absolute resource path: $Path" }
     $itemPath = [IO.Path]::GetFullPath($Path)
     while ($itemPath) {
         if ((Test-Path -LiteralPath $itemPath) -and ((Get-Item -LiteralPath $itemPath -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw "Linked resource path is not supported: $itemPath" }
@@ -67,16 +82,17 @@ function Assert-ResourcePath {
 }
 function Find-Uv {
     <# .SYNOPSIS Resolves an existing uv executable after a winget installation. #>
-    $command = Get-Command uv -ErrorAction SilentlyContinue
+    $command = Get-Command uv.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($command) { return $command.Source }
     foreach ($candidate in @((Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Links\uv.exe'), (Join-Path $env:USERPROFILE '.local\bin\uv.exe'))) {
         if (Test-Path -LiteralPath $candidate -PathType Leaf) { return $candidate }
     }
-    throw 'uv was not found. Reopen PowerShell after installing uv and retry.'
+    return $null
 }
 
 if ($Component -eq 'Check') {
     [pscustomobject]@{ Component = '.NET 10 x64'; Present = Test-DotNetRuntime }
+    if ($localAsr) { Write-Output "RuntimeProfile=$($settings.RuntimeProfile)" }
     $paths = @()
     if ($localAsr) { $paths += @('PythonPath', 'ModelPath') }
     if ($localTranslation) { $paths += @('OllamaPath', 'OllamaModelsPath') }
@@ -104,8 +120,11 @@ if ($Component -eq 'Ollama') {
     Write-Output 'OllamaInstalled=True; models are prepared separately.'; return
 }
 if ($Component -eq 'Driver') {
-    Start-Process 'https://www.nvidia.com/Download/index.aspx'
-    Write-Output 'Manual action required: choose the driver for your GPU, install r580 or newer for CUDA 13.x, and reboot if requested. CUDA Toolkit is not required.'
+    switch ($settings.RuntimeProfile) {
+        'win-x64-cpu' { Write-Output 'The CPU profile does not need a GPU driver.' }
+        'win-x64-rocm' { Start-Process 'https://www.amd.com/en/support/download/drivers.html' }
+        default { Start-Process 'https://www.nvidia.com/Download/index.aspx' }
+    }
     return
 }
 Assert-ResourcePath $settings.CachePath
@@ -116,16 +135,19 @@ if ($localTranslation -and $Component -in @('Models', 'TranslationModel')) { Ass
 $contentRoot = Split-Path $PSScriptRoot -Parent
 . (Join-Path $PSScriptRoot 'Enter-ModelEvaluation.ps1') -CacheRoot $settings.CachePath
 if ($Component -eq 'Runtime') {
-    if (-not (Test-Path -LiteralPath $BasePython -PathType Leaf)) { Install-WingetPackage 'Python.Python.3.13' '3.13.2' }
-    if (-not (Test-Path -LiteralPath $BasePython -PathType Leaf)) { throw 'Specify -BasePython with your Python 3.13.2 executable.' }
-    if (-not (Get-Command uv -ErrorAction SilentlyContinue)) { Install-WingetPackage 'astral-sh.uv' }
-    $uv = Find-Uv
-    $env:PATH = (Split-Path $uv -Parent) + [IO.Path]::PathSeparator + $env:PATH
     $runtimeRoot = Split-Path (Split-Path $settings.PythonPath -Parent) -Parent
-    if ((Join-Path $runtimeRoot 'Scripts\python.exe') -ne $settings.PythonPath) { throw 'PythonPath must point to an isolated runtime Scripts\python.exe.' }
-    & (Join-Path $PSScriptRoot 'Initialize-ModelRuntime.ps1') -Profile win-x64-cu130 -BasePython $BasePython -RuntimeRoot $runtimeRoot -CacheRoot $settings.CachePath
-    & $settings.PythonPath -c "import torch; x=torch.ones(16,device='cuda'); print(torch.__version__,torch.cuda.get_device_name(),(x+x).sum().item())"
-    if ($LASTEXITCODE -ne 0) { throw 'Runtime installed, but GPU validation failed. Check the NVIDIA driver and GPU compatibility.' }
+    if (-not $runtimeRoot -or (Join-Path $runtimeRoot 'Scripts\python.exe') -ne $settings.PythonPath) { throw 'PythonPath must point to an isolated runtime Scripts\python.exe.' }
+    $uv = Find-Uv
+    if (-not $uv) {
+        Install-WingetPackage 'astral-sh.uv'
+        $uv = Find-Uv
+        if (-not $uv) { throw 'uv was not found after installation. Install uv or reopen PowerShell and retry.' }
+    }
+    & (Join-Path $PSScriptRoot 'Initialize-ModelRuntime.ps1') -Profile $settings.RuntimeProfile -BasePython $BasePython -RuntimeRoot $runtimeRoot -CacheRoot $settings.CachePath -Uv $uv
+    $profilePath = Join-Path $contentRoot "runtime-profiles\$($settings.RuntimeProfile)\profile.json"
+    $smoke = "import json,sys; sys.path.insert(0,sys.argv[1]); import torch; from workers.qwen_asr.inference import select_device; p=json.load(open(sys.argv[2], encoding='utf-8')); d=select_device(torch,p); x=torch.ones(16,device=d); assert (x+x).sum().item()==32; print(torch.__version__,d)"
+    & $settings.PythonPath -c $smoke $contentRoot $profilePath
+    if ($LASTEXITCODE -ne 0) { throw "Runtime installed, but the $($settings.RuntimeProfile) device check failed. Verify driver compatibility or select the CPU profile." }
     return
 }
 if ($localTranslation -and $Component -in @('Models', 'TranslationModel') -and $settings.TranslationModel -notin @('translategemma:12b', 'translategemma:4b')) { throw 'Unsupported translation model.' }

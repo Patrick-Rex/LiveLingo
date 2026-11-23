@@ -28,7 +28,7 @@ public sealed unsafe partial class OwnedJob
     /// <summary>建立匿名管道并在进程创建时加入 Job；失败释放所有父子端句柄。</summary>
     /// <param name="executable">绝对 EXE 路径。</param><param name="arguments">独立参数。</param>
     /// <param name="workingDirectory">工作目录。</param><param name="role">审计职责。</param>
-    /// <param name="environment">子进程私有环境；D 盘缓存设置具有优先级。</param>
+    /// <param name="environment">子进程私有环境，显式设置覆盖继承值。</param>
     /// <returns>由调用方释放、且须在 Job 生命周期内使用的三个父端流。</returns>
     public OwnedPipes StartRedirected(string executable, IReadOnlyList<string> arguments, string workingDirectory, string role,
         IReadOnlyDictionary<string, string>? environment = null)

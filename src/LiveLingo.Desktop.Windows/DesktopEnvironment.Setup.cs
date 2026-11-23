@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using LiveLingo.Core.Desktop;
+using LiveLingo.Platform.Windows.Processes;
 
 namespace LiveLingo.Desktop.Windows;
 
@@ -13,12 +14,7 @@ public sealed partial class DesktopEnvironment
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (settings.AsrBackend == ModelBackend.OpenAiCompatible && settings.TranslationBackend == ModelBackend.OpenAiCompatible) return settings;
-        var roots = new List<string> { Path.GetDirectoryName(settings.DataPath)!, @"D:\Soft Ware\LiveLingo" };
-        foreach (var drive in DriveInfo.GetDrives().Where(x => x.DriveType == DriveType.Fixed && x.IsReady).Take(26))
-        {
-            roots.Add(Path.Combine(drive.RootDirectory.FullName, "Soft Ware", "LiveLingo"));
-            roots.Add(Path.Combine(drive.RootDirectory.FullName, "LiveLingo"));
-        }
+        var roots = new[] { Path.GetDirectoryName(settings.DataPath) ?? "", DesktopSettings.ResourceRoot };
         var executableDirectories = new List<string>
         {
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Ollama"),
@@ -27,31 +23,38 @@ public sealed partial class DesktopEnvironment
         executableDirectories.AddRange((Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator).Take(128));
         var virtualEnvironment = Environment.GetEnvironmentVariable("VIRTUAL_ENV");
         if (!string.IsNullOrEmpty(virtualEnvironment)) executableDirectories.Add(Path.Combine(virtualEnvironment, "Scripts"));
-        var modelRoots = new List<string> { @"D:\Soft Ware\Ollama" };
+        var modelRoots = new List<string>();
         foreach (var target in new[] { EnvironmentVariableTarget.Process, EnvironmentVariableTarget.User, EnvironmentVariableTarget.Machine })
             if (Environment.GetEnvironmentVariable("OLLAMA_MODELS", target) is { Length: > 0 } path) modelRoots.Add(path);
         modelRoots.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".ollama", "models"));
         cancellationToken.ThrowIfCancellationRequested();
-        return DiscoverCandidates(settings, roots, executableDirectories, modelRoots);
+        return DiscoverCandidates(settings, roots, executableDirectories, modelRoots, contentRoot);
     }, cancellationToken);
 
     /// <summary>从有界候选位置复用缺失资产，保留用户已有路径和不兼容资产供显式处理。</summary>
     /// <param name="settings">当前配置。</param><param name="applicationRoots">资源根候选。</param>
     /// <param name="executableDirectories">PATH 或已知程序目录。</param><param name="translationRoots">翻译模型目录候选。</param>
+    /// <param name="contentRoot">用于核对隔离环境元数据的发布内容目录；默认取当前程序目录。</param>
     /// <returns>只替换缺失路径的配置副本。</returns>
     public static DesktopSettings DiscoverCandidates(DesktopSettings settings, IEnumerable<string> applicationRoots,
-        IEnumerable<string> executableDirectories, IEnumerable<string> translationRoots)
+        IEnumerable<string> executableDirectories, IEnumerable<string> translationRoots, string? contentRoot = null)
     {
-        var roots = applicationRoots.Where(IsResourcePath).Distinct(StringComparer.OrdinalIgnoreCase).Take(64).ToArray();
-        var executables = executableDirectories.Where(IsLocalPath).Distinct(StringComparer.OrdinalIgnoreCase).Take(128).ToArray();
+        var roots = applicationRoots.Where(DesktopSettings.IsLocalAbsolutePath).Distinct(StringComparer.OrdinalIgnoreCase).Take(64).ToArray();
+        var executables = executableDirectories.Where(DesktopSettings.IsLocalAbsolutePath).Distinct(StringComparer.OrdinalIgnoreCase).Take(128).ToArray();
         var found = settings;
         if (settings.TranslationBackend == ModelBackend.Local && !File.Exists(settings.OllamaPath))
             found = found with { OllamaPath = executables.Select(x => Path.Combine(x, "ollama.exe")).FirstOrDefault(File.Exists) ?? settings.OllamaPath };
         if (settings.AsrBackend == ModelBackend.Local && !File.Exists(settings.PythonPath))
         {
-            var interpreters = roots.Select(x => Path.Combine(x, "runtimes", "win-x64-cu130", "Scripts", "python.exe"))
-                .Concat(executables.Where(IsResourcePath).Select(x => Path.Combine(x, "python.exe")));
-            found = found with { PythonPath = interpreters.FirstOrDefault(IsRuntimeCandidate) ?? settings.PythonPath };
+            var interpreters = roots.Select(x => Path.Combine(x, "runtimes", settings.RuntimeProfile, "Scripts", "python.exe"))
+                .Concat(executables.Select(x => Path.Combine(x, "python.exe")));
+            // 只为实际存在的候选读取随包元数据，缺少运行资产不影响 API 来源。
+            var candidates = interpreters.Where(File.Exists).ToArray();
+            if (candidates.Length != 0)
+            {
+                var expected = ReadRuntimeProfile(contentRoot ?? AppContext.BaseDirectory, settings.RuntimeProfile);
+                found = found with { PythonPath = candidates.FirstOrDefault(path => IsRuntimeCandidate(path, expected.Torch)) ?? settings.PythonPath };
+            }
         }
         if (settings.AsrBackend == ModelBackend.Local && !File.Exists(Path.Combine(settings.ModelPath, "asset-manifest.json")))
             found = found with { ModelPath = roots.Select(x => Path.Combine(x, "models", "Qwen3-ASR-1.7B-7278e1e"))
@@ -60,28 +63,21 @@ public sealed partial class DesktopEnvironment
         {
             var tag = settings.TranslationModel.Split(':').Last();
             if (!File.Exists(GetTranslationManifestPath(settings.OllamaModelsPath, tag)))
-                found = found with { OllamaModelsPath = translationRoots.Where(IsResourcePath).Distinct(StringComparer.OrdinalIgnoreCase).Take(32)
+                found = found with { OllamaModelsPath = translationRoots.Where(DesktopSettings.IsLocalAbsolutePath).Distinct(StringComparer.OrdinalIgnoreCase).Take(32)
                     .FirstOrDefault(x => Inspect("TranslateGemma", () => CheckTranslation(x, settings.TranslationModel)).Ready) ?? settings.OllamaModelsPath };
         }
         return found;
     }
 
-    /// <summary>排除网络、相对和格式错误的候选路径。</summary><param name="path">候选路径。</param><returns>是否为本地绝对路径。</returns>
-    private static bool IsLocalPath(string path) => !string.IsNullOrWhiteSpace(path) && Path.IsPathFullyQualified(path) &&
-        !path.StartsWith(@"\\", StringComparison.Ordinal) && path.IndexOfAny(Path.GetInvalidPathChars()) < 0;
-
-    /// <summary>维持大型资源非系统盘约束。</summary><param name="path">候选路径。</param><returns>是否允许复用。</returns>
-    private static bool IsResourcePath(string path) => IsLocalPath(path) && !path.StartsWith("C:", StringComparison.OrdinalIgnoreCase);
-
     /// <summary>仅将具有固定推理包元数据的隔离环境列为候选，随后仍执行版本探测。</summary>
-    /// <param name="path">候选解释器。</param><returns>是否具有隔离环境及所需包。</returns>
-    private static bool IsRuntimeCandidate(string path)
+    /// <param name="path">候选解释器。</param><param name="torch">所选配置的完整 PyTorch 构建版本。</param><returns>是否具有隔离环境及所需包。</returns>
+    private static bool IsRuntimeCandidate(string path, string torch)
     {
-        if (!File.Exists(path)) return false;
-        var root = Path.GetDirectoryName(Path.GetDirectoryName(path))!;
-        return File.Exists(Path.Combine(root, "pyvenv.cfg")) &&
-            File.Exists(Path.Combine(root, "Lib", "site-packages", "torch-2.10.0+cu130.dist-info", "METADATA")) &&
-            File.Exists(Path.Combine(root, "Lib", "site-packages", "qwen_asr-0.0.6.dist-info", "METADATA"));
+        var root = Path.GetDirectoryName(Path.GetDirectoryName(path));
+        return root is not null && File.Exists(Path.Combine(root, "pyvenv.cfg")) &&
+            File.Exists(Path.Combine(root, "Lib", "site-packages", $"torch-{torch}.dist-info", "METADATA")) &&
+            File.Exists(Path.Combine(root, "Lib", "site-packages", "qwen_asr-0.0.6.dist-info", "METADATA")) &&
+            Inspect("Python", () => PythonRuntime.ValidateForOwnedProcess(path)).Ready;
     }
 
     /// <inheritdoc />

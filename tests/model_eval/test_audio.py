@@ -27,7 +27,7 @@ class AudioChecks(unittest.TestCase):
 
     def test_no_implicit_cut_at_default_window_limit(self):
         """A longer waveform is rejected by default, accepted whole with an explicit budget."""
-        with tempfile.TemporaryDirectory(dir=r"D:\Soft Ware\LiveLingo\cache\tmp") as directory:
+        with tempfile.TemporaryDirectory() as directory:
             path = pathlib.Path(directory) / "audio.wav"
             with wave.open(str(path), "wb") as output:
                 output.setparams((1, 2, 16000, 0, "NONE", "not compressed"))
@@ -40,7 +40,7 @@ class AudioChecks(unittest.TestCase):
 
     def test_truncated_payload_is_rejected(self):
         """A WAV header declaring more frames than actually present must fail."""
-        with tempfile.TemporaryDirectory(dir=r"D:\Soft Ware\LiveLingo\cache\tmp") as directory:
+        with tempfile.TemporaryDirectory() as directory:
             path = pathlib.Path(directory) / "audio.wav"
             with wave.open(str(path), "wb") as output:
                 output.setparams((1, 2, 16000, 0, "NONE", "not compressed"))

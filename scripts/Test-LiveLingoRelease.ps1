@@ -40,7 +40,11 @@ $files = Get-PackageFiles $FullPackage
 foreach ($name in $files.Keys) {
     if ($name -match '(?i)(^|/)(models|runtimes|cache|data|tests|__pycache__)/|\.(safetensors|gguf|wav|mp3|pdb|pyc)$|(^|/)(python|ollama|nvidia-smi)\.exe$|(^|/)(coreclr|hostfxr|hostpolicy)\.dll$|System.Private.CoreLib.dll$') { throw "External/development payload found: $name" }
 }
-foreach ($required in @('LiveLingo.Desktop.Windows.exe', 'scripts/Install-LiveLingoDependencies.ps1', 'workers/qwen_asr/service.py', 'runtime-profiles/win-x64-cu130/requirements.lock')) {
+$requiredFiles = @('LiveLingo.Desktop.Windows.exe', 'scripts/Install-LiveLingoDependencies.ps1', 'workers/qwen_asr/service.py')
+foreach ($profile in @('win-x64-cpu', 'win-x64-rocm', 'win-x64-cu128', 'win-x64-cu130')) {
+    $requiredFiles += "runtime-profiles/$profile/profile.json", "runtime-profiles/$profile/requirements.lock"
+}
+foreach ($required in $requiredFiles) {
     if (-not @($files.Keys | Where-Object { $_.EndsWith('/' + $required, [StringComparison]::Ordinal) }).Count) { throw "Missing payload: $required" }
 }
 Write-Output "PASS: full package exclusions and required files ($($files.Count) entries)."

@@ -46,7 +46,7 @@ public sealed unsafe partial class OwnedJob : IDisposable
     /// <param name="executable">绝对 EXE 路径。</param><param name="arguments">独立参数。</param>
     /// <param name="workingDirectory">工作目录。</param><param name="role">审计职责。</param>
     /// <param name="standardHandles">空列表或 stdin/stdout/stderr 三个子端句柄。</param>
-    /// <param name="environmentOverrides">仅此子进程的环境，缓存仍强制在 D 盘。</param><returns>已登记实例。</returns>
+    /// <param name="environmentOverrides">仅对此子进程生效的环境覆盖。</param><returns>已登记实例。</returns>
     private OwnedProcess StartCore(string executable, IReadOnlyList<string> arguments, string workingDirectory, string role,
         nint[] standardHandles, IReadOnlyDictionary<string, string>? environmentOverrides)
     {
@@ -54,6 +54,7 @@ public sealed unsafe partial class OwnedJob : IDisposable
         if (!Path.IsPathFullyQualified(executable) || !File.Exists(executable)) throw new ArgumentException("需要已存在的绝对 EXE 路径。", nameof(executable));
         if (!Path.IsPathFullyQualified(workingDirectory) || !Directory.Exists(workingDirectory)) throw new ArgumentException("需要已存在的绝对工作目录。", nameof(workingDirectory));
         ArgumentException.ThrowIfNullOrWhiteSpace(role);
+        if (Path.GetFileName(executable).StartsWith("python", StringComparison.OrdinalIgnoreCase)) PythonRuntime.ValidateForOwnedProcess(executable);
         if (processes.Count >= 64) throw new InvalidOperationException("单个监管器的创建次数达到 64 次上限。");
         nuint attributeBytes = 0;
         var attributeCount = standardHandles.Length == 0 ? 1 : 2;
@@ -190,7 +191,7 @@ public sealed unsafe partial class OwnedJob : IDisposable
         return result.ToString();
     }
 
-    /// <summary>为自有子进程建立继承环境的私有副本，并将新增缓存显式放在 D 盘。</summary>
+    /// <summary>为自有子进程建立继承环境的私有副本，并应用调用者提供的设置。</summary>
     /// <param name="overrides">仅对自有子进程生效的显式环境。</param><returns>双 NUL 结尾的 Unicode 环境块。</returns>
     private static char[] BuildEnvironment(IReadOnlyDictionary<string, string>? overrides)
     {
@@ -202,12 +203,6 @@ public sealed unsafe partial class OwnedJob : IDisposable
                 throw new ArgumentException("子进程环境字段无效。", nameof(overrides));
             values[pair.Key] = pair.Value;
         }
-        values["TEMP"] = values["TMP"] = @"D:\Soft Ware\LiveLingo\cache\tmp";
-        values["DOTNET_BUNDLE_EXTRACT_BASE_DIR"] = @"D:\Soft Ware\LiveLingo\cache\dotnet-bundle";
-        values["HF_HOME"] = @"D:\Soft Ware\LiveLingo\cache\huggingface";
-        values["HF_HUB_CACHE"] = @"D:\Soft Ware\LiveLingo\cache\huggingface\hub";
-        values["UV_CACHE_DIR"] = @"D:\Soft Ware\LiveLingo\cache\uv";
-        values["PIP_CACHE_DIR"] = @"D:\Soft Ware\LiveLingo\cache\pip";
         return (string.Join('\0', values.Select(pair => pair.Key + "=" + pair.Value)) + "\0\0").ToCharArray();
     }
 

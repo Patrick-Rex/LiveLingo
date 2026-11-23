@@ -140,9 +140,9 @@ public sealed class ContinuousAudioStoreTests
         Assert.Throws<ArgumentOutOfRangeException>(() => new PipelineOptions { MaximumWindowSamples = 16000 * 31 }.Validate());
     }
 
-    /// <summary>为本测试分配 D 盘独占目录名，不提前建立目录。</summary>
+    /// <summary>为本测试分配 临时独占目录名，不提前建立目录。</summary>
     /// <returns>仅此测试使用的绝对路径。</returns>
-    private static string NewDirectory() => Path.Combine(@"D:\Soft Ware\LiveLingo\cache\tmp", "m3-spill-" + Guid.NewGuid().ToString("N"));
+    private static string NewDirectory() => Path.Combine(Path.GetTempPath(), "m3-spill-" + Guid.NewGuid().ToString("N"));
 
     /// <summary>用于故障注入的有限测试存储，不假装实际磁盘耗尽。</summary>
     private sealed class MemorySpill : IAudioSpillStore

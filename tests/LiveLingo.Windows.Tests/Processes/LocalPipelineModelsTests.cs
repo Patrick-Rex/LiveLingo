@@ -18,7 +18,7 @@ public sealed class LocalPipelineModelsTests
         var root = new DirectoryInfo(AppContext.BaseDirectory);
         while (root is not null && !File.Exists(Path.Combine(root.FullName, "LiveLingo.slnx"))) root = root.Parent;
         Assert.NotNull(root);
-        const string python = @"D:\Soft Ware\LiveLingo\runtimes\win-x64-cu130\Scripts\python.exe";
+        var python = PythonFixture.Executable;
         int port;
         using (var listener = new TcpListener(IPAddress.Loopback, 0)) { listener.Start(); port = ((IPEndPoint)listener.LocalEndpoint).Port; }
         var owned = new List<OwnedWorkerConnection>();

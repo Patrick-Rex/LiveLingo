@@ -25,29 +25,27 @@ def main():
     parser.add_argument("--language", choices=("Japanese", "English", "Chinese", "auto"), default="Japanese")
     args = parser.parse_args()
     output = new_output(args.output)
-    report = {"schemaVersion": 1, "kind": "gpu-inference-performance", "startedUtc": utc_now(),
+    report = {"schemaVersion": 1, "kind": "inference-performance", "startedUtc": utc_now(),
               "humanVerified": False, "qualityPassed": False, "passed": False, "runs": [], "sourceSha256": source_fingerprint()}
     try:
         if not 1 <= args.repeats <= 100:
             raise ValueError("Repeat count must be in [1,100]")
         configure_cache()
-        profile = load_profile(args.profile)
+        profile = load_profile(args.profile, sys.executable)
         import torch
-        if torch.__version__ != profile["torch"] or torch.version.cuda != profile["cuda"]:
-            raise ValueError("Wrong torch/CUDA build")
-        if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported():
-            raise RuntimeError("Required CUDA/BF16 unavailable")
+        from workers.qwen_asr.inference import QwenInference, read_audio, select_device
+        device = select_device(torch, profile)
         manifest = verify_model(args.model)
-        from workers.qwen_asr.inference import QwenInference, read_audio
         audio = read_audio(args.audio, args.max_window_seconds)
         report.update(profile=profile, modelRevision=manifest["revision"],
                       inputSha256=sha256(args.audio), inputPath=str(pathlib.Path(args.audio).resolve()),
-                      parameters={"dtype": "bfloat16", "attention": "sdpa", "maxNewTokens": args.max_new_tokens,
+                      parameters={"backend": profile["backend"], "device": device, "attention": "sdpa", "maxNewTokens": args.max_new_tokens,
                                   "language": args.language, "doSample": False, "maxWindowSeconds": args.max_window_seconds},
                       packages={n: importlib.metadata.version(n) for n in ("torch", "qwen-asr", "transformers", "accelerate")})
         started = time.perf_counter()
-        engine = QwenInference(args.model, args.max_new_tokens, args.max_window_seconds)
-        torch.cuda.synchronize()
+        engine = QwenInference(args.model, args.max_new_tokens, args.max_window_seconds, device=device)
+        if device != "cpu":
+            torch.cuda.synchronize()
         report["modelLoadSeconds"] = time.perf_counter() - started
         for index in range(args.repeats):
             result = engine.recognize(audio, None if args.language == "auto" else args.language)

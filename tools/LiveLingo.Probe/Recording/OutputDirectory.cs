@@ -1,9 +1,9 @@
 namespace LiveLingo.Probe.Recording;
 
-/// <summary>验证显式录音目录，不允许回退 C 盘或覆盖现有运行。</summary>
+/// <summary>验证显式录音目录，要求本机独占目录并保留现有运行。</summary>
 internal static class OutputDirectory
 {
-    /// <summary>核实路径、非 C 盘、无链接祖先、空目录及最小剩余空间。</summary>
+    /// <summary>核实路径、本地卷、无链接祖先、空目录及最小剩余空间。</summary>
     /// <param name="path">用户提供的绝对目录。</param>
     /// <returns>已创建的独立运行目录。</returns>
     /// <exception cref="ArgumentException">路径不安全或不独立。</exception>
@@ -13,8 +13,8 @@ internal static class OutputDirectory
         if (!Path.IsPathFullyQualified(path)) throw new ArgumentException("输出目录必须为绝对路径。");
         var absolute = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
         var root = Path.GetPathRoot(absolute)!;
-        if (root.StartsWith("C:", StringComparison.OrdinalIgnoreCase) || root.StartsWith("\\\\", StringComparison.Ordinal))
-            throw new ArgumentException("录音必须位于本机非 C 盘。");
+        if (root.StartsWith("\\\\", StringComparison.Ordinal))
+            throw new ArgumentException("录音必须位于本地卷。");
         if (absolute.Equals(Path.TrimEndingDirectorySeparator(root), StringComparison.OrdinalIgnoreCase)) throw new ArgumentException("不能使用磁盘根目录。");
         for (var parent = new DirectoryInfo(absolute); parent is not null; parent = parent.Parent)
         {

@@ -28,7 +28,7 @@ class DownloadChecks(unittest.TestCase):
     def test_resume_publishes_only_after_full_hash_matches(self):
         """Completed chunks are reused while the final file still requires its official digest."""
         data = b"a" * (8 * 1024 * 1024) + b"tail"
-        with tempfile.TemporaryDirectory(prefix="range-test-", dir=r"D:\Soft Ware\LiveLingo\cache\tmp") as directory:
+        with tempfile.TemporaryDirectory(prefix="range-test-") as directory:
             target = pathlib.Path(directory) / "model.safetensors"
             target.with_name(target.name + ".download").write_bytes(data[:-4])
             with patch("download.fetch_range", return_value=b"tail") as fetch:
@@ -38,7 +38,7 @@ class DownloadChecks(unittest.TestCase):
 
     def test_corrupt_download_does_not_publish_model(self):
         """A failed hash leaves partial evidence, without a loadable final filename."""
-        with tempfile.TemporaryDirectory(prefix="range-test-", dir=r"D:\Soft Ware\LiveLingo\cache\tmp") as directory:
+        with tempfile.TemporaryDirectory(prefix="range-test-") as directory:
             target = pathlib.Path(directory) / "model.safetensors"
             with patch("download.fetch_range", return_value=b"bad"), self.assertRaises(ValueError):
                 download_large("https://example.invalid/model", target, 3, hashlib.sha256(b"yes").hexdigest())

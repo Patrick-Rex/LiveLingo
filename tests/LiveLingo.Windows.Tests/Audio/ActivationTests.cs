@@ -58,7 +58,7 @@ public sealed class ActivationTests
             if (operation is not null) Marshal.ReleaseComObject(operation);
             AudioInterop.CoUninitialize();
         }
-        var directory = Path.Combine(@"D:\Soft Ware\LiveLingo\data\capture", "native-activation-failure-" + Guid.NewGuid().ToString("N"));
+        var directory = Path.Combine(Path.GetTempPath(), "native-activation-failure-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         File.WriteAllText(Path.Combine(directory, "result.json"), System.Text.Json.JsonSerializer.Serialize(new
         {

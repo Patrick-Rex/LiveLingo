@@ -1,6 +1,6 @@
 # LiveLingo.Desktop.Windows
 
-Windows 桌面组合根，连接 App、Runtime 和 Platform.Windows。发布包含固定 Python worker、必要校验模块、cu130 profile 和依赖锁，不包含模型权重。
+Windows 桌面组合根，连接 App、Runtime 和 Platform.Windows。发布包含固定 Python worker、必要校验模块、CPU、ROCm 与 CUDA 12.8/13.0 profile 及各自的依赖锁，不包含模型权重。
 
 控制窗提供实时翻译、历史记录、设置三个一级入口。主题默认跟随系统，也可选择浅色或深色；字幕使用独立深色背景。主题与字幕外观即时生效并串行自动保存，模型、语言、路径、保留期和快捷键停止后在设置页应用或撤销。未应用草稿不进入运行配置或自动保存，跨页面保留；数据目录切换只改变历史库位置，不迁移旧文件或设置文件。
 
@@ -14,7 +14,7 @@ DesktopSession 为实时应用采集启用相邻短段续接，持续语音或�
 
 OverlayBridge 负责 HWND、Screens、缩放与工作区位置。即时外观事件不重设位置、注册热键或重启模型；布局变化交给视图模型合并自动保存，退出时解除订阅。右上角小锁使用 40×40 DIP 从属窗口与同尺寸预留区，按钮具有无障碍名称与提示，正文避让它；锁定仅显示字幕和短字幕状态，解锁显示紧凑拖动、显示语言和字号工具。四边四角缩放、Ctrl+滚轮与回看保留，回到最新仅在回看时显示。原生策略保持正文穿透、锁图标独立命中及非激活，不使用轮询鼠标或全局钩子。
 
-设置默认位于非 C 盘 `data/settings.json`；可用 `--settings <绝对JSON路径>` 指定独立配置。显式 `--verify <新目录> --settings <独立JSON路径> --seconds 20` 用于合成窗口检查，附加 `--wave <PCM16 WAV>` 或 `--target <PID>` 才启动真实模型。验证历史固定写到 `<验证目录>.data/history`，即使测试修改 DataPath 也不会切回用户历史；合成样稿只在验证入口建立。诊断结果不进入 Git。
+新安装的设置默认位于 `%LOCALAPPDATA%\LiveLingoData\data\settings.json`；可用 `--settings <绝对JSON路径>` 指定独立配置。升级继续读取已有设置和自定义路径。显式 `--verify <新目录> --settings <独立JSON路径> --seconds 20` 用于合成窗口检查，附加 `--wave <PCM16 WAV>` 或 `--target <PID>` 才启动真实模型。验证历史固定写到 `<验证目录>.data/history`，即使测试修改 DataPath 也不会切回用户历史；合成样稿只在验证入口建立。诊断结果不进入 Git。
 
 验证模式使用 Avalonia 12 的 `PngBitmapEncoderOptions.Default` 保存 PNG，覆盖三一级页面和设置分类的浅深主题、默认及最小尺寸，以及字幕锁定／解锁的组合渲染图。`subtitle-controls.json` 核对按钮几何、样式和显隐，不等同于真实鼠标输入验收。原生脚本使用独立的 `<OutputDirectory>.settings.json`，不改用户设置；手动验证也应显式传入独立 `--settings` 路径。本轮已验证透明级别、原生样式、几何及退出；自动输入检查因无法激活自有接收器提前结束，跨进程点击穿透、实际拖动与多屏 DPI 尚不能记为通过。
 

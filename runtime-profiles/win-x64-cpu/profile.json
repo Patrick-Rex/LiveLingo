@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "win-x64-cpu",
+  "python": "3.13",
+  "torch": "2.10.0+cpu",
+  "cuda": "none",
+  "modelRevision": "7278e1e70fe206f11671096ffdd38061171dd6e5",
+  "lockSha256": "fe9c9b20f0dc9fbe78daa39ef1c4223930f7138d9e3001e4c43d4b63201a0af0",
+  "backend": "cpu"
+}

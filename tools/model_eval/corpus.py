@@ -1,6 +1,7 @@
 """Prepare disposable official listening assets with a verifiable deletion manifest."""
 
 import argparse
+import os
 import pathlib
 import urllib.request
 
@@ -33,7 +34,7 @@ def main():
     parser.add_argument("--source", choices=tuple(SOURCES), default="jlpt")
     args = parser.parse_args()
     output = new_output(args.output)
-    allowed = pathlib.Path(r"D:\Soft Ware\LiveLingo\data\evaluation\corpora").resolve()
+    allowed = (pathlib.Path(os.environ["LOCALAPPDATA"]) / "LiveLingoData" / "data" / "evaluation" / "corpora").resolve()
     if output.parent != allowed:
         output.rmdir()
         raise ValueError("Corpus must be a dedicated child of the evaluation corpora directory")

@@ -11,6 +11,10 @@ param(
     [ValidateSet('translategemma:4b', 'translategemma:12b')][string]$TranslationModel = 'translategemma:12b',
     [ValidateSet(0, 60, 120)][int]$AlignmentRecoverySeconds = 120,
     [switch]$PreserveObservedRepetitions,
+    [ValidateSet('win-x64-cpu','win-x64-rocm','win-x64-cu128','win-x64-cu130')][string]$RuntimeProfile = 'win-x64-cpu',
+    [string]$PythonPath = (Join-Path $env:LOCALAPPDATA "LiveLingoData\runtimes\$RuntimeProfile\Scripts\python.exe"),
+    [string]$Model = (Join-Path $env:LOCALAPPDATA 'LiveLingoData\models\Qwen3-ASR-1.7B-7278e1e'),
+    [string]$Ollama = (Join-Path $env:LOCALAPPDATA 'Programs\Ollama\ollama.exe'),
     [string]$OutputDirectory,
     [switch]$SkipBuild
 )
@@ -28,12 +32,10 @@ if (-not $SkipBuild) {
 }
 if (-not (Test-Path -LiteralPath $probePath -PathType Leaf)) { throw "Probe 不存在: $probePath" }
 if (-not $OutputDirectory) {
-    $OutputDirectory = Join-Path 'D:\Soft Ware\LiveLingo\data\evaluation' ('pipeline-' + $PSCmdlet.ParameterSetName.ToLowerInvariant() + '-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    $OutputDirectory = Join-Path (Join-Path $env:LOCALAPPDATA 'LiveLingoData\data\evaluation') ('pipeline-' + $PSCmdlet.ParameterSetName.ToLowerInvariant() + '-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
 }
-$profile = Join-Path $repository 'runtime-profiles\win-x64-cu130\profile.json'
-$model = 'D:\Soft Ware\LiveLingo\models\Qwen3-ASR-1.7B-7278e1e'
-$ollama = Join-Path $env:LOCALAPPDATA 'Programs\Ollama\ollama.exe'
-$arguments = @('--repository', $repository, '--profile', $profile, '--model', $model, '--ollama', $ollama,
+$profile = Join-Path $repository "runtime-profiles\$RuntimeProfile\profile.json"
+$arguments = @('--repository', $repository, '--profile', $profile, '--python', $PythonPath, '--model', $model, '--ollama', $ollama,
     '--output', $OutputDirectory, '--translation-model', $TranslationModel, '--alignment-recovery-seconds', $AlignmentRecoverySeconds.ToString())
 if ($PreserveObservedRepetitions) { $arguments += '--preserve-observed-repetitions' }
 if ($PSCmdlet.ParameterSetName -eq 'Capture') {
@@ -49,7 +51,7 @@ if ($PSCmdlet.ParameterSetName -eq 'Capture') {
     Write-Host '按真实音频时间回放；DurationSeconds=0 只播放文件一次，正数显式循环至指定时长。'
 }
 $arguments += @('--duration-seconds', $DurationSeconds.ToString())
-Write-Host "本次显式评测会在 D 盘保存原文、译文及版本；可在证据目录创建 stop.request 正常停止，交互终端也支持 Ctrl+C。证据目录: $OutputDirectory"
+Write-Host "本次显式评测会保存原文、译文及版本；可在证据目录创建 stop.request 正常停止，交互终端也支持 Ctrl+C。证据目录: $OutputDirectory"
 & $probePath $command @arguments
 $pipelineExit = $LASTEXITCODE
 Write-Host "PipelineExit=$pipelineExit；证据目录: $OutputDirectory"

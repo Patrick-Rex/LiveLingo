@@ -19,11 +19,11 @@ public sealed class AsrWorkerClientTests
         Assert.NotNull(root);
         OwnedWorkerConnection? owned = null;
         await using var manager = new AsrWorkerManager(epoch => owned = new OwnedWorkerConnection(
-            @"D:\Soft Ware\LiveLingo\runtimes\win-x64-cu130\Scripts\python.exe",
+            PythonFixture.Executable,
             ["-u", Path.Combine(root.FullName, "tests", "model_eval", "ipc_worker_fixture.py"), "expanded", epoch.ToString()],
             root.FullName, "worker-expanded-test"), new("test", "test", "test", "test", "test"),
             new() { AlignmentRecoverySamples = 1920000 });
-        using var cache = new ContinuousAudioStore(new FileAudioSpillStore(Path.Combine(@"D:\Soft Ware\LiveLingo\cache\tmp",
+        using var cache = new ContinuousAudioStore(new FileAudioSpillStore(Path.Combine(Path.GetTempPath(),
             "worker-expanded-" + Guid.NewGuid().ToString("N"))), 1920000, 0, 1920000);
         var samples = new float[16000]; Array.Fill(samples, 0.25f);
         for (var start = 0; start < 1920000; start += 16000) cache.Append(start, samples);
@@ -59,11 +59,11 @@ public sealed class AsrWorkerClientTests
         Assert.NotNull(root);
         OwnedWorkerConnection? owned = null;
         var manager = new AsrWorkerManager(epoch => owned = new OwnedWorkerConnection(
-            @"D:\Soft Ware\LiveLingo\runtimes\win-x64-cu130\Scripts\python.exe",
+            PythonFixture.Executable,
             ["-u", Path.Combine(root.FullName, "tests", "model_eval", "ipc_worker_fixture.py"), "slowaudio", epoch.ToString()],
             root.FullName, "worker-upload-deadline-test"), new("test", "test", "test", "test", "test"),
             new PipelineOptions { RequestTimeout = TimeSpan.FromMilliseconds(750) });
-        var directory = Path.Combine(@"D:\Soft Ware\LiveLingo\cache\tmp", "worker-deadline-" + Guid.NewGuid().ToString("N"));
+        var directory = Path.Combine(Path.GetTempPath(), "worker-deadline-" + Guid.NewGuid().ToString("N"));
         using var cache = new ContinuousAudioStore(new FileAudioSpillStore(directory), 480000, 0, 480000);
         for (var start = 0; start < 480000; start += 16000) cache.Append(start, new float[16000]);
         var identity = new PipelineIdentity(Guid.NewGuid(), 1, 1, 1);
@@ -90,12 +90,12 @@ public sealed class AsrWorkerClientTests
         while (root is not null && !File.Exists(Path.Combine(root.FullName, "LiveLingo.slnx"))) root = root.Parent;
         Assert.NotNull(root);
         var owned = new List<OwnedWorkerConnection>();
-        var directory = Path.Combine(@"D:\Soft Ware\LiveLingo\cache\tmp", "worker-replay-" + Guid.NewGuid().ToString("N"));
+        var directory = Path.Combine(Path.GetTempPath(), "worker-replay-" + Guid.NewGuid().ToString("N"));
         using var cache = new ContinuousAudioStore(new FileAudioSpillStore(directory), 64000, 64000, 48000);
         for (var start = 0; start < 64000; start += 16000) cache.Append(start, new float[16000]);
         var manager = new AsrWorkerManager(epoch =>
         {
-            var connection = new OwnedWorkerConnection(@"D:\Soft Ware\LiveLingo\runtimes\win-x64-cu130\Scripts\python.exe",
+            var connection = new OwnedWorkerConnection(PythonFixture.Executable,
                 ["-u", Path.Combine(root.FullName, "tests", "model_eval", "ipc_worker_fixture.py"), epoch == 1 ? "badidentity" : "replay", epoch.ToString()],
                 root.FullName, "worker-replay-test");
             owned.Add(connection); return connection;
@@ -137,8 +137,7 @@ public sealed class AsrWorkerClientTests
         var root = new DirectoryInfo(AppContext.BaseDirectory);
         while (root is not null && !File.Exists(Path.Combine(root.FullName, "LiveLingo.slnx"))) root = root.Parent;
         Assert.NotNull(root);
-        var python = @"D:\Soft Ware\LiveLingo\runtimes\win-x64-cu130\Scripts\python.exe";
-        Assert.True(File.Exists(python), "需要已准备的 cu130 Python；本测试不加载模型。");
+        var python = PythonFixture.Executable;
         await using var connection = new OwnedWorkerConnection(python,
             ["-u", Path.Combine(root.FullName, "tests", "model_eval", "ipc_worker_fixture.py"), mode], root.FullName, "ipc-fixture");
         var owned = connection.Process.Identity;

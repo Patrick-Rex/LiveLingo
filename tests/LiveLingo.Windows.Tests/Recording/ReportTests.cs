@@ -86,11 +86,11 @@ public sealed class ReportTests
         Assert.Throws<InvalidDataException>(() => ReportBuilder.Build(directory, 0, null, [], 0));
     }
 
-    /// <summary>创建 D 盘独立测试证据目录，不覆盖已有文件。</summary>
+    /// <summary>创建 独立测试证据目录，不覆盖已有文件。</summary>
     /// <returns>新建的绝对目录。</returns>
     private static string DirectoryPath()
     {
-        var path = Path.Combine(@"D:\Soft Ware\LiveLingo\data\tests", Guid.NewGuid().ToString("N"));
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(path);
         return path;
     }

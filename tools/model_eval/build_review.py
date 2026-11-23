@@ -5,7 +5,7 @@ import html
 import json
 import pathlib
 
-from common import non_system_path, sha256
+from common import local_path, sha256
 
 
 def main():
@@ -44,7 +44,7 @@ def main():
             parts.append('<tr><th>' + label + '</th>' + ''.join(cells) + '</tr>')
         parts.append(f'</table><p><small>音频 SHA-256：<code>{esc(item["inputSha256"])}</code></small></p></section>')
     parts.append('</html>')
-    output = non_system_path(args.output)
+    output = local_path(args.output)
     with output.open("x", encoding="utf-8", newline="\n") as target:
         target.write('\n'.join(parts) + '\n')
     print(output)

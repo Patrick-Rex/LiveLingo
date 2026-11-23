@@ -4,7 +4,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'Enter-ModelEvaluation.ps1')
-if (-not [IO.Path]::IsPathFullyQualified($OutputDirectory) -or $OutputDirectory.StartsWith('C:', [StringComparison]::OrdinalIgnoreCase) -or (Test-Path -LiteralPath $OutputDirectory)) { throw '需要非 C 盘的新证据目录。' }
+if ($OutputDirectory -notmatch '^[A-Za-z]:[\\/]' -or (Test-Path -LiteralPath $OutputDirectory)) { throw '请指定新的本机绝对证据目录。' }
 $Executable = (Resolve-Path -LiteralPath $Executable).Path
 $fixtureSettings = $OutputDirectory + '.settings.json'
 if (Test-Path -LiteralPath $fixtureSettings) { throw '测试设置文件必须是新的独占路径。' }

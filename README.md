@@ -23,20 +23,20 @@ M0–M4 首版里程碑已完成，项目进入持续迭代；当前能力与支
 | --- | --- |
 | 操作系统 | Windows 11 x64，build 22000 或更高 |
 | 应用运行时 | .NET 10.0 x64 Runtime，兼容各稳定补丁版本，建议使用最新维护版本 |
-| 本地识别（可选） | Python 3.13.2、独立 PyTorch 2.10.0+cu130 和 Qwen 权重；API 识别不要求 |
-| 本地识别 GPU | 支持该 CUDA 配置的 NVIDIA GPU；全 API 不要求 GPU 或驱动 |
+| 本地识别（可选） | 独立 Python 环境和 Qwen 权重，可从设置中按需安装 |
+| 本地识别 GPU | 默认使用 CPU；兼容的 AMD Radeon 可选 ROCm，NVIDIA 可选 CUDA 12.8 或 13.0 |
 | 翻译来源 | 本地 Ollama / TranslateGemma，或 OpenAI 兼容 API，二选一 |
-| 存储 | 非 C 盘的模型、环境、缓存及数据目录 |
+| 存储 | 任一本机可写盘，可自定义模型、环境、缓存和数据目录 |
 
-模型不随程序分发。12B 对系统内存也有较高要求；16GB 显存不意味着只需要16GB系统内存。其他硬件组合需要自行验证。
+模型按需下载。本地识别和翻译的速度取决于处理器与可用内存；可在设置中选择较小的 TranslateGemma 4B 或单独将某一阶段切换至 API。
 
 ## 安装与使用
 
 只需下载一个 [LiveLingo 安装程序](https://github.com/Patrick-Rex/LiveLingo/releases/latest/download/LiveLingo-win-x64-Setup.exe)，双击即可安装并打开程序。缺少 .NET 10 x64 Runtime 时，安装器提示并在线补齐；安装脚本和使用指南已包含在安装包内，不需要另行下载或输入命令。模型、Python 环境、Ollama、驱动和 .NET 均不打进程序包。
 
-首次安装默认使用 Windows 用户应用目录，从开始菜单启动。大型模型、隔离环境、缓存及数据仍使用非 C 盘；已有 D 盘托管安装可直接在程序内更新。旧 ZIP 迁移和高级安装位置说明见[用户指南](packaging/USER-GUIDE.md)。保留托管安装的 `packages`，后续差分还原需要当前完整包。
+首次安装默认使用 Windows 用户应用目录，从开始菜单启动。新装默认将资源放在当前用户的 %LOCALAPPDATA%\LiveLingoData，可在“设置 → 运行环境”更换路径。升级沿用已有设置和模型。旧 ZIP 迁移和高级安装位置说明见[用户指南](packaging/USER-GUIDE.md)。保留托管安装的 `packages`，后续差分还原需要当前完整包。
 
-在“设置 → 运行环境”分别选择识别与翻译来源。启动仅为所选本地来源从已配置路径、常用资源目录、PATH 和 OLLAMA_MODELS 搜索环境。在“设置 → 运行环境”点击缺项旁的“安装”，程序执行随包脚本并显示结果，结束后自动复检。驱动按钮打开厂商下载入口。安装中可取消；已有不兼容模型会报错，不自动覆盖。资源位置需要调整时，使用高级路径配置。
+在“设置 → 运行环境”分别选择识别与翻译来源。启动仅为所选本地来源从已配置路径、常用资源目录、PATH 和 OLLAMA_MODELS 搜索环境。在“设置 → 运行环境”点击缺项旁的“安装”，程序执行随包脚本并显示结果，结束后自动复检。选择 GPU 加速时，安装相应厂商的兼容驱动。安装中可取消；已有不兼容模型会报错，不自动覆盖。资源位置需要调整时，使用高级路径配置。
 
 发现新版本后，主窗口和“设置 → 常规”均提供“下载并更新”。停止翻译并应用或撤销设置后，点击一次即可下载、清理退出、安装并自动重启，优先使用差分。未点击时只提示；失败或取消不会退出，之前下载完但未应用的版本显示“安装并重启”。更新保留应用目录之外的模型、设置与历史。
 
@@ -67,7 +67,7 @@ M0–M4 首版里程碑已完成，项目进入持续迭代；当前能力与支
 ```powershell
 dotnet restore LiveLingo.slnx --locked-mode
 dotnet build LiveLingo.slnx -c Release --no-restore --disable-build-servers -clp:ErrorsOnly
-# 存储测试需要非 C 盘临时目录；先按 tests/README.md 设置 TEMP/TMP。
+# 存储测试使用本机临时目录。
 dotnet test --solution LiveLingo.slnx -c Release --no-build --no-progress
 ./scripts/New-LiveLingoRelease.ps1 -Version 0.2.8 -DownloadPrevious
 ```

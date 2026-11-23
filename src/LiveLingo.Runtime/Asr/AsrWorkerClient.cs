@@ -275,7 +275,9 @@ public sealed class AsrWorkerClient : IAsyncDisposable
     /// <param name="actual">worker 实际报告。</param>
     private void ValidateInformation(WorkerInformation actual)
     {
-        if (actual.Python != expected.Python || actual.Torch != expected.Torch || actual.Cuda != expected.Cuda ||
+        var matchesPython = actual.Python == expected.Python || Version.TryParse(expected.Python, out var required) && required.Build == -1 &&
+            Version.TryParse(actual.Python, out var installed) && installed.Major == required.Major && installed.Minor == required.Minor;
+        if (!matchesPython || actual.Torch != expected.Torch || actual.Cuda != expected.Cuda ||
             actual.ModelRevision != expected.ModelRevision || string.IsNullOrWhiteSpace(actual.Device) || expected.Device.Length != 0 && actual.Device != expected.Device)
             throw new InvalidDataException("worker_profile_mismatch");
     }

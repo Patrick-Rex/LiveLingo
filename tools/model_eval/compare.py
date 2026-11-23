@@ -71,23 +71,23 @@ def main():
     sampler = GpuSampler()
     with (output / "service.log").open("xb") as log:
         try:
-            profile = load_profile(args.profile)
+            profile = load_profile(args.profile, sys.executable)
             import torch
-            if torch.__version__ != profile["torch"] or torch.version.cuda != profile["cuda"]:
-                raise ValueError("Wrong torch/CUDA build")
+            from workers.qwen_asr.inference import QwenInference, read_audio, select_device
+            device = select_device(torch, profile)
             verify_model(args.model)
-            from workers.qwen_asr.inference import QwenInference, read_audio
             audio = read_audio(args.audio)
             report.update(profile=profile, inputSha256=sha256(args.audio))
-            sampler.thread.start()
-            engine = QwenInference(args.model)
+            if profile["backend"] == "cuda":
+                sampler.thread.start()
+            engine = QwenInference(args.model, device=device)
             report["asrWarmup"] = engine.recognize(audio)
             with socket.socket() as reservation:
                 reservation.bind(("127.0.0.1", 0))
                 port = reservation.getsockname()[1]
             endpoint = f"http://127.0.0.1:{port}"
             environment = os.environ.copy()
-            environment.update(OLLAMA_HOST=f"127.0.0.1:{port}", OLLAMA_MODELS=r"D:\Soft Ware\Ollama",
+            environment.update(OLLAMA_HOST=f"127.0.0.1:{port}",
                                OLLAMA_CONTEXT_LENGTH="4096", OLLAMA_NUM_PARALLEL="1", OLLAMA_MAX_LOADED_MODELS="1")
             service = subprocess.Popen([args.ollama, "serve"], env=environment, stdout=log, stderr=log,
                                        creationflags=subprocess.CREATE_NO_WINDOW)
@@ -123,7 +123,8 @@ def main():
                         entry["complete"] = entry["asr"]["complete"] and entry["translation"]["complete"]
                     except Exception as error:
                         entry.update(complete=False, error={"type": type(error).__name__, "message": str(error)})
-                        torch.cuda.empty_cache()
+                        if device != "cpu":
+                            torch.cuda.empty_cache()
                     entry["elapsedSeconds"] = time.perf_counter() - started
                     entry["placementAfter"] = api(endpoint, "/api/ps")
                     entry["sampleEndTime"] = time.monotonic()

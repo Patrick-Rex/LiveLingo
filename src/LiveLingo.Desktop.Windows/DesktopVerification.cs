@@ -17,7 +17,7 @@ using LiveLingo.Runtime.Pipeline;
 
 namespace LiveLingo.Desktop.Windows;
 
-/// <summary>显式且有界的桌面验证模式；仅在独占非 C 盘目录保存正文和窗口证据。</summary>
+/// <summary>显式且有界的桌面验证模式；仅在独占本地目录保存正文和窗口证据。</summary>
 public sealed class DesktopVerification
 {
     private readonly string directory;
@@ -46,7 +46,7 @@ public sealed class DesktopVerification
             if (index + 1 >= arguments.Length || arguments[index] is not ("--verify" or "--seconds" or "--wave" or "--target") || !options.TryAdd(arguments[index], arguments[index + 1]))
                 throw new ArgumentException("验证参数无效。");
         }
-        directory = options.GetValueOrDefault("--verify") ?? throw new ArgumentException("需要 --verify 非 C 盘新目录。");
+        directory = options.GetValueOrDefault("--verify") ?? throw new ArgumentException("需要 --verify 本地新目录。");
         DesktopSettings.ValidateDataPath(directory);
         seconds = double.Parse(options.GetValueOrDefault("--seconds", "20"), System.Globalization.CultureInfo.InvariantCulture);
         if (!double.IsFinite(seconds) || seconds is < 5 or > 7500) throw new ArgumentException("验证时长须为 5–7500 秒。");

@@ -11,7 +11,7 @@ using LiveLingo.Core.Subtitles;
 namespace LiveLingo.Runtime.Storage;
 
 /// <summary>在数据根下按会话和采集代次保存字幕，所有文件操作串行且不阻塞采集回调。</summary>
-/// <param name="dataPath">已经提交的非 C 盘应用数据根。</param><param name="timeProvider">保留期和结束时间来源。</param>
+/// <param name="dataPath">已经提交的本地应用数据根。</param><param name="timeProvider">保留期和结束时间来源。</param>
 public sealed class JsonTranslationHistoryStore(string dataPath, TimeProvider? timeProvider = null) : ITranslationHistoryStore
 {
     private readonly string root = GetRoot(dataPath);

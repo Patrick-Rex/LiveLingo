@@ -8,7 +8,8 @@
 
 ```powershell
 . ./scripts/Enter-ModelEvaluation.ps1
-& 'D:\Soft Ware\LiveLingo\runtimes\win-x64-cu130\Scripts\python.exe' tools/model_eval/prepare_model.py --output 'D:\Soft Ware\LiveLingo\models\Qwen3-ASR-1.7B-7278e1e'
+$resourceRoot = Join-Path $env:LOCALAPPDATA 'LiveLingoData'
+& (Join-Path $resourceRoot 'runtimes\win-x64-cpu\Scripts\python.exe') tools/model_eval/prepare_model.py --output (Join-Path $resourceRoot 'models\Qwen3-ASR-1.7B-7278e1e')
 ```
 
 下载固定 revision，保存逐文件哈希；完整模型目录拒绝覆盖。桌面复用 common.py、prepare_model.py 和 download.py 校验资产。
@@ -26,7 +27,7 @@
 | corpus.py / quality.py | 显式语料准备与参考文本对比 |
 | audit_pipeline.py | 已有流水线记录的版本、积压和资源一致性分析 |
 
-用对应脚本的 `--help` 查看输入参数。模型评测应由 [Probe 的 model-eval](../LiveLingo.Probe/README.md) 监管，以回收本次子进程。输出使用新的非 C 盘目录；不要把退出码或规则检查通过等同于语义正确。
+用对应脚本的 `--help` 查看输入参数。模型评测应由 [Probe 的 model-eval](../LiveLingo.Probe/README.md) 监管，以回收本次子进程。输出使用新的本机目录；不要把退出码或规则检查通过等同于语义正确。
 
 默认翻译使用官方单 user 提示，保持完整原文，关闭质量重试；其他提示、保守重复检查及重试选项仅供显式实验。
 

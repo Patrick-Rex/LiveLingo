@@ -6,13 +6,9 @@
 
 ## .NET
 
-从仓库根运行。存储及桌面历史测试会用系统临时目录创建运行数据，仍要求非 C 本地盘；先将下面示例路径换成本机可写的非 C 盘目录。设置仅影响当前终端及子进程，不改变 NuGet 缓存位置：
+从仓库根运行。存储及桌面历史测试在当前临时目录中创建独立数据。
 
 ```powershell
-$testTemp = 'D:\LiveLingo-tests\tmp'
-New-Item -ItemType Directory -Path $testTemp -Force | Out-Null
-$env:TEMP = $testTemp
-$env:TMP = $testTemp
 dotnet restore LiveLingo.slnx --locked-mode
 dotnet build LiveLingo.slnx -c Release --no-restore --disable-build-servers -clp:ErrorsOnly
 dotnet test --solution LiveLingo.slnx -c Release --no-build --no-progress
@@ -42,27 +38,29 @@ SubtitlePipelineTests 使用缩小的积压上限验证直播取消旧调用、�
 
 Runtime Storage 测试覆盖旧设置默认值、历史同代次替换与撤销、真实重复、跨采集代次保留、异常中断、部分保存、存储失败重试、删除后不复活、固定导出和保留期边界。Windows DesktopHistoryTests 验证跨宿主重启、旧记录器固定目录、验证根隔离、旧失败不被新会话成功遮蔽、删除旧失败后保留后续失败、自动清理及退出冲刷。
 
+Windows 的协议进程夹具使用 PATH 中的 Python 3，也可设置 LIVELINGO_TEST_PYTHON 指定解释器。
+
 ## Python 与设备
 
 ```powershell
 . ./scripts/Enter-ModelEvaluation.ps1
 $env:LIVELINGO_TEST_PROBE = (Resolve-Path tools/LiveLingo.Probe/bin/Release/net10.0-windows10.0.26100.0/LiveLingo.Probe.exe).Path
-& 'D:\Soft Ware\LiveLingo\runtimes\win-x64-cu130\Scripts\python.exe' -m unittest discover -s tests/model_eval -v
+& (Join-Path $env:LOCALAPPDATA 'LiveLingoData\runtimes\win-x64-cpu\Scripts\python.exe') -m unittest discover -s tests/model_eval -v
 ```
 
 未准备所需解释器或 Probe 时不能将跳过的检查计为通过。音频夹具见 [生成说明](Fixtures/Audio/README.md)，模型准备见 [运行配置](../runtime-profiles/README.md)。
 
-原生窗口检查使用 `scripts/Test-DesktopNative.ps1`，设置及退出检查使用 `scripts/Test-DesktopSettings.ps1`；两者要求 `-Executable` 和新的非 C 盘 `-OutputDirectory`。原生脚本使用独立的 `<OutputDirectory>.settings.json`，设置脚本使用输出目录中的设置文件，均不更改用户配置；验证历史位于 `<OutputDirectory>.data/history`。原生窗口脚本设计覆盖拖动、四边四角缩放、Ctrl+滚轮与恢复穿透，移动位置读取实际拖动区中心。验证模式输出三一级页面和设置分类的明暗主题、默认及最小尺寸截图。
+原生窗口检查使用 `scripts/Test-DesktopNative.ps1`，设置及退出检查使用 `scripts/Test-DesktopSettings.ps1`；两者要求 `-Executable` 和新的本地 `-OutputDirectory`。原生脚本使用独立的 `<OutputDirectory>.settings.json`，设置脚本使用输出目录中的设置文件，均不更改用户配置；验证历史位于 `<OutputDirectory>.data/history`。原生窗口脚本设计覆盖拖动、四边四角缩放、Ctrl+滚轮与恢复穿透，移动位置读取实际拖动区中心。验证模式输出三一级页面和设置分类的明暗主题、默认及最小尺寸截图。
 
 本轮已通过透明级别、原生样式、按钮几何和退出检查；自动输入检查因无法激活自有接收器提前结束，不能据此声称跨进程点击穿透、实际拖动或焦点验收通过。GPU、设备拔插、100%/150%/200% DPI 与物理多屏仍需单独验证。
 
 ## 安装包
 
 ```powershell
-./scripts/Test-LiveLingoPackage.ps1 -Archive './artifacts/packages/LiveLingo-0.1.1-win-x64.zip' -TemporaryRoot 'D:\Soft Ware\LiveLingo\cache\tmp'
+./scripts/Test-LiveLingoPackage.ps1 -Archive './artifacts/packages/LiveLingo-0.1.1-win-x64.zip' -TemporaryRoot $env:TEMP
 ```
 
-示例版本及临时根按本机实际位置修改。`-TemporaryRoot` 必须在可写的非 C 本地盘（省略时使用当前 `TEMP`），因为本项验证正式安装的非 C 盘约束；普通构建和打包没有此限制。脚本在独立临时目录验证完整性、错误包拒绝、首次安装、显式升级和设置保留，完成后清理本次临时目录；不替换正式安装，也不证明 GPU 或窗口交互通过。构建、备份、正式替换和回退见 [打包说明](../docs/packaging.md)。
+示例版本及临时根按本机实际位置修改。`-TemporaryRoot` 使用本机可写目录，省略时使用当前 `TEMP`。脚本在独立临时目录验证完整性、错误包拒绝、首次安装、显式升级和设置保留，完成后清理本次临时目录；不替换正式安装，也不证明 GPU 或窗口交互通过。构建、备份、正式替换和回退见 [打包说明](../docs/packaging.md)。
 
 ## 安装引导与增量更新
 

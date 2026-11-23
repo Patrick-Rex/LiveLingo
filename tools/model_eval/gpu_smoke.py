@@ -1,6 +1,7 @@
 """Exercise real FP32/BF16 CUDA kernels without loading a speech model."""
 
 import argparse
+import sys
 import importlib.metadata
 import time
 
@@ -17,7 +18,7 @@ def main():
     report = {"schemaVersion": 1, "kind": "real-cuda-smoke", "startedUtc": utc_now(), "passed": False}
     try:
         configure_cache()
-        profile = load_profile(args.profile)
+        profile = load_profile(args.profile, sys.executable)
         import torch
         report["profile"] = profile
         report["packages"] = {name: importlib.metadata.version(name) for name in

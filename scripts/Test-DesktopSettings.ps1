@@ -1,7 +1,7 @@
 param([Parameter(Mandatory)][string]$Executable, [Parameter(Mandatory)][string]$OutputDirectory)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'Enter-ModelEvaluation.ps1')
-if (-not [IO.Path]::IsPathFullyQualified($OutputDirectory) -or $OutputDirectory.StartsWith('C:', [StringComparison]::OrdinalIgnoreCase) -or (Test-Path -LiteralPath $OutputDirectory)) { throw '需要非 C 盘的新证据目录。' }
+if ($OutputDirectory -notmatch '^[A-Za-z]:[\\/]' -or (Test-Path -LiteralPath $OutputDirectory)) { throw '请指定新的本机绝对证据目录。' }
 New-Item -ItemType Directory -Path $OutputDirectory | Out-Null
 $settings = Join-Path $OutputDirectory 'settings.json'
 $Executable = (Resolve-Path -LiteralPath $Executable).Path
@@ -54,7 +54,7 @@ $restarted = Invoke-DesktopCase 'restarted' 'none'
 $corrupt = Invoke-DesktopCase 'corrupt' 'none'
 $corruptPreserved = [IO.File]::ReadAllText($settings) -eq '{broken'
 $invalid = $original | ConvertFrom-Json
-$invalid.PythonPath = 'D:\LiveLingo-missing-fixture\python.exe'
+$invalid.PythonPath = (Join-Path $OutputDirectory 'LiveLingo-missing-fixture\python.exe')
 [IO.File]::WriteAllText($settings, ($invalid | ConvertTo-Json -Depth 8))
 $missing = Invoke-DesktopCase 'missing' 'missing'
 [IO.File]::WriteAllText($settings, $original)

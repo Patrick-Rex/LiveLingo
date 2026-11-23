@@ -31,9 +31,14 @@ public sealed record DesktopSettings
     /// <param name="historyRetentionDays">历史保留天数；零表示永久保留。</param>
     /// <param name="asrApi">可选识别 API 配置；旧文件未提供时使用空模型配置。</param>
     /// <param name="translationApi">可选翻译 API 配置；旧文件未提供时使用空模型配置。</param>
+    /// <param name="runtimeProfile">本地推理配置；旧文件有解释器但无配置标识时沿用 cu130。</param>
+    /// <param name="pythonPath">保存的隔离解释器路径；新配置使用所选 profile 的用户目录。</param>
     [JsonConstructor]
-    public DesktopSettings(int historyRetentionDays = 30, OpenAiApiSettings? asrApi = null, OpenAiApiSettings? translationApi = null)
+    public DesktopSettings(int historyRetentionDays = 30, OpenAiApiSettings? asrApi = null, OpenAiApiSettings? translationApi = null,
+        string? runtimeProfile = null, string? pythonPath = null)
     {
+        RuntimeProfile = runtimeProfile ?? (pythonPath is null ? "win-x64-cpu" : "win-x64-cu130");
+        PythonPath = pythonPath ?? GetManagedInterpreter(RuntimeProfile);
         HistoryRetentionDays = historyRetentionDays;
         AsrApi = asrApi ?? new(); TranslationApi = translationApi ?? new();
     }
@@ -59,18 +64,23 @@ public sealed record DesktopSettings
     public string TranslationModel { get; init; } = "translategemma:12b";
     /// <summary>获取识别语言策略。</summary>
     public string AsrLanguage { get; init; } = "auto";
+    /// <summary>获取每用户的资源根，独立于可更新或卸载的程序目录。</summary>
+    public static string ResourceRoot => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "LiveLingoData");
+    /// <summary>获取选中的本地推理配置标识。</summary>
+    public string RuntimeProfile { get; init; }
     /// <summary>获取已有的隔离解释器路径。</summary>
-    public string PythonPath { get; init; } = @"D:\Soft Ware\LiveLingo\runtimes\win-x64-cu130\Scripts\python.exe";
+    public string PythonPath { get; init; }
     /// <summary>获取固定 Qwen 权重目录。</summary>
-    public string ModelPath { get; init; } = @"D:\Soft Ware\LiveLingo\models\Qwen3-ASR-1.7B-7278e1e";
-    /// <summary>获取已有 Ollama 安装路径，允许位于 C 盘。</summary>
+    public string ModelPath { get; init; } = Path.Combine(ResourceRoot, "models", "Qwen3-ASR-1.7B-7278e1e");
+    /// <summary>获取已有 Ollama 安装路径。</summary>
     public string OllamaPath { get; init; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Ollama", "ollama.exe");
     /// <summary>获取既有翻译权重根目录。</summary>
-    public string OllamaModelsPath { get; init; } = @"D:\Soft Ware\Ollama";
+    public string OllamaModelsPath { get; init; } = Environment.GetEnvironmentVariable("OLLAMA_MODELS") is { Length: > 0 } models && IsLocalAbsolutePath(models)
+        ? models : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".ollama", "models");
     /// <summary>获取音频溢写和应用数据根目录。</summary>
-    public string DataPath { get; init; } = @"D:\Soft Ware\LiveLingo\data";
+    public string DataPath { get; init; } = Path.Combine(ResourceRoot, "data");
     /// <summary>获取子进程大型缓存根目录。</summary>
-    public string CachePath { get; init; } = @"D:\Soft Ware\LiveLingo\cache";
+    public string CachePath { get; init; } = Path.Combine(ResourceRoot, "cache");
     /// <summary>获取字幕左上角物理像素横坐标。</summary>
     public int OverlayX { get; init; } = 160;
     /// <summary>获取字幕左上角物理像素纵坐标。</summary>
@@ -98,6 +108,7 @@ public sealed record DesktopSettings
     {
         if (SchemaVersion != 1 || AsrLanguage is not ("auto" or "Japanese") || !Enum.IsDefined(AsrBackend) || !Enum.IsDefined(TranslationBackend))
             throw new ArgumentException("设置版本、模型或语言不受支持。");
+        if (!IsSupportedRuntime(RuntimeProfile)) throw new ArgumentException("本地识别运行配置不受支持。");
         if (!Enum.IsDefined(DisplayMode)) throw new ArgumentException("字幕显示模式不受支持。");
         if (!Enum.IsDefined(Theme)) throw new ArgumentException("界面主题不受支持。");
         if (HistoryRetentionDays is not (0 or 7 or 30 or 90)) throw new ArgumentException("历史保留期须为永久、7、30 或 90 天。");
@@ -109,7 +120,7 @@ public sealed record DesktopSettings
         {
             if (TranslationModel is not ("translategemma:4b" or "translategemma:12b")) throw new ArgumentException("本地翻译模型不受支持。");
             ValidateDataPath(OllamaModelsPath);
-            if (string.IsNullOrWhiteSpace(OllamaPath) || !Path.IsPathFullyQualified(OllamaPath)) throw new ArgumentException("Ollama 需要绝对路径。");
+            ValidateDataPath(OllamaPath);
         }
         else (TranslationApi ?? throw new ArgumentException("缺少翻译 API 配置。")).Validate();
         if (!double.IsFinite(OverlayWidth) || OverlayWidth is < 320 or > 3840 || !double.IsFinite(OverlayHeight) || OverlayHeight is < 120 or > 2160 ||
@@ -119,12 +130,27 @@ public sealed record DesktopSettings
         if (keys.Any(x => x is < 1 or > 11) || keys.Distinct().Count() != 3) throw new ArgumentException("快捷键须选择三个不同的 Ctrl+Alt+F1–F11；F12 由系统保留。");
     }
 
-    /// <summary>校验新增资源仅使用非 C 盘本地绝对路径。</summary><param name="path">待使用的路径。</param>
-    /// <exception cref="ArgumentException">路径不是非 C 盘本地路径。</exception>
+    /// <summary>判断配置名是否对应随程序分发的本地识别环境。</summary>
+    /// <param name="profile">用户选择或从文件读取的 profile 标识。</param><returns>是否为支持的标识。</returns>
+    public static bool IsSupportedRuntime(string profile) => profile is "win-x64-cpu" or "win-x64-rocm" or "win-x64-cu128" or "win-x64-cu130";
+
+    /// <summary>返回配置专属的用户解释器路径，让不同推理包并存。</summary>
+    /// <param name="profile">支持的隔离配置标识。</param><returns>托管虚拟环境的 Python 绝对路径。</returns>
+    /// <exception cref="ArgumentException">配置标识不受支持。</exception>
+    public static string GetManagedInterpreter(string profile) => IsSupportedRuntime(profile)
+        ? Path.Combine(ResourceRoot, "runtimes", profile, "Scripts", "python.exe")
+        : throw new ArgumentException("本地识别运行配置不受支持。", nameof(profile));
+
+    /// <summary>判断路径是否可用于本地资源，排除相对、设备及网络路径。</summary>
+    /// <param name="path">待检查位置。</param><returns>是否为本地绝对路径。</returns>
+    public static bool IsLocalAbsolutePath(string path) => !string.IsNullOrWhiteSpace(path) && Path.IsPathFullyQualified(path) &&
+        (!OperatingSystem.IsWindows() || Path.GetPathRoot(path) is { Length: 3 } root && char.IsAsciiLetter(root[0]) && root[1] == ':') &&
+        path.IndexOfAny(Path.GetInvalidPathChars()) < 0;
+
+    /// <summary>校验资源使用本地绝对路径。</summary><param name="path">待使用的路径。</param>
+    /// <exception cref="ArgumentException">路径不是本地绝对路径。</exception>
     public static void ValidateDataPath(string path)
     {
-        if (string.IsNullOrWhiteSpace(path) || !Path.IsPathFullyQualified(path) || path.StartsWith(@"\\", StringComparison.Ordinal) ||
-            Path.GetPathRoot(Path.GetFullPath(path))?.Equals(@"C:\", StringComparison.OrdinalIgnoreCase) == true)
-            throw new ArgumentException("模型、隔离环境及数据缓存需要非 C 盘本地绝对路径。");
+        if (!IsLocalAbsolutePath(path)) throw new ArgumentException("模型、隔离环境及数据缓存需要本地绝对路径。");
     }
 }

@@ -1,9 +1,9 @@
 $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 $cleanupScript = Join-Path $repoRoot 'scripts/Remove-EvaluationCorpus.ps1'
-$parent = 'D:\Soft Ware\LiveLingo\data\evaluation\corpora'
+$parent = Join-Path $env:LOCALAPPDATA 'LiveLingoData\data\evaluation\corpora'
 $directory = Join-Path $parent ('cleanup-test-' + [Guid]::NewGuid().ToString('N'))
-New-Item -ItemType Directory -Path $directory | Out-Null
+New-Item -ItemType Directory -Path $directory -Force | Out-Null
 $asset = Join-Path $directory 'owned.txt'
 [IO.File]::WriteAllText($asset, 'original')
 $manifest = @{ schemaVersion=1; kind='disposable-evaluation-corpus'; root=$directory; files=@(@{path='owned.txt'; sha256=(Get-FileHash -LiteralPath $asset).Hash.ToLowerInvariant()}) }

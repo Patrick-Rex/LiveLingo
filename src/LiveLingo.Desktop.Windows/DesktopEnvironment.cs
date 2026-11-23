@@ -3,6 +3,8 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using LiveLingo.Core.Desktop;
+using LiveLingo.Runtime.Asr;
+using LiveLingo.Platform.Windows.Processes;
 
 namespace LiveLingo.Desktop.Windows;
 
@@ -17,18 +19,33 @@ public sealed partial class DesktopEnvironment(string contentRoot) : IDesktopEnv
         cancellationToken.ThrowIfCancellationRequested();
         if (settings.AsrBackend == ModelBackend.Local && results[0].Ready)
         {
-            results[0] = (await ProbeAsync("Python 推理环境", settings.PythonPath,
-                ["-I", "-c", "import platform,importlib.metadata as m; assert platform.python_version()=='3.13.2'; assert m.version('torch')=='2.10.0+cu130'; assert m.version('qwen-asr')=='0.0.6'; print('Python 3.13.2 / PyTorch 2.10.0+cu130 / qwen-asr 0.0.6')"],
-                cancellationToken).ConfigureAwait(false)) with { Component = DependencyComponent.Runtime };
+            WorkerInformation? expected = null;
+            var manifest = Inspect("识别运行配置", () => expected = ReadRuntimeProfile(contentRoot, settings.RuntimeProfile));
+            results[0] = manifest.Ready ? (await ProbeAsync("Python 推理环境", settings.PythonPath,
+                ["-I", "-c", """
+                import platform, sys, importlib.metadata as m
+                python, torch = sys.argv[1:]
+                if platform.python_version_tuple()[:2] != tuple(python.split(".")) or m.version("torch") != torch or m.version("qwen-asr") != "0.0.6":
+                    sys.exit("Python / PyTorch / qwen-asr 版本与所选配置不匹配。")
+                print(f"Python {platform.python_version()} / PyTorch {torch} / qwen-asr 0.0.6")
+                """, expected!.Python, expected.Torch], cancellationToken).ConfigureAwait(false)) with { Component = DependencyComponent.Runtime }
+                : manifest;
         }
-        if (settings.AsrBackend != ModelBackend.Local) return results;
-        var smi = Path.Combine(Environment.SystemDirectory, "nvidia-smi.exe");
-        if (!File.Exists(smi)) smi = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "NVIDIA Corporation", "NVSMI", "nvidia-smi.exe");
-        var driver = await ProbeAsync("NVIDIA 驱动", smi, ["--query-gpu=driver_version", "--format=csv,noheader"], cancellationToken).ConfigureAwait(false);
-        if (driver.Ready && (string.IsNullOrWhiteSpace(driver.Message) || !driver.Message.Split('\n', StringSplitOptions.RemoveEmptyEntries).All(x => Version.TryParse(x.Trim(), out var version) && version.Major >= 580)))
-            driver = new("NVIDIA 驱动", false, "CUDA 13.x 需要 r580 或更新驱动；请运行依赖脚本的 Driver 入口。");
-        results.Add(driver with { Component = DependencyComponent.Driver });
         return results;
+    }
+
+    /// <summary>读取所选本地识别配置，构造初检与工作进程握手共同使用的运行时标识。</summary>
+    /// <param name="contentRoot">发布内容目录。</param><param name="profile">允许的运行配置标识。</param>
+    /// <returns>需要匹配的 Python、PyTorch、加速运行库和模型版本。</returns>
+    /// <exception cref="ArgumentException">不支持请求的运行配置。</exception>
+    internal static WorkerInformation ReadRuntimeProfile(string contentRoot, string profile)
+    {
+        if (!DesktopSettings.IsSupportedRuntime(profile)) throw new ArgumentException("不支持的识别运行配置。", nameof(profile));
+        using var document = ReadManifest(Path.Combine(contentRoot, "runtime-profiles", profile, "profile.json"));
+        var data = document.RootElement;
+        if (data.GetProperty("id").GetString() != profile) throw new InvalidDataException("识别运行配置标识不匹配。");
+        return new(data.GetProperty("python").GetString()!, data.GetProperty("torch").GetString()!,
+            data.GetProperty("cuda").GetString()!, data.GetProperty("modelRevision").GetString()!, "");
     }
 
     /// <summary>检查文件、模型身份和资产尺寸，不读取大型权重正文。</summary>
@@ -38,7 +55,10 @@ public sealed partial class DesktopEnvironment(string contentRoot) : IDesktopEnv
         var results = new List<EnvironmentCheck>();
         if (settings.AsrBackend == ModelBackend.Local)
         {
-            results.Add(new("Python 推理环境", File.Exists(settings.PythonPath), File.Exists(settings.PythonPath) ? "已找到解释器，继续检查环境版本。" : "未找到兼容的隔离环境，点击安装准备 Python 和推理依赖。", DependencyComponent.Runtime));
+            var interpreter = File.Exists(settings.PythonPath)
+                ? Inspect("Python 推理环境", () => PythonRuntime.ValidateForOwnedProcess(settings.PythonPath))
+                : new EnvironmentCheck("Python 推理环境", false, "未找到隔离环境，点击安装准备 Python 和推理依赖。");
+            results.Add(interpreter with { Component = DependencyComponent.Runtime });
             results.Add(Inspect("Qwen 模型", () => CheckQwen(settings.ModelPath)) with { Component = DependencyComponent.QwenModel });
         }
         else results.Add(CheckApi("识别 API", settings.AsrApi));

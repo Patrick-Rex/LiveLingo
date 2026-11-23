@@ -119,6 +119,42 @@ public sealed class EnvironmentCheckTests
         Assert.Equal(settings, await environment.DiscoverAsync(settings, TestContext.Current.CancellationToken));
     }
 
+    /// <summary>本地识别按所选清单校验握手信息，缺解释器时也不额外要求 NVIDIA。</summary>
+    /// <param name="profile">桌面可选的本地环境。</param><param name="runtime">握手协议的加速运行库标识。</param>
+    /// <returns>随包运行配置与环境初检验证任务。</returns>
+    [Theory]
+    [InlineData("win-x64-cpu", "none")]
+    [InlineData("win-x64-rocm", "rocm")]
+    [InlineData("win-x64-cu128", "12.8")]
+    [InlineData("win-x64-cu130", "13.0")]
+    public async Task LocalChecksUseSelectedProfileWithoutGlobalDriverRequirement(string profile, string runtime)
+    {
+        var expected = DesktopEnvironment.ReadRuntimeProfile(AppContext.BaseDirectory, profile);
+        Assert.Equal(runtime, expected.Cuda);
+        var environment = new DesktopEnvironment(AppContext.BaseDirectory);
+        var settings = new DesktopSettings(runtimeProfile: profile) { PythonPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".exe") };
+        var checks = await environment.CheckAsync(settings, TestContext.Current.CancellationToken);
+        Assert.Contains(checks, x => x.Component == DependencyComponent.Runtime && !x.Ready);
+        Assert.DoesNotContain(checks, x => x.Component == DependencyComponent.Driver);
+    }
+
+    /// <summary>自选虚拟环境使用商店基础 Python 时，初检在启动解释器前给出可修复的错误。</summary>
+    [Fact]
+    public void StoreBasedVenvIsRejectedBeforeLaunchingPython()
+    {
+        var root = Directory.CreateTempSubdirectory().FullName;
+        try
+        {
+            var python = Path.Combine(Directory.CreateDirectory(Path.Combine(root, "Scripts")).FullName, "python.exe");
+            File.WriteAllText(python, "");
+            var store = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Microsoft", "WindowsApps", "PythonSoftwareFoundation.Python.3.13");
+            File.WriteAllText(Path.Combine(root, "pyvenv.cfg"), "home = " + store);
+            var check = DesktopEnvironment.CheckFiles(new() { PythonPath = python }).Single(x => x.Component == DependencyComponent.Runtime);
+            Assert.False(check.Ready); Assert.Contains("Microsoft Store Python", check.Message);
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
     /// <summary>取消启动检测时不继续探测驱动或解释器。</summary><returns>取消验证任务。</returns>
     [Fact]
     public async Task CanceledCheckDoesNotStartProbes()

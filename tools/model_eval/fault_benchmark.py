@@ -28,7 +28,7 @@ def main():
         import numpy as np
         import torch
         from workers.qwen_asr.inference import QwenInference, read_audio
-        profile = load_profile(args.profile)
+        profile = load_profile(args.profile, sys.executable)
         if torch.__version__ != profile["torch"] or torch.version.cuda != profile["cuda"]:
             raise ValueError("Wrong torch/CUDA build")
         report.update(profile=profile, inputSha256=sha256(args.audio))

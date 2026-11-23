@@ -91,7 +91,7 @@ public sealed class LocalPipelineModels : IPipelineModels
         try { return await (workflow ?? throw new InvalidOperationException("models_not_ready")).RunAsync(input, cancellationToken).ConfigureAwait(false); }
         catch
         {
-            // HTTP 结束不能证明服务端 CUDA 已停止；先回收私有服务，再释放管道计算许可。
+            // HTTP 结束不能证明服务端推理已停止；先回收私有服务，再释放管道计算许可。
             if (ollama is not null) await ollama.TerminateAsync().ConfigureAwait(false);
             throw;
         }

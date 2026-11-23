@@ -5,8 +5,8 @@ import os
 import pathlib
 import subprocess
 import sys
+import tempfile
 import unittest
-import uuid
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 
@@ -17,8 +17,8 @@ class SupervisorChecks(unittest.TestCase):
 
     def run_fixture(self, wait, timeout, expected):
         """Run one isolated tree, preserving its evidence even when an assertion fails."""
-        base = pathlib.Path(r"D:\Soft Ware\LiveLingo\data\evaluation")
-        name = "supervisor-test-" + uuid.uuid4().hex
+        base = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        name = "supervisor-test"
         request_path = base / (name + "-request.json")
         child_file = base / (name + "-child.json")
         request = {"Executable": sys.executable, "Arguments": [str(ROOT / "tests/model_eval/owned_process_fixture.py"),

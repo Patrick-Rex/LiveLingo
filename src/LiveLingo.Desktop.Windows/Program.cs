@@ -16,11 +16,11 @@ internal static class Program
     {
         Velopack.VelopackApp.Build().SetAutoApplyOnStartup(false).Run();
         var restartArguments = args.ToArray();
-        var settingsPath = @"D:\Soft Ware\LiveLingo\data\settings.json";
+        var settingsPath = Path.Combine(DesktopSettings.ResourceRoot, "data", "settings.json");
         var settingsIndex = Array.IndexOf(args, "--settings");
         if (settingsIndex >= 0)
         {
-            if (settingsIndex + 1 >= args.Length || Array.LastIndexOf(args, "--settings") != settingsIndex) throw new ArgumentException("--settings 需要唯一的非 C 盘文件路径。");
+            if (settingsIndex + 1 >= args.Length || Array.LastIndexOf(args, "--settings") != settingsIndex) throw new ArgumentException("--settings 需要唯一的本地绝对文件路径。");
             settingsPath = args[settingsIndex + 1];
             args = args.Take(settingsIndex).Concat(args.Skip(settingsIndex + 2)).ToArray();
         }
@@ -30,9 +30,8 @@ internal static class Program
         string? verificationData = null;
         if (verifyIndex >= 0)
         {
-            if (verifyIndex + 1 >= args.Length || !Path.IsPathFullyQualified(args[verifyIndex + 1]) ||
-                args[verifyIndex + 1].StartsWith("C:", StringComparison.OrdinalIgnoreCase))
-                throw new ArgumentException("验证需要非 C 盘的绝对路径。");
+            if (verifyIndex + 1 >= args.Length || !DesktopSettings.IsLocalAbsolutePath(args[verifyIndex + 1]))
+                throw new ArgumentException("验证需要本地绝对路径。");
             verificationData = args[verifyIndex + 1] + ".data";
         }
         var history = new DesktopHistory(verificationData);
@@ -41,7 +40,7 @@ internal static class Program
         builder.Services.AddSingleton<IDesktopEnvironment>(new DesktopEnvironment(AppContext.BaseDirectory));
         builder.Services.AddSingleton(new DesktopSession(AppContext.BaseDirectory, history));
         builder.Services.AddSingleton<IDesktopSession>(services => services.GetRequiredService<DesktopSession>());
-        builder.Services.AddSingleton<IDesktopSettingsStore>(new DesktopSettingsStore(settingsPath));
+        builder.Services.AddSingleton<IDesktopSettingsStore>(new DesktopSettingsStore(settingsPath, legacyPath: settingsIndex < 0 ? @"D:\Soft Ware\LiveLingo\data\settings.json" : null));
         using var host = builder.Build();
         return AppBuilder.Configure(() => new DesktopApplication(host, args, restartArguments)).UsePlatformDetect().StartWithClassicDesktopLifetime(args);
     }

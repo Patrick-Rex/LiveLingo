@@ -52,6 +52,25 @@ public sealed class DesktopBehaviorTests
         Assert.Equal(90, store.Writes.Last().HistoryRetentionDays); Assert.Equal(DesktopTheme.Light, store.Writes.Last().Theme);
     }
 
+    /// <summary>切换本地识别设备预选独立环境，自选解释器经应用后可恢复。</summary><returns>实际编辑与保存验证任务。</returns>
+    [Fact]
+    public async Task RuntimeSelectionUsesIsolatedInterpreterAndPreservesCustomPath()
+    {
+        var store = new FakeStore();
+        var vm = new DesktopViewModel(new FakeSession(), store, action => action()); await vm.InitializeAsync();
+        Assert.Equal(DesktopSettings.GetManagedInterpreter("win-x64-cpu"), vm.PythonPath);
+        vm.RuntimeProfileIndex = 1;
+        Assert.True(vm.HasPendingSettings);
+        Assert.Equal(DesktopSettings.GetManagedInterpreter("win-x64-rocm"), vm.PythonPath);
+        var custom = Path.Combine(Path.GetTempPath(), "custom ROCm", "Scripts", "python.exe");
+        vm.PythonPath = custom;
+        await vm.SaveCommand.ExecuteAsync(null);
+        var saved = Assert.Single(store.Writes); Assert.Equal("win-x64-rocm", saved.RuntimeProfile); Assert.Equal(custom, saved.PythonPath);
+        vm.RuntimeProfileIndex = 3; vm.RevertSettingsCommand.Execute(null);
+        Assert.Equal(1, vm.RuntimeProfileIndex); Assert.Equal(custom, vm.PythonPath); Assert.False(vm.HasPendingSettings);
+        await vm.CloseAsync();
+    }
+
     /// <summary>运行中的字幕保存失败独立显示，重试成功不改变会话状态。</summary><returns>失败反馈与重试检查任务。</returns>
     [Fact]
     public async Task AppearanceSaveFailureCanBeRetriedWithoutStoppingSession()
@@ -363,7 +382,9 @@ public sealed class DesktopBehaviorTests
     [Fact]
     public void RejectsInvalidSettings()
     {
-        Assert.Throws<ArgumentException>(() => (new DesktopSettings() with { CachePath = @"C:\bad" }).Validate());
+        (new DesktopSettings() with { CachePath = @"C:\local cache" }).Validate();
+        Assert.Throws<ArgumentException>(() => (new DesktopSettings() with { CachePath = @"\\server\share" }).Validate());
+        Assert.Throws<ArgumentException>(() => (new DesktopSettings() with { CachePath = "relative" }).Validate());
         Assert.Throws<ArgumentException>(() => (new DesktopSettings() with { FontSize = double.NaN }).Validate());
         Assert.Throws<ArgumentException>(() => (new DesktopSettings() with { StartKey = 8 }).Validate());
         Assert.Throws<ArgumentException>(() => (new DesktopSettings() with { Theme = (DesktopTheme)99 }).Validate());

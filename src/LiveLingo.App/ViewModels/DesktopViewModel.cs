@@ -38,6 +38,22 @@ public sealed partial class DesktopViewModel : ObservableObject
     public event Action<DesktopSettings>? AppearanceChanged;
     /// <summary>获取用户可选择的明确模型标签。</summary>
     public string[] Models { get; } = ["translategemma:12b", "translategemma:4b"];
+    private static readonly string[] RuntimeProfileIds = ["win-x64-cpu", "win-x64-rocm", "win-x64-cu128", "win-x64-cu130"];
+    /// <summary>获取可选的本地识别设备和对应运行库。</summary>
+    public string[] RuntimeProfileLabels { get; } = ["CPU（通用）", "AMD Radeon（ROCm）", "NVIDIA（CUDA 12.8）", "NVIDIA（CUDA 13.0）"];
+    /// <summary>获取或设置设备选择；切换时为不同的推理包选择独立环境。</summary>
+    public int RuntimeProfileIndex
+    {
+        get => Array.IndexOf(RuntimeProfileIds, runtimeProfile);
+        set
+        {
+            if (!CanEdit || value < 0 || value >= RuntimeProfileIds.Length || runtimeProfile == RuntimeProfileIds[value]) return;
+            runtimeProfile = RuntimeProfileIds[value];
+            PythonPath = runtimeProfile == settings.RuntimeProfile ? settings.PythonPath : DesktopSettings.GetManagedInterpreter(runtimeProfile);
+            OnPropertyChanged();
+        }
+    }
+    private string runtimeProfile = "win-x64-cpu";
     /// <summary>获取已验证的识别语言策略。</summary>
     public string[] Languages { get; } = ["auto", "Japanese"];
     /// <summary>获取与字幕显示模式数值顺序一致的本地化选项。</summary>
@@ -327,6 +343,7 @@ public sealed partial class DesktopViewModel : ObservableObject
     private void LoadRuntimeInputs()
     {
         LoadModelInputs(settings);
+        runtimeProfile = settings.RuntimeProfile; OnPropertyChanged(nameof(RuntimeProfileIndex));
         PythonPath = settings.PythonPath; ModelPath = settings.ModelPath; OllamaPath = settings.OllamaPath;
         OllamaModelsPath = settings.OllamaModelsPath; DataPath = settings.DataPath; CachePath = settings.CachePath;
         StartKey = settings.StartKey; VisibilityKey = settings.VisibilityKey; LayoutKey = settings.LayoutKey;
@@ -337,7 +354,7 @@ public sealed partial class DesktopViewModel : ObservableObject
     protected override void OnPropertyChanged(PropertyChangedEventArgs e)
     {
         base.OnPropertyChanged(e);
-        if (e.PropertyName is nameof(AsrBackendIndex) or nameof(TranslationBackendIndex) or nameof(AsrApiBaseUrl) or nameof(AsrApiModel) or nameof(AsrApiKey) or
+        if (e.PropertyName is nameof(RuntimeProfileIndex) or nameof(AsrBackendIndex) or nameof(TranslationBackendIndex) or nameof(AsrApiBaseUrl) or nameof(AsrApiModel) or nameof(AsrApiKey) or
             nameof(TranslationApiBaseUrl) or nameof(TranslationApiModel) or nameof(TranslationApiKey) or nameof(ModelJsonError) or nameof(TranslationModel) or nameof(AsrLanguage) or nameof(PythonPath) or nameof(ModelPath) or
             nameof(OllamaPath) or nameof(OllamaModelsPath) or nameof(DataPath) or nameof(CachePath) or nameof(StartKey) or nameof(VisibilityKey) or nameof(LayoutKey) or nameof(HistoryRetentionDays))
         {
@@ -585,7 +602,7 @@ public sealed partial class DesktopViewModel : ObservableObject
     /// <summary>将编辑输入和最近布局组合为本次不可变设置。</summary><returns>完整设置。</returns>
     private DesktopSettings ReadSettings() => settings with
     {
-        AsrBackend = (ModelBackend)AsrBackendIndex, TranslationBackend = (ModelBackend)TranslationBackendIndex,
+        RuntimeProfile = runtimeProfile, AsrBackend = (ModelBackend)AsrBackendIndex, TranslationBackend = (ModelBackend)TranslationBackendIndex,
         AsrApi = new() { BaseUrl = AsrApiBaseUrl, Model = AsrApiModel, ApiKey = AsrApiKey },
         TranslationApi = new() { BaseUrl = TranslationApiBaseUrl, Model = TranslationApiModel, ApiKey = TranslationApiKey },
         TranslationModel = TranslationModel, AsrLanguage = AsrLanguage, PythonPath = PythonPath, ModelPath = ModelPath,

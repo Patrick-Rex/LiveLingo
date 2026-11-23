@@ -6,7 +6,7 @@ Windows 11 x64 实时日语转简体中文字幕，识别和翻译分别选择�
 
 下载 [LiveLingo-win-x64-Setup.exe](https://github.com/Patrick-Rex/LiveLingo/releases/latest/download/LiveLingo-win-x64-Setup.exe)，双击后自动安装程序本体并启动。缺少 .NET 10 x64 Runtime 时安装器会提示并在线安装，已有兼容运行时直接复用。无需另行下载脚本、清单或 nupkg；Release 的其他附件由更新程序使用。
 
-首次双击 Setup.exe 使用用户本地应用目录。高级用户可用 `Setup.exe --installto "D:\Soft Ware\LiveLingo\app\LiveLingo"` 指定程序目录。Velopack 管理安装根内的 `current`、`packages` 和 `Update.exe`，从开始菜单或安装根的稳定启动程序打开，不手工改动 `current`。程序文件允许使用安装器的用户目录；模型、Python 隔离环境和大型缓存仍须非 C 盘。
+首次双击 Setup.exe 使用用户本地应用目录。高级用户可用 `Setup.exe --installto "<本机安装目录>"` 指定程序目录。Velopack 管理安装根内的 `current`、`packages` 和 `Update.exe`，从开始菜单或安装根的稳定启动程序打开，不手工改动 `current`。程序文件与模型、环境、缓存和数据可分开存放，只有一个系统盘也可以安装。
 
 每次普通启动后台检查稳定更新，断网失败不影响本地翻译。发现版本后，主窗口或“设置 → 常规”点击一次“下载并更新”，即可下载并自动退出安装、重启。操作前须停止翻译并应用或撤销设置，下载期间暂停开始翻译和编辑运行配置；失败或取消不触发退出。重新启动时不会擅自安装上次留下的包，可点击“安装并重启”继续。退出先清理模型、保存与宿主，再交给更新器；差分不可用或还原失败时回退完整包。
 
@@ -19,13 +19,13 @@ Windows 11 x64 实时日语转简体中文字幕，识别和翻译分别选择�
 ## 旧 ZIP 安装与更新
 
 1. 安装 [.NET 10.0 x64 Runtime](https://dotnet.microsoft.com/download/dotnet/10.0)，兼容各稳定补丁版本，建议使用最新维护版本。运行程序无需 SDK。
-2. 将 ZIP 解压到非 C 盘的临时目录，且不要解压到目标 `app` 目录内。可用 `Get-FileHash <ZIP路径> -Algorithm SHA256` 对照随包 `.sha256` 文件检查传输完整性。
+2. 将 ZIP 解压到本机临时目录，且不要解压到目标 `app` 目录内。可用 `Get-FileHash <ZIP路径> -Algorithm SHA256` 对照随包 `.sha256` 文件检查传输完整性。
 3. 先关闭 LiveLingo；升级前按下节备份旧程序、设置和旧 ZIP。在解压目录打开 64 位 PowerShell 5.1 或 7，先运行 `./Install.ps1 -VerifyOnly`；首次安装运行 `./Install.ps1`，升级已有安装运行 `./Install.ps1 -ReplaceExisting`。脚本校验全部应用文件，复制并复核后切换目录，清理上一份程序。用户设置、模型、环境和数据位于应用目录外，不受替换影响。
-4. 双击 `D:\Soft Ware\LiveLingo\app\desktop\LiveLingo.Desktop.Windows.exe`。按“安装后的核对”确认文件及运行正常后可以删除解压目录，保留 ZIP 用于重装。
+4. 双击 `%LOCALAPPDATA%\LiveLingoData\app\desktop\LiveLingo.Desktop.Windows.exe`。按“安装后的核对”确认文件及运行正常后可以删除解压目录，保留 ZIP 用于重装。
 
 本节仅适用于旧 ZIP + PowerShell 安装包，该布局不支持程序内增量更新，也不创建注册表卸载项。未修改 PowerShell 执行策略；组织策略禁止运行时，请由管理员按其策略处理。SHA-256 清单用于完整性检查，不代替可信来源或数字签名。
 
-`./Install.ps1 -VerifyOnly` 只验证包。`-ApplicationRoot 'E:\LiveLingo\app'` 可改变程序安装位置，末级仍须为 `app`，程序目录恒为 `desktop`。当前依赖准备脚本默认使用以下 D 盘布局；改变程序安装位置不会迁移模型或设置。
+`./Install.ps1 -VerifyOnly` 只验证包。`-ApplicationRoot 'E:\LiveLingo\app'` 可改变程序安装位置，末级仍须为 `app`，程序目录恒为 `desktop`。新安装默认使用当前用户的资源目录；改变程序安装位置不会迁移模型或设置。
 
 安装失败若提示 `.desktop-install` / `.desktop-backup` 残留，请先检查目录；不要直接反复安装。`.desktop-backup` 为事务中的上一份应用，模型和设置不在其中；成功安装后该目录会被删除。脚本不会自动清除未知的旧事务目录。
 
@@ -34,21 +34,21 @@ Windows 11 x64 实时日语转简体中文字幕，识别和翻译分别选择�
 安装器在切换失败时尝试恢复旧程序；替换成功后会删除 app 下的 .desktop-backup。要在新版本运行异常时回退，升级前须保留上一份已验证 ZIP 和 .sha256，并在程序关闭后备份设置。默认设置路径如下，使用 --settings 时改成实际路径：
 
 ```powershell
-$settingsPath = 'D:\Soft Ware\LiveLingo\data\settings.json'
-$backupDirectory = Join-Path 'D:\Soft Ware\LiveLingo\backups' ((Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [guid]::NewGuid().ToString('N'))
+$settingsPath = Join-Path $env:LOCALAPPDATA 'LiveLingoData\data\settings.json'
+$backupDirectory = Join-Path (Join-Path $env:LOCALAPPDATA 'LiveLingoData\backups') ((Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $backupDirectory | Out-Null
 if (Test-Path -LiteralPath $settingsPath) {
     Copy-Item -LiteralPath $settingsPath -Destination (Join-Path $backupDirectory 'settings.json')
 }
 # 没有可用旧 ZIP 时，另存当前完整程序；自定义安装位置需改为实际路径。
-$desktopDirectory = 'D:\Soft Ware\LiveLingo\app\desktop'
+$desktopDirectory = Join-Path $env:LOCALAPPDATA 'LiveLingoData\app\desktop'
 if (Test-Path -LiteralPath $desktopDirectory) {
     Copy-Item -LiteralPath $desktopDirectory -Destination (Join-Path $backupDirectory 'desktop') -Recurse
 }
 Write-Output "RollbackBackup=$backupDirectory"
 ```
 
-运行备份前先关闭程序，确认副本完整后再替换。models、runtimes、cache、data 及共享 Ollama 权重不在替换范围；已有依赖通常可以继续使用。需要保留翻译记录时，也备份当前数据目录下的 `history` 文件夹；默认是 `D:\Soft Ware\LiveLingo\data\history`。上面的设置备份不会自动包含历史正文。
+运行备份前先关闭程序，确认副本完整后再替换。models、runtimes、cache、data 及共享 Ollama 权重不在替换范围；已有依赖通常可以继续使用。需要保留翻译记录时，也备份当前数据目录下的 `history` 文件夹；新安装默认是 `%LOCALAPPDATA%\LiveLingoData\data\history`。上面的设置备份不会自动包含历史正文。
 
 回退时关闭新程序，校验并解压旧 ZIP，在旧包目录运行 `./Install.ps1 -ReplaceExisting`；自定义安装须传入同一个 ApplicationRoot。安装器允许降级，但不回退用户设置。若旧版不兼容新设置，在应用完全退出后保留当前设置副本，再恢复升级前备份；恢复会丢失备份之后的设置变化。
 
@@ -63,7 +63,7 @@ Write-Output "RollbackBackup=$backupDirectory"
 需要确认已替换到刚解压的版本时，在包目录运行；自定义 ApplicationRoot 请修改第一行：
 
 ```powershell
-$installedDirectory = 'D:\Soft Ware\LiveLingo\app\desktop'
+$installedDirectory = Join-Path $env:LOCALAPPDATA 'LiveLingoData\app\desktop'
 $manifest = Get-Content -LiteralPath './manifest.json' -Raw | ConvertFrom-Json
 foreach ($entry in $manifest.files) {
     $installedFile = Join-Path $installedDirectory $entry.path
@@ -110,9 +110,9 @@ API 识别通过 `/audio/transcriptions` 发送有界 WAV 窗口，API 翻译通
 
 ## 首次准备依赖
 
-先在“设置 → 运行环境”分别选择识别与翻译来源。本地识别检查 Python、Qwen 与 NVIDIA r580+；本地翻译检查 Ollama 与所选 TranslateGemma。API 来源只检查配置，不要求对应本地组件；全 API 无需 Python、CUDA、Ollama 或本地权重。检测不启动模型服务；初检通过不等于 GPU 推理已通过，正式开始仍执行完整校验。
+先在“设置 → 运行环境”分别选择识别与翻译来源。本地识别默认使用 CPU，可在此选择 AMD ROCm 或 NVIDIA CUDA，并点击“应用设置”。每种配置有自己的 Python 环境，各配置共用 Qwen 权重。本地翻译使用 Ollama 与所选 TranslateGemma，Ollama 独立选择其支持的硬件。API 来源只检查配置，不要求对应本地组件；全 API 无需 Python、CUDA、Ollama 或本地权重。检测不启动模型服务；初检通过不等于 GPU 推理已通过，正式开始仍执行完整校验。
 
-启动会搜索已配置路径、常用非 C 盘资源目录、PATH、VIRTUAL_ENV 与 OLLAMA_MODELS，找到兼容环境时在空闲且没有设置草稿的情况下复用缺失路径。已有文件和不兼容资产不会被覆盖。缺少的组件旁显示“安装”，点击即可执行包内脚本，界面显示输出，完成后自动重新检查；无需打开终端。先安装对应运行环境再安装模型。驱动通过“打开驱动下载”使用厂商安装程序。
+启动会搜索已配置路径、当前用户资源目录、PATH、VIRTUAL_ENV 与 OLLAMA_MODELS，找到兼容环境时在空闲且没有设置草稿的情况下复用缺失路径。已有文件和不兼容资产不会被覆盖。缺少的组件旁显示“安装”，点击即可执行包内脚本，界面显示输出，完成后自动重新检查；无需打开终端。先安装对应运行环境再安装模型。需要 GPU 驱动时可使用下方 Driver 命令打开所选厂商的下载页面。
 
 关闭或取消会停止本次安装脚本；未完成可复检后重试。脚本执行策略仅对本次 PowerShell 进程生效，不修改系统配置，也不能覆盖组织策略。已有模型指纹不匹配时保留原文件并显示原因。
 
@@ -129,44 +129,17 @@ API 识别通过 `/audio/transcriptions` 发送有界 WAV 窗口，API 翻译通
 ./Install-LiveLingoDependencies.ps1 -Component Models
 ```
 
-Driver 打开 NVIDIA 官方驱动页面，由厂商安装器完成匹配与安装，要求 r580 或更新驱动；按提示重启后再准备 Runtime。Runtime 使用 Python 3.13.2、uv 和固定哈希锁并运行一次 CUDA 运算；可用 `-BasePython '实际路径'` 复用准确版本，已有其他 Python 版本不会被自动降级。Models 仅为所选本地来源准备固定 Qwen revision 或当前选择的 TranslateGemma，复用已验证资产、允许恢复未完成的 Qwen 下载；已有翻译模型指纹不符时停止，不覆盖或绕过校验。下载期间只运行脚本自己的临时 Ollama 服务，结束后回收，不停止已有服务。
+| 本地识别选项 | 适用设备 | 隔离环境 |
+| --- | --- | --- |
+| CPU（新安装默认） | 使用处理器，适合先试用或没有兼容 GPU 的电脑 | Python 3.13，CPU 版 PyTorch |
+| AMD ROCm | AMD Windows ROCm 7.2.1 兼容表所列显卡，需要匹配的 AMD 驱动 | Python 3.12，AMD 版 PyTorch |
+| NVIDIA CUDA 12.8 / 13.0 | 支持对应 CUDA 构建的 NVIDIA 显卡及驱动 | Python 3.13，所选 CUDA 版 PyTorch |
 
-脚本默认读取 `D:\Soft Ware\LiveLingo\data\settings.json`，可传 `-SettingsPath '实际设置路径'`；不会改写设置。自定义路径先在程序中应用，再运行脚本。脚本联网安装只在明确指定组件时发生；winget 安装可能需要系统权限和软件许可确认。下列手动步骤继续可用。
+AMD 的型号、驱动和操作系统要求见 [Windows 兼容表](https://rocm.docs.amd.com/projects/radeon-ryzen/en/docs-7.2.1/docs/compatibility/compatibilityrad/windows/windows_compatibility.html)。型号未列入或显存不足时，可在设置中选择 CPU。仅用 API 可以跳过上述所有环境。CUDA 运行库由对应的 PyTorch 包提供，无需单独安装系统 CUDA Toolkit。
 
+在运行环境列表点击“安装”后，程序用 uv 准备独立的 Python 并执行一次所选设备的张量运算。首次安装会按需下载所选主次版本的解释器。自选解释器可使用 python.org 的 Windows x64 版本；Microsoft Store 的 Python 启动器会影响模型子进程退出回收。随后点击缺失模型旁的“安装”，准备 Qwen 固定版本和所选本地翻译模型。下载可能较大，可先在高级路径配置中选择有足够空间的磁盘。推理速度因设备和模型而异。
 
-以下手动步骤仅适用于所选本地阶段：本地识别执行 1–2，本地翻译执行 3，再统一执行 4。已有环境和模型可以复用，无需重新下载。新增的大文件全部放非 C 盘。当前主要面向 RTX 5080 16GB；12B 同时需要充足系统内存，不能只按显存容量估算。
-
-1. 安装 Python 3.13.2 x64、uv 和支持 CUDA 13.0 的 NVIDIA 驱动。使用 PyTorch 自带 CUDA wheel，无需另装完整 CUDA Toolkit。Python 官方下载：https://www.python.org/downloads/release/python-3132/ ，uv：https://docs.astral.sh/uv/getting-started/installation/ 。
-2. 在安装后的 `desktop` 目录运行，替换本机基础 Python 路径：
-
-```powershell
-. ./scripts/Enter-ModelEvaluation.ps1
-./scripts/Initialize-ModelRuntime.ps1 -Profile win-x64-cu130 -BasePython 'C:\你的Python安装路径\python.exe'
-& 'D:\Soft Ware\LiveLingo\runtimes\win-x64-cu130\Scripts\python.exe' -c "import torch; x=torch.ones(256, device='cuda'); print(torch.__version__, torch.cuda.get_device_name(), (x+x).sum().item())"
-& 'D:\Soft Ware\LiveLingo\runtimes\win-x64-cu130\Scripts\python.exe' ./tools/model_eval/prepare_model.py --output 'D:\Soft Ware\LiveLingo\models\Qwen3-ASR-1.7B-7278e1e'
-```
-
-环境按哈希锁安装，CUDA 运算必须实际成功。Qwen 下载固定 revision `7278e1e70fe206f11671096ffdd38061171dd6e5`，已有模型目录拒绝覆盖。缓存脚本只影响当前终端，不修改全局环境。
-
-3. 安装 Ollama：https://ollama.com/download/windows 。准备 TranslateGemma 12B（默认）和可选 4B。若尚未准备模型，在一个独立 PowerShell 窗口运行私有服务：
-
-```powershell
-$env:OLLAMA_HOST = '127.0.0.1:11435'
-$env:OLLAMA_MODELS = 'D:\Soft Ware\Ollama'
-ollama serve
-```
-
-在另一个 PowerShell 窗口显式下载：
-
-```powershell
-$env:OLLAMA_HOST = '127.0.0.1:11435'
-ollama pull translategemma:12b
-ollama pull translategemma:4b
-```
-
-下载完成后，在刚才的私有服务窗口按 Ctrl+C 退出，不停止用户原先运行的服务。固定模型标签的上游内容可能更新；应用会校验既定模型指纹，指纹不一致时应按源码运行配置核对版本，不跳过校验。
-
-4. 打开 LiveLingo，进入“设置 → 运行环境”，选择模型和识别语言；展开“高级路径配置”，填写或浏览选择所选本地阶段的 Python、Qwen、Ollama 路径及共享数据和缓存路径。点击“检查路径”查看文件或目录是否存在，再点击底部“应用设置”。应用只运行已经准备的资产，不自动下载或更换模型；路径检查不替代开始翻译时的模型完整性验证。
+新安装的模型、运行环境、缓存和数据默认位于当前用户的 `%LOCALAPPDATA%\LiveLingoData`。Ollama 权重优先使用 OLLAMA_MODELS 指定的位置，否则使用用户目录下的 .ollama/models。升级首次读取旧设置文件，再次保存写入新设置位置，模型与已有历史继续使用原路径。高级安装脚本可以用 -SettingsPath 指定已应用的设置，或用 -BasePython 指定与所选环境版本匹配的解释器。
 
 ## 日常使用
 
@@ -192,11 +165,11 @@ ollama pull translategemma:4b
 
 主题与字幕外观即时生效并自动保存，翻译运行时也可修改。模型、语言、路径、快捷键和保留期须停止翻译后，在设置页底部点击“应用设置”；点击“撤销”放弃尚未应用的输入，不撤销即时外观。切换页面保留草稿；未应用时实时页提供设置入口，开始翻译前必须先应用或撤销。外观自动保存不会顺带保存这些草稿。
 
-默认设置为 `D:\Soft Ware\LiveLingo\data\settings.json`。设置损坏时显示错误并保留原文件，同时暂停自动保存；停止后明确点击“应用设置”才会替换原文件并恢复自动保存。外观自动保存失败可在常规或字幕外观分组重试，退出前会补存末次调整。可以用 `--settings <非C盘绝对JSON路径>` 选择独立设置。更改数据目录会切换历史库，不会搬迁旧记录、模型或设置文件；历史页底部显示当前历史位置。
+新装的默认设置为 `%LOCALAPPDATA%\LiveLingoData\data\settings.json`。设置损坏时显示错误并保留原文件，同时暂停自动保存；停止后明确点击“应用设置”才会替换原文件并恢复自动保存。外观自动保存失败可在常规或字幕外观分组重试，退出前会补存末次调整。可以用 `--settings <本机绝对JSON路径>` 选择独立设置。更改数据目录会切换历史库，不会搬迁旧记录、模型或设置文件；历史页底部显示当前历史位置。
 
 ## 历史记录
 
-每次开始至停止形成一场本地会话，双语正文保存于当前数据目录的 `history` 子目录；默认是 `D:\Soft Ware\LiveLingo\data\history`。记录保留语义块的最新有效版本，不按相同文字合并真实重复；旧档案仍可阅读。历史文件包含原文和译文，常规运行日志不因此记录字幕正文。
+每次开始至停止形成一场本地会话，双语正文保存于当前数据目录的 `history` 子目录；新安装默认是 `%LOCALAPPDATA%\LiveLingoData\data\history`。记录保留语义块的最新有效版本，不按相同文字合并真实重复；旧档案仍可阅读。历史文件包含原文和译文，常规运行日志不因此记录字幕正文。
 
 - 按应用名称查找会话；选中会话后，可以搜索本场原文和译文，分页阅读正文。
 - 若直播中待识别的声音已积压 10 分钟，程序保留此前已识别的原文和已返回的译文，从下一包新音频重新计时。恢复期间继续接收新声音，模型就绪后处理缓存内的音频。主窗状态和同一场历史会标出未识别时段的起止秒数，秒数相对该采集片段。之后正常停止，历史仍显示“已结束”，缺口提示保留。

@@ -1,6 +1,6 @@
 # M1 受控双音源
 
-使用本机 FFmpeg 生成 44100Hz、stereo、PCM16、10 秒可循环音源：目标 440Hz，独立音源 997Hz，sine 后使用 volume=0.2。运行 `./tests/Fixtures/Audio/Generate.ps1`，默认保存到非 C 盘 `D:\Soft Ware\LiveLingo\data\fixtures\m1-tones-v1`，拒绝覆盖，记录 FFmpeg 版本和每个 WAV 的 SHA-256。
+使用本机 FFmpeg 生成 44100Hz、stereo、PCM16、10 秒可循环音源：目标 440Hz，独立音源 997Hz，sine 后使用 volume=0.2。运行 `./tests/Fixtures/Audio/Generate.ps1`，默认保存到`%LOCALAPPDATA%\LiveLingoData\data\fixtures\m1-tones-v1`，拒绝覆盖，记录 FFmpeg 版本和每个 WAV 的 SHA-256。
 
 `target.html` 在 Edge 内播放 440Hz；独立音源由明确自有的 ProcessFixture 播放。频谱核验可证明选定范围的音调隔离，不能替代真实日语内容、设备恢复或两小时代表性播放。
 
@@ -15,7 +15,7 @@ python ./tests/Fixtures/Audio/verify_tones.py '<实录 WAV 绝对路径>' --outp
 多标签页夹具使用新目录生成，保留旧双音源输入：
 
 ```powershell
-./tests/Fixtures/Audio/Generate.ps1 -Output 'D:\Soft Ware\LiveLingo\data\fixtures\unique-scope-tones' -IncludeSecondTab
+./tests/Fixtures/Audio/Generate.ps1 -Output (Join-Path $env:TEMP 'unique-scope-tones') -IncludeSecondTab
 ```
 
 新增 `second.wav` / `second.html` 为 660Hz，与原 440Hz 和独立 997Hz 一起写入该目录 manifest。`scope-check` 或 `field-scope-check` 保存六个四秒阶段的操作时钟及双路录音。验证使用：

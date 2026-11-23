@@ -33,28 +33,28 @@ def main():
     sampler = GpuSampler()
     with (output / "service.log").open("xb") as log:
         try:
-            profile = load_profile(args.profile)
+            profile = load_profile(args.profile, sys.executable)
             import torch
-            if torch.__version__ != profile["torch"] or torch.version.cuda != profile["cuda"] or not torch.cuda.is_available():
-                raise ValueError("Wrong or unavailable CUDA profile")
+            from workers.qwen_asr.inference import QwenInference, read_audio, select_device
+            device = select_device(torch, profile)
             manifest = verify_model(args.model)
-            from workers.qwen_asr.inference import QwenInference, read_audio
             audio = read_audio(args.audio, 120)
             if len(audio) != 120 * 16000:
                 raise ValueError("Prepare exactly 120 seconds; no implicit padding or truncation")
             report.update(profile=profile, modelRevision=manifest["revision"], inputSha256=sha256(args.audio),
                           inputPath=str(pathlib.Path(args.audio).resolve()), language="auto",
                           policy="explicit trailing windows sharing the same endpoint; not semantic segmentation")
-            sampler.thread.start()
+            if profile["backend"] == "cuda":
+                sampler.thread.start()
             started = time.perf_counter()
-            engine = QwenInference(args.model, max_window_seconds=120)
+            engine = QwenInference(args.model, max_window_seconds=120, device=device)
             report["asrLoadSeconds"] = time.perf_counter() - started
             with socket.socket() as reservation:
                 reservation.bind(("127.0.0.1", 0))
                 port = reservation.getsockname()[1]
             endpoint = f"http://127.0.0.1:{port}"
             environment = os.environ.copy()
-            environment.update(OLLAMA_HOST=f"127.0.0.1:{port}", OLLAMA_MODELS=r"D:\Soft Ware\Ollama",
+            environment.update(OLLAMA_HOST=f"127.0.0.1:{port}",
                                OLLAMA_CONTEXT_LENGTH="4096", OLLAMA_NUM_PARALLEL="1", OLLAMA_MAX_LOADED_MODELS="1")
             service = subprocess.Popen([args.ollama, "serve"], env=environment, stdout=log, stderr=log,
                                        creationflags=subprocess.CREATE_NO_WINDOW)
@@ -88,7 +88,8 @@ def main():
                         entry["placementAfter"] = api(endpoint, "/api/ps")
                     except Exception as error:
                         entry["error"] = {"type": type(error).__name__, "message": str(error)}
-                        torch.cuda.empty_cache()
+                        if device != "cpu":
+                            torch.cuda.empty_cache()
                     entry["sampleEndTime"] = time.monotonic()
             report["passed"] = len(report["runs"]) == 6 and all(x.get("asr", {}).get("complete") for x in report["runs"])
         except Exception as error:

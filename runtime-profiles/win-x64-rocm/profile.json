@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "win-x64-rocm",
+  "python": "3.12",
+  "torch": "2.9.1+rocm7.2.1",
+  "cuda": "rocm",
+  "modelRevision": "7278e1e70fe206f11671096ffdd38061171dd6e5",
+  "lockSha256": "39f5cb2d6947cbe16b2de3fa4eae3440ef61980c2569ed0fb1b8f8848169986d",
+  "backend": "rocm"
+}

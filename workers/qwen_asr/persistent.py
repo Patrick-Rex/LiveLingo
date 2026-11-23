@@ -1,4 +1,4 @@
-"""Bounded control/inference worker; cancellation acknowledges actual GPU exit."""
+"""Bounded control/inference worker; cancellation acknowledges model generation exit."""
 
 import collections
 import gc
@@ -107,7 +107,7 @@ class PersistentWorker:
         self.thread.start()
 
     def receive(self, header, payload=b""):
-        """Process bounded controls without waiting for synchronous CUDA generation."""
+        """Process bounded controls without waiting for synchronous model generation."""
         ipc.validate(header, len(payload))
         if header["workerEpoch"] != self.epoch:
             raise ValueError("worker_epoch_mismatch")

@@ -12,6 +12,9 @@ dotnet publish (Join-Path $repo 'src/LiveLingo.Desktop.Windows/LiveLingo.Desktop
 $result = $LASTEXITCODE
 Select-String -LiteralPath $log -Pattern '\berror\b'
 if ($result -ne 0) { throw "PublishExit=$result; log=$log" }
-$required = @('LiveLingo.Desktop.Windows.exe', 'workers/qwen_asr/service.py', 'tools/model_eval/common.py', 'tools/model_eval/prepare_model.py', 'tools/model_eval/download.py', 'runtime-profiles/win-x64-cu130/profile.json', 'runtime-profiles/win-x64-cu130/requirements.lock')
+$required = @('LiveLingo.Desktop.Windows.exe', 'workers/qwen_asr/service.py', 'tools/model_eval/common.py', 'tools/model_eval/prepare_model.py', 'tools/model_eval/download.py')
+foreach ($profile in @('win-x64-cpu', 'win-x64-rocm', 'win-x64-cu128', 'win-x64-cu130')) {
+    $required += "runtime-profiles/$profile/profile.json", "runtime-profiles/$profile/requirements.lock"
+}
 foreach ($relative in $required) { if (-not (Test-Path -LiteralPath (Join-Path $OutputDirectory $relative) -PathType Leaf)) { throw "发布依赖缺失：$relative" } }
 Write-Output "PublishExit=0; Executable=$(Join-Path $OutputDirectory 'LiveLingo.Desktop.Windows.exe')"

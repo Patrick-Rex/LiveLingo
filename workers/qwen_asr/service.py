@@ -8,16 +8,16 @@ import platform
 import sys
 
 from workers.qwen_asr import ipc
+from workers.qwen_asr.inference import QwenInference, select_device
 from workers.qwen_asr.persistent import PersistentWorker
 
 
 class ModelAdapter:
     """Adapt bounded f32 IPC payload to the M2-verified raw Qwen generation path."""
 
-    def __init__(self, model):
+    def __init__(self, model, device):
         """Load one existing local model on the inference thread."""
-        from workers.qwen_asr.inference import QwenInference
-        self.engine = QwenInference(model, max_window_seconds=120)
+        self.engine = QwenInference(model, max_window_seconds=120, device=device)
 
     def recognize(self, data, request):
         """Infer exactly the supplied window, keeping the source text unmodified."""
@@ -29,10 +29,12 @@ class ModelAdapter:
         """Release model references and cached allocations before shutdown acknowledgement."""
         import gc
         import torch
+        device = self.engine.device
         self.engine = None
         gc.collect()
-        torch.cuda.synchronize()
-        torch.cuda.empty_cache()
+        if device != "cpu":
+            torch.cuda.synchronize()
+            torch.cuda.empty_cache()
 
 
 def main():
@@ -62,10 +64,9 @@ def main():
     print("worker_assets_verified", file=sys.stderr, flush=True)
     import torch
     print("worker_torch_imported", file=sys.stderr, flush=True)
-    if torch.__version__ != profile["torch"] or torch.version.cuda != profile["cuda"] or not torch.cuda.is_available():
-        raise RuntimeError("Selected CUDA profile is not available")
-    information = {"python": platform.python_version(), "torch": torch.__version__, "cuda": torch.version.cuda,
-                   "modelRevision": manifest["revision"], "device": torch.cuda.get_device_name(0)}
+    device = select_device(torch, profile)
+    information = {"python": platform.python_version(), "torch": torch.__version__, "cuda": profile["cuda"],
+                   "modelRevision": manifest["revision"], "device": "CPU" if device == "cpu" else torch.cuda.get_device_name(0)}
     if os.environ.get("LIVELINGO_WORKER_DIAGNOSTICS") == "1":
         import faulthandler
         faulthandler.dump_traceback_later(20, file=sys.stderr)
@@ -73,7 +74,7 @@ def main():
     # The model itself remains owned and executed by the serial inference thread.
     import qwen_asr
     print("worker_model_dependencies_imported", file=sys.stderr, flush=True)
-    worker = PersistentWorker(args.worker_epoch, information, lambda: ModelAdapter(args.model),
+    worker = PersistentWorker(args.worker_epoch, information, lambda: ModelAdapter(args.model, device),
                               lambda header: ipc.write_frame(binary_output, header))
     worker.start()
     print("worker_control_ready", file=sys.stderr, flush=True)

@@ -30,7 +30,10 @@ try {
     $result = & $installer -InstallDirectory $destination -CheckOnly
     if (-not ($result -match 'Installer=') -or (Test-Path -LiteralPath $destination)) { throw 'CheckOnly changed the installation target.' }
     $passed++
-    Assert-SetupRejected { & $installer -InstallDirectory 'C:\LiveLingo' -CheckOnly } 'non-C'
+    Assert-SetupRejected { & $installer -InstallDirectory 'relative\LiveLingo' -CheckOnly } 'local absolute'
+    $systemPath = Join-Path $env:SystemDrive ('LiveLingo-setup-check-' + [guid]::NewGuid().ToString('N'))
+    $systemCheck = & $installer -InstallDirectory $systemPath -CheckOnly
+    if (-not ($systemCheck -match 'Installer=') -or (Test-Path -LiteralPath $systemPath)) { throw 'System drive rejected or modified by CheckOnly.' }
     $passed++
     Assert-SetupRejected { & $installer -InstallDirectory (Join-Path $scratch 'desktop') -CheckOnly } 'old ZIP'
     $passed++
@@ -40,12 +43,29 @@ try {
     if ([IO.File]::ReadAllText((Join-Path $destination 'user.txt')) -ne 'keep') { throw 'Existing file changed.' }
     $passed++
     $settings = Join-Path $scratch 'settings.json'
-    [IO.File]::WriteAllText($settings, '{"PythonPath":"C:\\invalid\\python.exe"}')
-    Assert-SetupRejected { & $dependencies -SettingsPath $settings -Component Runtime } 'non-C'
+    $fresh = & $dependencies -SettingsPath $settings -Component Check
+    if ($fresh -notcontains 'RuntimeProfile=win-x64-cpu') { throw 'Fresh installation must default to CPU.' }
+    [IO.File]::WriteAllText($settings, '{"PythonPath":"relative\\python.exe"}')
+    Assert-SetupRejected { & $dependencies -SettingsPath $settings -Component Runtime } 'local absolute'
+    $old = & $dependencies -SettingsPath $settings -Component Check
+    if ($old -notcontains 'RuntimeProfile=win-x64-cu130') { throw 'Legacy profile was lost.' }
+    foreach ($profile in @('win-x64-cpu', 'win-x64-rocm', 'win-x64-cu128', 'win-x64-cu130')) {
+        [IO.File]::WriteAllText($settings, (@{ RuntimeProfile=$profile } | ConvertTo-Json))
+        if ((& $dependencies -SettingsPath $settings -Component Check) -notcontains "RuntimeProfile=$profile") { throw "Selected profile not honored: $profile" }
+    }
+    [IO.File]::WriteAllText($settings, '{"RuntimeProfile":"win-x64-cpu"}')
+    if ((& $dependencies -SettingsPath $settings -Component Driver) -notmatch 'does not need') { throw 'CPU requested a driver.' }
     $passed++
     $modelCache = Join-Path $scratch 'custom model cache'
     . (Join-Path $PSScriptRoot 'Enter-ModelEvaluation.ps1') -CacheRoot $modelCache
     if ($env:LIVELINGO_CACHE_ROOT -ne $modelCache -or $env:HF_HOME -ne (Join-Path $modelCache 'huggingface')) { throw 'Custom model cache was not propagated to Python preparation.' }
+    $passed++
+    $unusedRuntime = Join-Path $scratch 'store-python-test'
+    $storePython = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps\python.exe'
+    Assert-SetupRejected {
+        & (Join-Path $PSScriptRoot 'Initialize-ModelRuntime.ps1') -BasePython $storePython -RuntimeRoot $unusedRuntime -CacheRoot $modelCache
+    } 'Microsoft Store Python'
+    if (Test-Path -LiteralPath $unusedRuntime) { throw 'Rejected base interpreter created a runtime.' }
     $passed++
     Write-Output "SetupTestsPassed=$passed; softwareInstalled=False; downloads=False"
 } finally {

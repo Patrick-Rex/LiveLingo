@@ -4,9 +4,10 @@ using LiveLingo.Core.Desktop;
 
 namespace LiveLingo.Runtime.Storage;
 
-/// <summary>在非 C 盘同目录写入临时文件，再原子替换唯一设置文件。</summary>
+/// <summary>在设置文件同目录写入临时文件，再原子替换唯一设置文件。</summary>
 /// <param name="path">设置文件绝对路径。</param>
-public sealed class DesktopSettingsStore(string path) : IDesktopSettingsStore
+/// <param name="legacyPath">升级时可读取的旧版默认文件，仅在新位置尚无设置时使用。</param>
+public sealed class DesktopSettingsStore(string path, string? legacyPath = null) : IDesktopSettingsStore
 {
     private readonly string path = ValidatePath(path);
 
@@ -15,9 +16,10 @@ public sealed class DesktopSettingsStore(string path) : IDesktopSettingsStore
     {
         try
         {
-            if (!File.Exists(path)) return new(new(), null);
-            if (new FileInfo(path).Length > 65536) throw new InvalidDataException("设置文件过大。");
-            await using var stream = File.OpenRead(path);
+            var source = !File.Exists(path) && legacyPath is not null ? legacyPath : path;
+            if (!File.Exists(source)) return new(new(), null);
+            if (new FileInfo(source).Length > 65536) throw new InvalidDataException("设置文件过大。");
+            await using var stream = File.OpenRead(source);
             var settings = await JsonSerializer.DeserializeAsync(stream, DesktopSettingsJsonContext.Default.DesktopSettings, cancellationToken).ConfigureAwait(false)
                 ?? throw new InvalidDataException("设置为空。");
             settings.Validate();
@@ -49,7 +51,7 @@ public sealed class DesktopSettingsStore(string path) : IDesktopSettingsStore
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
 
-    /// <summary>先验证写入位置，避免读取失败后默默回退系统盘。</summary><param name="value">绝对路径。</param><returns>规范化路径。</returns>
+    /// <summary>校验并规范化设置文件的写入位置。</summary><param name="value">绝对路径。</param><returns>规范化路径。</returns>
     private static string ValidatePath(string value) { DesktopSettings.ValidateDataPath(value); return Path.GetFullPath(value); }
 }
 

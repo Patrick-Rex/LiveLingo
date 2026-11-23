@@ -14,7 +14,7 @@ public sealed partial class OwnedJobTests
     public async Task RedirectedPipesHaveWhitelistAndOwnedDescendants()
     {
         var fixture = FixturePath();
-        var directory = Path.Combine(@"D:\Soft Ware\LiveLingo\data\lifecycle", Guid.NewGuid().ToString("N"));
+        var directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         var sentinelPath = Path.Combine(directory, "inheritable-sentinel.bin");
         using var sentinel = new FileStream(sentinelPath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None);
@@ -64,7 +64,7 @@ public sealed partial class OwnedJobTests
     public async Task ParentExitClosesNestedJobAndReapsGrandchildAsync(bool force)
     {
         var fixture = FixturePath();
-        var directory = Path.Combine(@"D:\Soft Ware\LiveLingo\data\lifecycle", Guid.NewGuid().ToString("N"));
+        var directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         using var outer = new OwnedJob();
         var owned = outer.Start(fixture, ["branch", directory], Path.GetDirectoryName(fixture)!, "test-parent");
@@ -92,14 +92,14 @@ public sealed partial class OwnedJobTests
     public void InvalidExecutableFailsWithoutFallback()
     {
         using var job = new OwnedJob();
-        Assert.Throws<ArgumentException>(() => job.Start(@"D:\Soft Ware\LiveLingo\missing-fixture.exe", [], AppContext.BaseDirectory, "invalid"));
+        Assert.Throws<ArgumentException>(() => job.Start(Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".exe"), [], AppContext.BaseDirectory, "invalid"));
     }
 
     /// <summary>真实 CreateProcess 拒绝无效 PE 时不启动替代 shell 或失去 Job 监管。</summary>
     [Fact]
     public void NativeCreateFailureDoesNotFallback()
     {
-        var directory = Path.Combine(@"D:\Soft Ware\LiveLingo\data\lifecycle", Guid.NewGuid().ToString("N"));
+        var directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         var invalid = Path.Combine(directory, "invalid.exe");
         File.WriteAllText(invalid, "Not a Windows PE image.\n");

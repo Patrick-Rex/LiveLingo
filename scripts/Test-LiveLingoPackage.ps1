@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-Exercises package integrity, installation and replacement in a disposable non-C directory.
+Exercises package integrity, installation and replacement in a disposable local directory.
 #>
 param(
     [Parameter(Mandatory)][string]$Archive,
@@ -8,7 +8,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'Enter-Development.ps1')
-if ($TemporaryRoot -notmatch '^[D-Zd-z]:\\') { throw 'Installation tests require -TemporaryRoot on a writable non-C local drive.' }
+if ($TemporaryRoot -notmatch '^[A-Za-z]:\\') { throw 'Installation tests require -TemporaryRoot on a writable local drive.' }
 New-Item -ItemType Directory -Path $TemporaryRoot -Force | Out-Null
 $tempRoot = (Resolve-Path -LiteralPath $TemporaryRoot).ProviderPath.TrimEnd('\')
 if ($tempRoot.EndsWith(':')) { $tempRoot += '\' }
@@ -52,8 +52,8 @@ try {
         [IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json -Depth 5))
         Assert-Rejected { & $installer -VerifyOnly } 'path-traversal-rejected'
     } finally { [IO.File]::WriteAllBytes($manifestPath, $manifestBytes) }
-    Assert-Rejected { & $installer -ApplicationRoot 'C:\LiveLingo\app' } 'c-drive-rejected'
-    $app = Join-Path $work 'installed/app'
+    Assert-Rejected { & $installer -ApplicationRoot 'relative\app' } 'relative-root-rejected'
+    $app = Join-Path $work 'installed/application files'
     $data = Join-Path $work 'installed/data'
     New-Item -ItemType Directory -Path $data -Force | Out-Null
     $sentinel = Join-Path $data 'settings.json'

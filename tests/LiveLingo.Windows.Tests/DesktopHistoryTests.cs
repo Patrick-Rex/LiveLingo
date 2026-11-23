@@ -161,7 +161,7 @@ public sealed class DesktopHistoryTests
         finally { Directory.Delete(directory, true); }
     }
 
-    /// <summary>创建本项测试独占的临时目录，沿用开发脚本配置的非C盘临时根。</summary><returns>新目录绝对路径。</returns>
+    /// <summary>创建本项测试独占的临时目录，使用当前临时根。</summary><returns>新目录绝对路径。</returns>
     private static string NewDirectory()
     {
         var directory = Path.Combine(Path.GetTempPath(), "desktop-history-" + Guid.NewGuid().ToString("N"));

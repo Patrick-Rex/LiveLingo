@@ -9,7 +9,7 @@ internal static class RecoveryCheck
 {
     /// <summary>执行有界的真实进程恢复，保留完整目标身份、操作时间和音频。</summary>
     /// <param name="edge">Edge 完整路径。</param><param name="fixtures">受控音频目录。</param>
-    /// <param name="output">空的非 C 盘证据目录。</param><param name="stopWhileWaiting">在真实目标消失后停止，核对终止屏障。</param>
+    /// <param name="output">空的本地证据目录。</param><param name="stopWhileWaiting">在真实目标消失后停止，核对终止屏障。</param>
     /// <returns>采集与恢复检查退出码。</returns>
     public static async Task<int> RunAsync(string edge, string fixtures, string output, bool stopWhileWaiting = false)
     {

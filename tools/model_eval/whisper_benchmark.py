@@ -27,7 +27,7 @@ def main():
     report = {"schemaVersion": 1, "kind": "whisper-gpu-comparison", "startedUtc": utc_now(),
               "sourceSha256": source_fingerprint(), "qualityPassed": False, "passed": False, "runs": []}
     try:
-        report["profile"] = load_profile(args.profile)
+        report["profile"] = load_profile(args.profile, sys.executable)
         libraries = pathlib.Path(sys.prefix) / "Lib" / "site-packages" / "nvidia"
         for path in libraries.glob("*/bin"):
             handles.append(os.add_dll_directory(str(path)))

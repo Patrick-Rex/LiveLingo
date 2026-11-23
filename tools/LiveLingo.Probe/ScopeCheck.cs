@@ -13,7 +13,7 @@ internal static class ScopeCheck
 {
     /// <summary>操作私有浏览器并同时录制独立音源，保存可按单调时钟核对的阶段真值。</summary>
     /// <param name="edge">Edge 完整路径。</param><param name="fixtures">包含三种音调的夹具目录。</param>
-    /// <param name="output">新的非 C 盘目录。</param><returns>运行和清理状态；频谱另行核验。</returns>
+    /// <param name="output">新的本地目录。</param><returns>运行和清理状态；频谱另行核验。</returns>
     public static async Task<int> RunAsync(string edge, string fixtures, string output)
     {
         foreach (var file in new[] { "target.html", "second.html", "independent.wav", "manifest.json" })

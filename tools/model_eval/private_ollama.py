@@ -66,7 +66,7 @@ def main():
         port = reservation.getsockname()[1]
     endpoint = f"http://127.0.0.1:{port}"
     environment = os.environ.copy()
-    environment.update(OLLAMA_HOST=f"127.0.0.1:{port}", OLLAMA_MODELS=r"D:\Soft Ware\Ollama",
+    environment.update(OLLAMA_HOST=f"127.0.0.1:{port}",
                        OLLAMA_CONTEXT_LENGTH="4096", OLLAMA_NUM_PARALLEL="1", OLLAMA_MAX_LOADED_MODELS="1")
     report = {"schemaVersion": 1, "startedUtc": utc_now(), "kind": "private-ollama-smoke",
               "endpoint": endpoint, "qualityPassed": False, "models": [], "passed": False, "sourceSha256": source_fingerprint()}

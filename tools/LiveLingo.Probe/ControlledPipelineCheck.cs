@@ -12,8 +12,9 @@ internal static class ControlledPipelineCheck
     /// <summary>只管理此处新建的浏览器与临时 profile，保留用户浏览器和原始音频。</summary>
     /// <param name="repository">仓库。</param><param name="profile">ASR 配置。</param><param name="model">Qwen 目录。</param>
     /// <param name="ollama">Ollama EXE。</param><param name="edge">Edge EXE。</param><param name="input">现有日语 WAV。</param>
-    /// <param name="output">独占证据目录。</param><param name="seconds">模型就绪后采集秒数。</param><returns>管道及夹具清理均成功时为零。</returns>
-    public static async Task<int> RunAsync(string repository, string profile, string model, string ollama, string edge, string input, string output, int seconds)
+    /// <param name="output">独占证据目录。</param><param name="seconds">模型就绪后采集秒数。</param>
+    /// <param name="pythonPath">可选的隔离环境解释器路径。</param><returns>管道及夹具清理均成功时为零。</returns>
+    public static async Task<int> RunAsync(string repository, string profile, string model, string ollama, string edge, string input, string output, int seconds, string? pythonPath = null)
     {
         if (!Path.IsPathFullyQualified(edge) || !Path.IsPathFullyQualified(input) || !File.Exists(input) || seconds is < 1 or > 600)
             throw new ArgumentException("受控采集需要本地绝对路径及 1–600 秒时长。");
@@ -35,7 +36,7 @@ internal static class ControlledPipelineCheck
             var target = await FixtureDevTools.ResolveBrowserAsync(job, privateProfile, startup.Token).ConfigureAwait(false);
             owned.UnionWith(job.Members());
             result = await PipelineReplayCheck.RunAsync(repository, profile, model, ollama, "", Path.Combine(directory, "pipeline"), seconds,
-                "translategemma:12b", target.ProcessId).ConfigureAwait(false);
+                "translategemma:12b", target.ProcessId, pythonPath: pythonPath).ConfigureAwait(false);
         }
         catch (Exception exception) { error = exception.GetType().Name + ": " + exception.Message; }
         finally

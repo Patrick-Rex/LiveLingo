@@ -23,7 +23,7 @@ internal sealed record ModelEvaluationReport(int ExitCode, string? Error, Target
 internal static class ModelEvaluationHost
 {
     /// <summary>读取有界请求，等待工作进程，并在所有路径关闭自有 Job。</summary>
-    /// <param name="requestPath">绝对 JSON 请求路径。</param><param name="output">独立非 C 盘监管报告目录。</param>
+    /// <param name="requestPath">绝对 JSON 请求路径。</param><param name="output">独立本地监管报告目录。</param>
     /// <returns>0 表示工作进程成功并清理完成；3 为失败；5 为清理失败。</returns>
     public static async Task<int> RunAsync(string requestPath, string output)
     {

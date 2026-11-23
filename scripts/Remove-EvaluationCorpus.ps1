@@ -1,6 +1,6 @@
 param([Parameter(Mandatory)][string]$Directory)
 $ErrorActionPreference = 'Stop'
-$allowedParent = [IO.Path]::GetFullPath('D:\Soft Ware\LiveLingo\data\evaluation\corpora')
+$allowedParent = [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'LiveLingoData\data\evaluation\corpora'))
 $target = (Get-Item -LiteralPath $Directory -Force).FullName
 if ((Split-Path $target -Parent) -ne $allowedParent) { throw 'Only dedicated evaluation corpus directories are allowed.' }
 if ((Get-Item -LiteralPath $target -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Linked corpus directories are not allowed.' }

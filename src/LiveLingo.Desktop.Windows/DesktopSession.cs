@@ -4,7 +4,6 @@ using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
-using System.Text.Json;
 using LiveLingo.Core.Desktop;
 using LiveLingo.Core.History;
 using LiveLingo.Core.Sessions;
@@ -65,7 +64,7 @@ public sealed class DesktopSession(string contentRoot, DesktopHistory? history =
             if (sessionId == Guid.Empty) throw new ArgumentException("需要新会话身份。");
             if (VerificationInput is null && (WindowsTargets.Query(target.Identity.ProcessId).Identity is not { } actual || !actual.SameInstance(target.Identity)))
                 throw new InvalidOperationException("目标已退出或 PID 已被复用，请刷新选择。");
-            foreach (var path in settings.AsrBackend == ModelBackend.Local ? new[] { settings.PythonPath, Path.Combine(contentRoot, "runtime-profiles", "win-x64-cu130", "profile.json"), Path.Combine(contentRoot, "workers", "qwen_asr", "service.py"), Path.Combine(contentRoot, "tools", "model_eval", "common.py"), Path.Combine(contentRoot, "tools", "model_eval", "prepare_model.py"), Path.Combine(contentRoot, "tools", "model_eval", "download.py") } : Array.Empty<string>())
+            foreach (var path in settings.AsrBackend == ModelBackend.Local ? new[] { settings.PythonPath, Path.Combine(contentRoot, "runtime-profiles", settings.RuntimeProfile, "profile.json"), Path.Combine(contentRoot, "workers", "qwen_asr", "service.py"), Path.Combine(contentRoot, "tools", "model_eval", "common.py"), Path.Combine(contentRoot, "tools", "model_eval", "prepare_model.py"), Path.Combine(contentRoot, "tools", "model_eval", "download.py") } : Array.Empty<string>())
                 if (!File.Exists(path)) throw new FileNotFoundException("运行依赖缺失：" + path, path);
             if (settings.TranslationBackend == ModelBackend.Local && !File.Exists(settings.OllamaPath))
                 throw new FileNotFoundException("未找到本地 Ollama。", settings.OllamaPath);
@@ -102,14 +101,8 @@ public sealed class DesktopSession(string contentRoot, DesktopHistory? history =
             recorder = history?.Begin(id, target, settings);
             var environment = settings.AsrBackend == ModelBackend.Local || settings.TranslationBackend == ModelBackend.Local
                 ? PrepareEnvironment(settings) : new Dictionary<string, string>();
-            var profilePath = Path.Combine(contentRoot, "runtime-profiles", "win-x64-cu130", "profile.json");
-            WorkerInformation? expected = null;
-            if (settings.AsrBackend == ModelBackend.Local)
-            {
-                using var profile = JsonDocument.Parse(await File.ReadAllBytesAsync(profilePath, token).ConfigureAwait(false));
-                var root = profile.RootElement;
-                expected = new(root.GetProperty("python").GetString()!, root.GetProperty("torch").GetString()!, root.GetProperty("cuda").GetString()!, root.GetProperty("modelRevision").GetString()!, "");
-            }
+            var profilePath = Path.Combine(contentRoot, "runtime-profiles", settings.RuntimeProfile, "profile.json");
+            var expected = settings.AsrBackend == ModelBackend.Local ? DesktopEnvironment.ReadRuntimeProfile(contentRoot, settings.RuntimeProfile) : null;
             var port = 0;
             if (settings.TranslationBackend == ModelBackend.Local)
             {

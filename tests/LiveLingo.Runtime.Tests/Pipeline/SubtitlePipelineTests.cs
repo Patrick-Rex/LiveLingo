@@ -1340,7 +1340,7 @@ public sealed class SubtitlePipelineTests
     {
         options ??= new() { AlignmentRecoverySamples = 0 };
         return new(new(Guid.NewGuid(), 1, 1, 1), new(), options,
-            () => new ContinuousAudioStore(new FileAudioSpillStore(Path.Combine(@"D:\Soft Ware\LiveLingo\cache\tmp", "pipeline-test-" + Guid.NewGuid().ToString("N"))),
+            () => new ContinuousAudioStore(new FileAudioSpillStore(Path.Combine(Path.GetTempPath(), "pipeline-test-" + Guid.NewGuid().ToString("N"))),
                 options.MemorySamples, options.SpillSamples, options.MaximumLeaseSamples), models, publish, publishOperation, publishRejection);
     }
 

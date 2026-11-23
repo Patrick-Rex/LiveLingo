@@ -58,7 +58,7 @@ public sealed class DependencySetupTests
         try
         {
             await File.WriteAllTextAsync(Path.Combine(root, "scripts", "Install-LiveLingoDependencies.ps1"),
-                "param($Component,$SettingsPath)\n$s=Get-Content -LiteralPath $SettingsPath -Raw | ConvertFrom-Json\n$PID | Set-Content -LiteralPath (Join-Path $s.CachePath 'pid.txt')\nStart-Sleep -Seconds 30\n", TestContext.Current.CancellationToken);
+                "param($Component,$SettingsPath)\n$s=Get-Content -LiteralPath $SettingsPath -Raw | ConvertFrom-Json\n$pending=Join-Path $s.CachePath 'pid.tmp'\n$PID | Set-Content -LiteralPath $pending\n[IO.File]::Move($pending, (Join-Path $s.CachePath 'pid.txt'))\nStart-Sleep -Seconds 30\n", TestContext.Current.CancellationToken);
             using var cancel = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
             var cache = Path.Combine(root, "cache");
             var operation = new DesktopEnvironment(root).InstallAsync(DependencyComponent.Runtime, new() { CachePath = cache }, new Progress<string>(), cancel.Token);

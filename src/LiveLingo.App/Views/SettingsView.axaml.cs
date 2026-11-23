@@ -88,11 +88,11 @@ public partial class SettingsView : UserControl
         if (DataContext is not DesktopViewModel vm || !vm.CanEdit) return;
         var button = this.FindControl<Button>("CheckPathsButton")!;
         var result = this.FindControl<TextBlock>("PathCheckResult")!;
-        (string Label, string Path, bool IsFile, bool AllowSystemDrive)[] paths =
+        (string Label, string Path, bool IsFile)[] paths =
         [
-            .. vm.IsLocalAsr ? new[] { ("Python", vm.PythonPath, true, false), ("Qwen 模型", vm.ModelPath, false, false) } : [],
-            .. vm.IsLocalTranslation ? new[] { ("Ollama", vm.OllamaPath, true, true), ("Ollama 模型", vm.OllamaModelsPath, false, false) } : [],
-            ("数据", vm.DataPath, false, false), ("缓存", vm.CachePath, false, false)
+            .. vm.IsLocalAsr ? new[] { ("Python", vm.PythonPath, true), ("Qwen 模型", vm.ModelPath, false) } : [],
+            .. vm.IsLocalTranslation ? new[] { ("Ollama", vm.OllamaPath, true), ("Ollama 模型", vm.OllamaModelsPath, false) } : [],
+            ("数据", vm.DataPath, false), ("缓存", vm.CachePath, false)
         ];
         button.IsEnabled = false; result.Text = "正在检查路径…";
         try { result.Text = await Task.Run(() => CheckPaths(paths)); }
@@ -102,18 +102,14 @@ public partial class SettingsView : UserControl
 
     /// <summary>检查资源路径的基本约束与磁盘存在性，不读模型内容或启动服务。</summary>
     /// <param name="paths">在 UI 线程捕获的输入快照。</param><returns>逐项可读的检查结果。</returns>
-    private static string CheckPaths((string Label, string Path, bool IsFile, bool AllowSystemDrive)[] paths)
+    private static string CheckPaths((string Label, string Path, bool IsFile)[] paths)
     {
         var results = new List<string>(paths.Length + 1);
         foreach (var entry in paths)
         {
             try
             {
-                if (entry.AllowSystemDrive)
-                {
-                    if (!Path.IsPathFullyQualified(entry.Path)) throw new ArgumentException("需要本地绝对路径。");
-                }
-                else DesktopSettings.ValidateDataPath(entry.Path);
+                DesktopSettings.ValidateDataPath(entry.Path);
                 var exists = entry.IsFile ? File.Exists(entry.Path) : Directory.Exists(entry.Path);
                 results.Add($"{entry.Label}：{(exists ? "已找到" : "未找到，请确认路径")}");
             }

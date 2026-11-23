@@ -7,10 +7,10 @@
 ```powershell
 $probe = './tools/LiveLingo.Probe/bin/Release/net10.0-windows10.0.26100.0/LiveLingo.Probe.exe'
 & $probe targets --json
-& $probe capture --pid <根PID> --output 'D:\Soft Ware\LiveLingo\data\capture\new-run' --duration-seconds 60
+& $probe capture --pid <根PID> --output (Join-Path $env:TEMP 'LiveLingo-capture-new-run') --duration-seconds 60
 ```
 
-采集覆盖根进程的子孙；PID 必须对应当前实例。输出必须是新的非 C 盘目录，包含录音与诊断记录，不应加入 Git。Ctrl+C 请求正常停止，清理失败使用独立退出码。
+采集覆盖根进程的子孙；PID 必须对应当前实例。输出必须是新的本机目录，包含录音与诊断记录，不应加入 Git。Ctrl+C 请求正常停止，清理失败使用独立退出码。
 
 `lifecycle-check` 检查进程所有权；`controlled-audio-check`、`scope-check`、`recovery-check` 和 `recovery-stop-check` 使用独立音源与浏览器实例。音频生成和频谱检查见 [夹具说明](../../tests/Fixtures/Audio/README.md)。这些检查会播放声音，不能代替实际设备拔插和睡眠验收。
 
@@ -28,6 +28,6 @@ $probe = './tools/LiveLingo.Probe/bin/Release/net10.0-windows10.0.26100.0/LiveLi
 ./scripts/Invoke-SubtitlePipeline.ps1 -TargetPid <根PID> -DurationSeconds 180
 ```
 
-默认使用 cu130、Qwen 自动识别和 TranslateGemma12B 串行推理。进程采集使用与桌面直播一致的短段识别和积压续接策略。WAV 默认沿用普通识别窗口和对齐恢复，可加 `-LivePriority`（底层参数 `--live-priority`）按桌面策略回放。普通回放可用 `-AlignmentRecoverySeconds 0` 关闭扩窗。每次运行使用私有模型服务、已准备资产和独立输出目录。
+默认使用 CPU，可通过 -RuntimeProfile 切换至 AMD ROCm 或 NVIDIA CUDA，通过 -PythonPath 指定对应解释器。流水线使用 Qwen 自动识别和 TranslateGemma12B 串行推理。进程采集使用与桌面直播一致的短段识别和积压续接策略。WAV 默认沿用普通识别窗口和对齐恢复，可加 `-LivePriority`（底层参数 `--live-priority`）按桌面策略回放。普通回放可用 `-AlignmentRecoverySeconds 0` 关闭扩窗。每次运行使用私有模型服务、已准备资产和独立输出目录。
 
 底层命令为 `pipeline-replay` / `pipeline-capture`；输出中的 `stop.request` 可触发正常取消。报告保留实际字幕版本和资源状态，仅显式评测保存正文。图形使用方式见 [用户指南](../../packaging/USER-GUIDE.md)。

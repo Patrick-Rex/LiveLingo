@@ -6,7 +6,7 @@ import pathlib
 import hashlib
 import urllib.request
 
-from common import configure_cache, new_output, non_system_path, sha256, utc_now, write_json
+from common import configure_cache, local_path, new_output, sha256, utc_now, write_json
 from download import download_large
 
 REPOSITORY = "Qwen/Qwen3-ASR-1.7B"
@@ -44,7 +44,7 @@ def main():
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
     if args.resume:
-        output = non_system_path(args.output)
+        output = local_path(args.output)
         ownership = json.loads((output / "preparation.json").read_text(encoding="utf-8"))
         if ownership != {"repository": REPOSITORY, "revision": REVISION, "root": str(output)}:
             raise ValueError("Preparation ownership mismatch")

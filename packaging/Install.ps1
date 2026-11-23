@@ -5,7 +5,7 @@ Installs a verified LiveLingo payload into one desktop directory without modifyi
 #>
 [CmdletBinding()]
 param(
-    [string]$ApplicationRoot = 'D:\Soft Ware\LiveLingo\app',
+    [string]$ApplicationRoot = (Join-Path $env:LOCALAPPDATA 'LiveLingoData\app'),
     [switch]$ReplaceExisting,
     [switch]$VerifyOnly
 )
@@ -59,9 +59,9 @@ if ($env:OS -ne 'Windows_NT' -or -not [Environment]::Is64BitProcess -or [Environ
 $dotnet = Get-Command dotnet -ErrorAction Stop
 $frameworks = & $dotnet.Source --list-runtimes
 if ($LASTEXITCODE -ne 0 -or -not ($frameworks | Where-Object { $_ -match '^Microsoft.NETCore.App 10\.0\.\d+ ' })) { throw '.NET 10.0 x64 runtime is required; any stable servicing version is accepted.' }
-if ($ApplicationRoot -notmatch '^[D-Zd-z]:\\') { throw 'ApplicationRoot must be an absolute local path on a non-C drive.' }
+if ($ApplicationRoot -notmatch '^[A-Za-z]:[\\/]') { throw 'ApplicationRoot must be an absolute local path.' }
 $root = [IO.Path]::GetFullPath($ApplicationRoot).TrimEnd('\')
-if ([IO.Path]::GetFileName($root) -ne 'app') { throw 'ApplicationRoot must be named app; installation is always app\desktop.' }
+if ($root -eq [IO.Path]::GetPathRoot($ApplicationRoot).TrimEnd('\')) { throw 'Do not install into a drive root.' }
 $destination = Join-Path $root 'desktop'
 $staging = Join-Path $root '.desktop-install'
 $backup = Join-Path $root '.desktop-backup'

@@ -27,27 +27,27 @@ internal static class Program
             switch (args[0])
             {
                 case "pipeline-controlled-capture":
-                    ValidateOptions(options, ["repository", "profile", "model", "ollama", "edge", "input", "output", "duration-seconds"]);
+                    ValidateOptions(options, ["repository", "profile", "python", "model", "ollama", "edge", "input", "output", "duration-seconds"]);
                     return await ControlledPipelineCheck.RunAsync(Required(options, "repository"), Required(options, "profile"), Required(options, "model"),
                         Required(options, "ollama"), Required(options, "edge"), Required(options, "input"), Required(options, "output"),
-                        checked((int)Number(options, "duration-seconds", 30))).ConfigureAwait(false);
+                        checked((int)Number(options, "duration-seconds", 30)), options.GetValueOrDefault("python")).ConfigureAwait(false);
                 case "pipeline-capture":
-                    ValidateOptions(options, ["repository", "profile", "model", "ollama", "pid", "output", "duration-seconds", "translation-model", "alignment-recovery-seconds", "preserve-observed-repetitions"]);
+                    ValidateOptions(options, ["repository", "profile", "python", "model", "ollama", "pid", "output", "duration-seconds", "translation-model", "alignment-recovery-seconds", "preserve-observed-repetitions"]);
                     if (!int.TryParse(Required(options, "pid"), out var pipelinePid) || pipelinePid <= 0) throw new ArgumentException("需要正的目标 PID。");
                     return await PipelineReplayCheck.RunAsync(Required(options, "repository"), Required(options, "profile"), Required(options, "model"),
                         Required(options, "ollama"), "", Required(options, "output"), Number(options, "duration-seconds", 180),
-                        options.GetValueOrDefault("translation-model") ?? "translategemma:12b", pipelinePid, RecoverySeconds(options), options.ContainsKey("preserve-observed-repetitions")).ConfigureAwait(false);
+                        options.GetValueOrDefault("translation-model") ?? "translategemma:12b", pipelinePid, RecoverySeconds(options), options.ContainsKey("preserve-observed-repetitions"), pythonPath: options.GetValueOrDefault("python")).ConfigureAwait(false);
                 case "pipeline-replay":
-                    ValidateOptions(options, ["repository", "profile", "model", "ollama", "input", "output", "duration-seconds", "translation-model", "alignment-recovery-seconds", "preserve-observed-repetitions", "live-priority"]);
+                    ValidateOptions(options, ["repository", "profile", "python", "model", "ollama", "input", "output", "duration-seconds", "translation-model", "alignment-recovery-seconds", "preserve-observed-repetitions", "live-priority"]);
                     return await PipelineReplayCheck.RunAsync(Required(options, "repository"), Required(options, "profile"), Required(options, "model"),
                         Required(options, "ollama"), Required(options, "input"), Required(options, "output"), Number(options, "duration-seconds", 0),
                         options.GetValueOrDefault("translation-model") ?? "translategemma:12b", alignmentRecoverySeconds: RecoverySeconds(options),
                         preserveObservedRepetitions: options.ContainsKey("preserve-observed-repetitions"),
-                        livePriority: options.ContainsKey("live-priority")).ConfigureAwait(false);
+                        livePriority: options.ContainsKey("live-priority"), pythonPath: options.GetValueOrDefault("python")).ConfigureAwait(false);
                 case "asr-worker-check":
-                    ValidateOptions(options, ["repository", "profile", "model", "input", "output"]);
+                    ValidateOptions(options, ["repository", "profile", "python", "model", "input", "output"]);
                     return await AsrWorkerCheck.RunAsync(Required(options, "repository"), Required(options, "profile"), Required(options, "model"),
-                        Required(options, "input"), Required(options, "output")).ConfigureAwait(false);
+                        Required(options, "input"), Required(options, "output"), options.GetValueOrDefault("python")).ConfigureAwait(false);
                 case "model-eval":
                     ValidateOptions(options, ["request", "output"]);
                     return await ModelEvaluationHost.RunAsync(Required(options, "request"), Required(options, "output")).ConfigureAwait(false);

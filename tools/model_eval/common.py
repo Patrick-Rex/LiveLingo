@@ -9,20 +9,20 @@ import sys
 from datetime import datetime, timezone
 
 
-def non_system_path(value):
-    """Require an absolute non-system-drive path after resolving links."""
+def local_path(value):
+    """Require an absolute local drive path, including after resolving links."""
     path = pathlib.Path(value)
-    if not path.is_absolute():
-        raise ValueError("An absolute non-C path is required")
+    if not path.is_absolute() or len(path.drive) != 2 or path.drive[1] != ":":
+        raise ValueError("An absolute local drive path is required")
     path = path.resolve()
-    if len(path.drive) != 2 or path.drive[1] != ":" or path.drive.upper() == "C:":
-        raise ValueError("Evaluation assets must remain on a non-C drive")
+    if len(path.drive) != 2 or path.drive[1] != ":":
+        raise ValueError("The resolved path must be on a local drive")
     return path
 
 
 def new_output(value):
     """Exclusively create an evidence directory, refusing previous results."""
-    path = non_system_path(value)
+    path = local_path(value)
     path.mkdir(parents=True, exist_ok=False)
     return path
 
@@ -42,7 +42,8 @@ def write_json(path, value):
 
 def configure_cache(offline=True):
     """Set every model cache before importing torch or Hugging Face packages."""
-    root = non_system_path(os.environ.get("LIVELINGO_CACHE_ROOT", r"D:\Soft Ware\LiveLingo\cache"))
+    root = local_path(os.environ.get("LIVELINGO_CACHE_ROOT") or
+                      pathlib.Path(os.environ["LOCALAPPDATA"]) / "LiveLingoData" / "cache")
     values = {"HF_HOME": "huggingface", "HF_HUB_CACHE": "huggingface/hub",
               "TORCH_HOME": "torch", "TORCHINDUCTOR_CACHE_DIR": "torchinductor",
               "CUDA_CACHE_PATH": "cuda", "TEMP": "tmp", "TMP": "tmp",
@@ -60,9 +61,12 @@ def load_profile(path, interpreter=None):
     """Reject wrong interpreters and stale dependency fingerprints."""
     path = pathlib.Path(path).resolve()
     value = json.loads(path.read_text(encoding="utf-8"))
-    if value["schemaVersion"] != 1 or value["python"] != platform.python_version():
+    if value["schemaVersion"] != 1 or value["python"] not in (platform.python_version(), ".".join(platform.python_version_tuple()[:2])):
         raise ValueError("Unsupported profile/Python version")
-    if pathlib.Path(sys.executable).resolve() != non_system_path(interpreter or value["interpreter"]):
+    expected = interpreter or os.environ.get("LIVELINGO_PROFILE_INTERPRETER") or value.get("interpreter")
+    if not expected:
+        expected = pathlib.Path(os.environ["LOCALAPPDATA"]) / "LiveLingoData" / "runtimes" / value["id"] / "Scripts" / "python.exe"
+    if pathlib.Path(sys.executable).resolve() != local_path(expected):
         raise ValueError("Run with the selected profile interpreter")
     if sha256(path.with_name("requirements.lock")) != value["lockSha256"]:
         raise ValueError("Dependency lock fingerprint mismatch")

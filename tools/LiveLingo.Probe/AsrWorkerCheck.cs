@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using LiveLingo.Core.Desktop;
 using LiveLingo.Core.Sessions;
 using LiveLingo.Core.Subtitles;
 using LiveLingo.Platform.Windows.Processes;
@@ -16,9 +17,10 @@ internal static class AsrWorkerCheck
 {
     /// <summary>两次识别同一完整窗口，记录冷启动、热调用及实际退出身份。</summary>
     /// <param name="repository">项目绝对根路径。</param><param name="profilePath">固定 profile。</param><param name="model">准备好的模型目录。</param>
-    /// <param name="input">完整 16k mono PCM16 WAV。</param><param name="output">独占非 C 盘证据目录。</param>
+    /// <param name="input">完整 16k mono PCM16 WAV。</param><param name="output">本机独占证据目录。</param>
+    /// <param name="pythonPath">可选的隔离环境解释器路径。</param>
     /// <returns>0 表示管道运行和清理通过，不表示语义全部正确。</returns>
-    public static async Task<int> RunAsync(string repository, string profilePath, string model, string input, string output)
+    public static async Task<int> RunAsync(string repository, string profilePath, string model, string input, string output, string? pythonPath = null)
     {
         foreach (var path in new[] { repository, profilePath, model, input })
             if (!Path.IsPathFullyQualified(path)) throw new ArgumentException("所有输入路径必须为绝对路径。");
@@ -41,12 +43,13 @@ internal static class AsrWorkerCheck
         OwnedWorkerConnection? connection = null;
         try
         {
-            connection = new(root.GetProperty("interpreter").GetString()!,
+            var python = pythonPath ?? DesktopSettings.GetManagedInterpreter(root.GetProperty("id").GetString()!);
+            connection = new(python,
                 ["-u", "-m", "workers.qwen_asr.service", "--profile", profilePath, "--model", model, "--worker-epoch", "1"],
                 repository, "persistent-qwen-check", new Dictionary<string, string>
-                { ["LIVELINGO_OWNED_WORKER"] = "1", ["PYTHONUTF8"] = "1", ["LIVELINGO_WORKER_DIAGNOSTICS"] = "1" });
+                { ["LIVELINGO_OWNED_WORKER"] = "1", ["PYTHONUTF8"] = "1", ["LIVELINGO_WORKER_DIAGNOSTICS"] = "1", ["LIVELINGO_PROFILE_INTERPRETER"] = python });
             owned = connection.Process.Identity;
-            client = new(connection, 1, expected, new() { StartupTimeout = TimeSpan.FromSeconds(60) }, captureDiagnosticTail: true);
+            client = new(connection, 1, expected, new PipelineOptions(), captureDiagnosticTail: true);
             var started = Stopwatch.GetTimestamp();
             await client.InitializeAsync(stop.Token).ConfigureAwait(false);
             startup = Stopwatch.GetElapsedTime(started).TotalSeconds;
@@ -131,7 +134,7 @@ internal static class AsrWorkerCheck
 /// <summary>实际调用证据，正文仅在显式评测保存。</summary>
 /// <param name="RequestId">独立调用。</param><param name="Sequence">顺序。</param><param name="StartSample">真实窗口起点。</param>
 /// <param name="EndSample">真实窗口终点。</param><param name="Text">原始文本。</param><param name="Language">检测语言。</param>
-/// <param name="Complete">正常生成。</param><param name="Reason">终止原因。</param><param name="InferenceSeconds">GPU 推理时间。</param>
+/// <param name="Complete">正常生成。</param><param name="Reason">终止原因。</param><param name="InferenceSeconds">识别推理时间。</param>
 /// <param name="RoundTripSeconds">完整管道耗时。</param>
 internal sealed record AsrCheckResult(Guid RequestId, long Sequence, long StartSample, long EndSample, string Text, string? Language,
     bool Complete, string Reason, double InferenceSeconds, double RoundTripSeconds);

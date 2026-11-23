@@ -1,8 +1,9 @@
 using System.Runtime.InteropServices;
+using LiveLingo.Core.Desktop;
 
 namespace LiveLingo.Runtime.Storage;
 
-/// <summary>仅操作非 C 盘独占目录中由本实例创建的临时 PCM 文件。</summary>
+/// <summary>仅操作独占目录中由本实例创建的临时 PCM 文件。</summary>
 public sealed class FileAudioSpillStore : IAudioSpillStore
 {
     private readonly string directory;
@@ -11,13 +12,12 @@ public sealed class FileAudioSpillStore : IAudioSpillStore
     private bool writeFaulted;
 
     /// <summary>建立不存在且不经过链接的会话专属目录。</summary>
-    /// <param name="directory">绝对非 C 盘新目录。</param>
+    /// <param name="directory">绝对本地新目录。</param>
     /// <exception cref="ArgumentException">路径不满足所有权约束。</exception>
     /// <exception cref="IOException">目录已存在或无法创建。</exception>
     public FileAudioSpillStore(string directory)
     {
-        if (!Path.IsPathFullyQualified(directory) || Path.GetPathRoot(directory)?.StartsWith("C:", StringComparison.OrdinalIgnoreCase) == true)
-            throw new ArgumentException("临时音频需要绝对非 C 盘路径。", nameof(directory));
+        DesktopSettings.ValidateDataPath(directory);
         this.directory = Path.GetFullPath(directory).TrimEnd(Path.DirectorySeparatorChar);
         if (Directory.Exists(this.directory) || File.Exists(this.directory)) throw new IOException("临时目录必须独占且尚不存在。");
         for (var parent = new DirectoryInfo(this.directory); parent is not null; parent = parent.Parent)

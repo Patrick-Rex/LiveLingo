@@ -5,6 +5,7 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using LiveLingo.Core.Desktop;
 using LiveLingo.Core.Sessions;
 using LiveLingo.Core.Subtitles;
 using LiveLingo.Platform.Windows.Processes;
@@ -26,10 +27,11 @@ internal static class PipelineReplayCheck
     /// <param name="alignmentRecoverySeconds">显式扩窗实验上限，零禁用，60 或 120 秒。</param>
     /// <param name="preserveObservedRepetitions">是否启用扩窗已观察重复减少拒收实验。</param>
     /// <param name="livePriority">为 WAV 回放启用桌面直播的短段识别和积压续接策略。进程采集始终使用该策略。</param>
+    /// <param name="pythonPath">可选的隔离环境解释器路径。</param>
     /// <returns>运行和清理成功时为零，模型质量另看证据。</returns>
     public static async Task<int> RunAsync(string repository, string profilePath, string model, string ollamaExecutable, string input,
         string output, double durationSeconds, string translationModel, int targetPid = 0, int alignmentRecoverySeconds = 120,
-        bool preserveObservedRepetitions = false, bool livePriority = false)
+        bool preserveObservedRepetitions = false, bool livePriority = false, string? pythonPath = null)
     {
         foreach (var path in new[] { repository, profilePath, model, ollamaExecutable }.Concat(targetPid == 0 ? [input] : Array.Empty<string>()))
             if (!Path.IsPathFullyQualified(path)) throw new ArgumentException("需要绝对路径。");
@@ -50,7 +52,7 @@ internal static class PipelineReplayCheck
         var profileRoot = profile.RootElement;
         var expected = new WorkerInformation(profileRoot.GetProperty("python").GetString()!, profileRoot.GetProperty("torch").GetString()!,
             profileRoot.GetProperty("cuda").GetString()!, profileRoot.GetProperty("modelRevision").GetString()!, "");
-        var python = profileRoot.GetProperty("interpreter").GetString()!;
+        var python = pythonPath ?? DesktopSettings.GetManagedInterpreter(profileRoot.GetProperty("id").GetString()!);
         var directory = OutputDirectory.Prepare(output);
         var sourceFingerprint = ReportBuilder.SourceFingerprint();
         var binaryFingerprint = BinaryFingerprint();
@@ -89,13 +91,13 @@ internal static class PipelineReplayCheck
         {
             var connection = new OwnedWorkerConnection(python,
                 ["-u", "-m", "workers.qwen_asr.service", "--profile", profilePath, "--model", model, "--worker-epoch", epoch.ToString(System.Globalization.CultureInfo.InvariantCulture)],
-                repository, "pipeline-qwen", new Dictionary<string, string> { ["LIVELINGO_OWNED_WORKER"] = "1", ["PYTHONUTF8"] = "1" });
+                repository, "pipeline-qwen", new Dictionary<string, string> { ["LIVELINGO_OWNED_WORKER"] = "1", ["PYTHONUTF8"] = "1", ["LIVELINGO_PROFILE_INTERPRETER"] = python });
             owned.Enqueue(connection); return connection;
         }, () =>
         {
             var connection = new OwnedWorkerConnection(ollamaExecutable, ["serve"], repository, "pipeline-ollama", new Dictionary<string, string>
             {
-                ["OLLAMA_HOST"] = $"127.0.0.1:{port}", ["OLLAMA_MODELS"] = @"D:\Soft Ware\Ollama", ["OLLAMA_CONTEXT_LENGTH"] = "4096",
+                ["OLLAMA_HOST"] = $"127.0.0.1:{port}", ["OLLAMA_MODELS"] = new DesktopSettings().OllamaModelsPath, ["OLLAMA_CONTEXT_LENGTH"] = "4096",
                 ["OLLAMA_NUM_PARALLEL"] = "1", ["OLLAMA_MAX_LOADED_MODELS"] = "1"
             });
             owned.Enqueue(connection); return connection;
@@ -103,7 +105,7 @@ internal static class PipelineReplayCheck
         ContinuousAudioStore? currentStore = null;
         var pipeline = new SubtitlePipeline(new(session, 1, 1, 1), selection, options, () =>
         {
-            var path = Path.Combine(@"D:\Soft Ware\LiveLingo\data\pipeline-cache", session.ToString("N") + "-" + spillDirectories.Count);
+            var path = Path.Combine(directory, session.ToString("N") + "-" + spillDirectories.Count);
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             spillDirectories.Add(path);
             return currentStore = new ContinuousAudioStore(new FileAudioSpillStore(path), options.MemorySamples, options.SpillSamples, options.MaximumLeaseSamples);
@@ -153,10 +155,14 @@ internal static class PipelineReplayCheck
         string? error = null;
         try
         {
-            var gpuConnection = new OwnedWorkerConnection(Path.Combine(Environment.SystemDirectory, "nvidia-smi.exe"),
-                ["--id=0", "--query-gpu=memory.used,memory.total,utilization.gpu", "--format=csv,noheader,nounits", "--loop-ms=1000"], repository, "pipeline-gpu-sampler");
-            owned.Enqueue(gpuConnection);
-            gpuSampler = new(gpuConnection, Path.Combine(directory, "gpu.jsonl"));
+            var nvidiaSmi = Path.Combine(Environment.SystemDirectory, "nvidia-smi.exe");
+            if (profileRoot.GetProperty("backend").GetString() == "cuda" && File.Exists(nvidiaSmi))
+            {
+                var gpuConnection = new OwnedWorkerConnection(nvidiaSmi,
+                    ["--id=0", "--query-gpu=memory.used,memory.total,utilization.gpu", "--format=csv,noheader,nounits", "--loop-ms=1000"], repository, "pipeline-gpu-sampler");
+                owned.Enqueue(gpuConnection);
+                gpuSampler = new(gpuConnection, Path.Combine(directory, "gpu.jsonl"));
+            }
             var source = capture is null ? WaveReplaySource.ReadAsync(input, session, durationSeconds, realtime: true, stop.Token) : capture.ReadAsync(session, stop.Token);
             final = await pipeline.RunAsync(source, stop.Token).ConfigureAwait(false);
         }
@@ -175,7 +181,7 @@ internal static class PipelineReplayCheck
         var remaining = observed.Where(x => WindowsTargets.Query(x.ProcessId).Identity is { } actual && x.SameInstance(actual)).ToArray();
         var temporary = spillDirectories.Where(Directory.Exists).ToArray();
         var passed = error is null && remaining.Length == 0 && temporary.Length == 0 && final is { Status: "completed" } && final.Gaps.Length == 0 &&
-            (capture is null || capture.ExitCode == 0) && gpuSampler?.Summary is { Samples: > 0, Error: null };
+            (capture is null || capture.ExitCode == 0) && (gpuSampler is null || gpuSampler.Summary is { Samples: > 0, Error: null });
         var report = new PipelineCheckReport(passed, false, error, selection, options, Stopwatch.GetElapsedTime(started).TotalSeconds,
             activeStarted == 0 ? 0 : Stopwatch.GetElapsedTime(started, activeStarted).TotalSeconds, durationSeconds,
             capture is null ? Hash(input) : null, firstReadable.ToArray(), observed, remaining, temporary,
