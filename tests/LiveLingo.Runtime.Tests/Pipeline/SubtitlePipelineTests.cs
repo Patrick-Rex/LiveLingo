@@ -721,8 +721,8 @@ public sealed class SubtitlePipelineTests
     public async Task FirstIncompleteLiveWindowRetriesOnlyDistinctShortRanges(bool recover)
     {
         const int second = 16000;
-        var models = new ControlledModels { RecognitionComplete = request => recover &&
-            (request.WindowRange.Start > 0 || request.WindowRange.Length <= 2 * second) };
+        var models = new ControlledModels { RecognitionComplete = request => request.WindowRange.Start > 0 ||
+            recover && request.WindowRange.Length <= 2 * second };
         var input = Channel.CreateBounded<PipelineInput>(8);
         var pipeline = Create(models, _ => { }, new() { PreferLiveSegments = true });
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
@@ -735,21 +735,105 @@ public sealed class SubtitlePipelineTests
             Assert.Equal(new SampleRange(0, end * second), attempt.Request.WindowRange);
             attempt.Reply.SetResult("最初の確認ですが");
         }
-        if (recover)
+        for (var start = 2; start < 30; start += 6)
         {
-            for (var start = 2; start < 30; start += 6)
-            {
-                var next = await models.NextAsync(timeout.Token);
-                Assert.Equal(new SampleRange(start * second, Math.Min(start + 6, 30) * second), next.Request.WindowRange);
-                next.Reply.SetResult("次の確認ですが");
-            }
+            var next = await models.NextAsync(timeout.Token);
+            Assert.Equal(new SampleRange(start * second, Math.Min(start + 6, 30) * second), next.Request.WindowRange);
+            next.Reply.SetResult("次の確認ですが");
         }
         var final = await run.WaitAsync(timeout.Token);
-        Assert.Equal(recover ? "completed" : "recognition_incomplete", final.Status);
-        Assert.Equal(recover ? 0 : 30 * second, final.BacklogSamples);
-        Assert.Equal(recover ? 30 * second : 0, final.RecognizedEnd);
+        Assert.Equal("completed", final.Status);
+        Assert.Equal(0, final.BacklogSamples);
+        Assert.Equal(30 * second, final.RecognizedEnd);
+        if (recover) Assert.Empty(final.Gaps);
+        else
+        {
+            Assert.Equal(new PipelineGap(1, new(0, 2 * second), "live_recognition_gap"), Assert.Single(final.Gaps));
+            Assert.All(final.Subtitles.Segments, segment => Assert.True(segment.Range.Start >= 2 * second));
+        }
+    }
+
+    /// <summary>首个短请求失败时等待更充分的音频；较长请求成功即完整接受该段。</summary>
+    /// <returns>没有提前跳过最初两秒的直播验证任务。</returns>
+    [Fact]
+    public async Task ShortFailureWaitsForLongerLiveEvidence()
+    {
+        const int second = 16000;
+        var models = new ControlledModels { RecognitionComplete = request => request.WindowRange.Length >= 6 * second };
+        var input = Channel.CreateBounded<PipelineInput>(8);
+        var failed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var pipeline = Create(models, _ => { }, new() { PreferLiveSegments = true }, publishRejection: _ => failed.TrySetResult());
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var run = pipeline.RunAsync(input.Reader.ReadAllAsync(timeout.Token), timeout.Token);
+        await input.Writer.WriteAsync(Audio(0, 2 * second, false), timeout.Token);
+        (await models.NextAsync(timeout.Token)).Reply.SetResult("切れた結果");
+        await failed.Task.WaitAsync(timeout.Token);
+        await input.Writer.WriteAsync(Audio(2 * second, 6 * second, false), timeout.Token);
+        var next = await models.NextAsync(timeout.Token);
+        Assert.Equal(new SampleRange(0, 6 * second), next.Request.WindowRange);
+        next.Reply.SetResult("完全な文章です");
+        input.Writer.Complete();
+        var final = await run.WaitAsync(timeout.Token);
         Assert.Empty(final.Gaps);
-        if (!recover) Assert.Equal(3, final.RecognitionCalls);
+        Assert.Equal(6 * second, final.RecognizedEnd);
+        Assert.Equal("完全な文章です", Assert.Single(final.Subtitles.Segments).Translation);
+    }
+
+    /// <summary>结束时标记仅剩的不足两秒音频，上一段译文与真实识别终点保留，缺口从积压扣除。</summary>
+    /// <returns>同代次尾部缺口及之前已译段验证任务。</returns>
+    [Fact]
+    public async Task FinalLiveGapKeepsTheLastRealRecognitionEndpoint()
+    {
+        const int second = 16000;
+        var models = new ControlledModels { RecognitionComplete = request => request.WindowRange.Start == 0 };
+        var input = Channel.CreateBounded<PipelineInput>(8);
+        var pipeline = Create(models, _ => { }, new() { PreferLiveSegments = true });
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var run = pipeline.RunAsync(input.Reader.ReadAllAsync(timeout.Token), timeout.Token);
+        await input.Writer.WriteAsync(Audio(0, 30 * second, false), timeout.Token);
+        (await models.NextAsync(timeout.Token)).Reply.SetResult("前の字幕を保ちます");
+        await models.Translated.Reader.ReadAsync(timeout.Token);
+        await input.Writer.WriteAsync(Audio(30 * second, 31 * second, false), timeout.Token);
+        input.Writer.Complete();
+        (await models.NextAsync(timeout.Token)).Reply.SetResult("不完全な候補");
+        var final = await run.WaitAsync(timeout.Token);
+        Assert.Equal("completed", final.Status);
+        Assert.Equal(0, final.BacklogSamples);
+        Assert.Equal(30 * second, final.RecognizedEnd);
+        Assert.Equal(new PipelineGap(1, new(30 * second, 31 * second), "live_recognition_gap"), Assert.Single(final.Gaps));
+        Assert.Equal("前の字幕を保ちます", Assert.Single(final.Subtitles.Segments.Where(x => x.Source.Length > 0)).Translation);
+        Assert.Equal(1, final.TranslationCalls);
+    }
+
+    /// <summary>短段缺口超过快照容量后，订阅序号仍前进，后续音频仍能在同一采集代次产出翻译。</summary>
+    /// <returns>超过 256 处失败后的有界快照与恢复验证任务。</returns>
+    [Fact]
+    public async Task LiveGapsRemainBoundedWithoutStoppingLaterSubtitles()
+    {
+        const int second = 16000;
+        const int count = 260;
+        var models = new ControlledModels { RecognitionComplete = request => request.WindowRange.Start == count * second };
+        var input = Channel.CreateBounded<PipelineInput>(8);
+        var pipeline = Create(models, _ => { }, new() { PreferLiveSegments = true, MaximumWindowSamples = second, RefreshSamples = second,
+            AlignmentRecoverySamples = 0, MemorySamples = (count + 1) * second, SpillSamples = 0, MaximumBacklogSamples = (count + 1) * second });
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var run = pipeline.RunAsync(input.Reader.ReadAllAsync(timeout.Token), timeout.Token);
+        await input.Writer.WriteAsync(Audio(0, (count + 1) * second, false), timeout.Token);
+        input.Writer.Complete();
+        for (var index = 0; index <= count; index++)
+        {
+            var next = await models.NextAsync(timeout.Token);
+            Assert.Equal(new SampleRange(index * second, (index + 1) * second), next.Request.WindowRange);
+            next.Reply.SetResult("後の字幕です");
+        }
+        var final = await run.WaitAsync(timeout.Token);
+        Assert.Equal("completed", final.Status);
+        Assert.Equal(count, final.TotalGaps);
+        Assert.Equal(256, final.Gaps.Length);
+        Assert.Equal(new SampleRange((count - 256) * second, (count - 255) * second), final.Gaps[0].Range);
+        Assert.Equal((count + 1) * second, final.RecognizedEnd);
+        Assert.Equal("後の字幕です", Assert.Single(final.Subtitles.Segments).Translation);
+        Assert.Empty(final.Subtitles.RetiredIds);
     }
 
     /// <summary>配置重置只重识别活跃尾部，固定的直播段沿用现有原译文并释放其音频。</summary>

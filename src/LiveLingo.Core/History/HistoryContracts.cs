@@ -83,7 +83,7 @@ public interface IHistoryRecorder
     event Action<HistorySaveStatus>? StatusChanged;
     /// <summary>接收完整快照，不在调用线程执行磁盘操作。</summary><param name="snapshot">权威字幕快照。</param>
     void Offer(SubtitleSnapshot snapshot);
-    /// <summary>记录因积压跳过的未识别音频范围，并异步保存会话提示。</summary>
+    /// <summary>记录直播识别重试失败或积压超限时跳过的音频范围，并异步保存会话提示。</summary>
     /// <param name="captureEpoch">范围所属的独立采集代次。</param><param name="range">该代次内 16 kHz 音频的半开采样范围。</param>
     /// <exception cref="ArgumentOutOfRangeException">采集代次不是正数。</exception>
     void RecordBacklogGap(long captureEpoch, SampleRange range);

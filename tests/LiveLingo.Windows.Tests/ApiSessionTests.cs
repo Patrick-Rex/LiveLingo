@@ -14,12 +14,13 @@ namespace LiveLingo.Windows.Tests;
 public sealed class ApiSessionTests
 {
     /// <summary>真实本机 HTTP 请求贯通识别、翻译与字幕，整个会话无需任何本地推理资产。</summary>
-    /// <param name="resume">是否先模拟有未识别音频的积压续接通知。</param>
+    /// <param name="gapReason">宿主收到的未识别范围原因，为空时仅提供完整音频。</param>
     /// <returns>字幕完成、服务关闭及进程清理验证任务。</returns>
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task AllApiSessionProducesSubtitlesOverHttpWithoutLocalAssets(bool resume)
+    [InlineData(null)]
+    [InlineData("audio_backlog_capacity")]
+    [InlineData("live_recognition_gap")]
+    public async Task AllApiSessionProducesSubtitlesOverHttpWithoutLocalAssets(string? gapReason)
     {
         var root = Path.Combine(Path.GetTempPath(), "api-http-session-" + Guid.NewGuid().ToString("N"));
         await using var server = new LoopbackApi();
@@ -32,7 +33,7 @@ public sealed class ApiSessionTests
         };
         var history = new DesktopHistory(root);
         var session = new DesktopSession(Path.Combine(root, "missing-content"), history)
-            { VerificationInput = (_, token) => AudioInput(resume, token) };
+            { VerificationInput = (_, token) => AudioInput(gapReason, token) };
         var stopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var id = Guid.NewGuid();
         DesktopUpdate? lastUpdate = null;
@@ -52,8 +53,8 @@ public sealed class ApiSessionTests
             Assert.True(server.RecognitionCalls > 0); Assert.Equal(2, server.TranslationCalls);
             var saved = await history.Store!.ReadAsync(id, TestContext.Current.CancellationToken);
             Assert.Equal(HistorySessionState.Completed, saved.Summary.State);
-            Assert.Equal(resume ? 2 : 1, Assert.Single(saved.Entries).Key.CaptureEpoch);
-            if (resume)
+            Assert.Equal(gapReason is null ? 1 : 2, Assert.Single(saved.Entries).Key.CaptureEpoch);
+            if (gapReason is not null)
             {
                 Assert.Contains("未识别", lastUpdate!.Status);
                 Assert.Contains("采集片段 1，0–0.5 秒", saved.Summary.Error);
@@ -69,19 +70,19 @@ public sealed class ApiSessionTests
         }
     }
 
-    /// <summary>可先提供积压缺口，再从当前采集代次提供四秒有声样本触发实际 API 调用。</summary>
-    /// <param name="resume">是否在完整音频前触发续接。</param><param name="token">测试生命周期。</param><returns>有界的采集输入。</returns>
-    private static async IAsyncEnumerable<PipelineInput> AudioInput(bool resume, [EnumeratorCancellation] CancellationToken token)
+    /// <summary>可先通过采集控制注入缺口通知验证宿主转存，再提供四秒有声样本触发实际 API 调用。</summary>
+    /// <param name="gapReason">用于验证宿主显示和历史路由的缺口原因。</param><param name="token">测试生命周期。</param><returns>有界的采集输入。</returns>
+    private static async IAsyncEnumerable<PipelineInput> AudioInput(string? gapReason, [EnumeratorCancellation] CancellationToken token)
     {
         await Task.Yield(); token.ThrowIfCancellationRequested();
-        if (resume)
+        if (gapReason is not null)
         {
             var missed = new float[8000]; Array.Fill(missed, 0.1f);
             yield return new PipelineAudio(1, new(new(0, missed.Length), missed));
-            yield return new PipelineCaptureReset(2, "audio_backlog_capacity");
+            yield return new PipelineCaptureReset(2, gapReason);
         }
         var samples = new float[64000]; Array.Fill(samples, 0.1f);
-        yield return new PipelineAudio(resume ? 2 : 1, new(new(0, samples.Length), samples));
+        yield return new PipelineAudio(gapReason is null ? 1 : 2, new(new(0, samples.Length), samples));
     }
 
     /// <summary>提供有界的本机 OpenAI 兼容测试端点，验证真实请求后返回确定文本。</summary>

@@ -35,7 +35,11 @@ public sealed record RecognitionRejection(PipelineRequest Request, Transcription
 /// <param name="TranslationCalls">实际翻译调用数。</param><param name="LastComputeSeconds">最近模型操作耗时。</param>
 public sealed record PipelineSnapshot(long StateSequence, SubtitleSnapshot Subtitles, long AudioEnd, long RecognizedEnd,
     long BacklogSamples, int ClosedQueueCount, int MemorySamples, long SpilledSamples, int Pins, string Status,
-    ImmutableArray<PipelineGap> Gaps, long RecognitionCalls, long TranslationCalls, double LastComputeSeconds);
+    ImmutableArray<PipelineGap> Gaps, long RecognitionCalls, long TranslationCalls, double LastComputeSeconds)
+{
+    /// <summary>获取会话自启动以来登记的缺口总数，Gaps 保留最近 256 处供订阅者按序接收。</summary>
+    public long TotalGaps { get; init; } = Gaps.Length;
+}
 
 /// <summary>持续消费音频且串行调度模型，全部权威状态只在同一个事件循环修改。</summary>
 public sealed class SubtitlePipeline
@@ -56,8 +60,9 @@ public sealed class SubtitlePipeline
     private PipelineModelSelection selection;
     private Guid? openSegment;
     private TranscriptionHypothesis? hypothesis;
-    private int stableObservations, recoveries;
+    private int stableObservations, recoveries, captureResets;
     private long nextRequest, snapshotSequence, recognizedEnd, recognitionCalls, translationCalls;
+    private long skippedEnd, totalGaps;
     private long lastOfferedEnd, releaseBefore, observedEnd;
     private long failedRecognitionEnd = -1;
     private long audioEndAtDispatch, audioEndAtFailure, quietCandidateEnd;
@@ -131,7 +136,7 @@ public sealed class SubtitlePipeline
                     if (ApplyCompletion(completion))
                         resetting = BeginModelResetAsync(reducer.Identity with { WorkerEpoch = reducer.Identity.WorkerEpoch + 1 }, computationStop!.Token);
                     else { computationStop!.Dispose(); computationStop = null; }
-                    OfferRecognition(force: eof);
+                    OfferRecognition(force: eof, endOfInput: eof);
                 }
                 if (incoming?.IsCompleted == true)
                 {
@@ -144,7 +149,7 @@ public sealed class SubtitlePipeline
                             if (packet.CaptureEpoch != inputEpoch || audio.Range.Start != checked(inputOrigin + store.End) ||
                                 audio.Range.Length != audio.Samples.Length) throw new InvalidDataException("capture_identity_or_continuity");
                             var end = audio.Range.End - inputOrigin;
-                            if (options.ResumeLiveAfterBacklog && end - recognizedEnd >= options.MaximumBacklogSamples)
+                            if (options.ResumeLiveAfterBacklog && end - ProcessedEnd >= options.MaximumBacklogSamples)
                             {
                                 observedEnd = end;
                                 inputOrigin = audio.Range.End;
@@ -174,7 +179,7 @@ public sealed class SubtitlePipeline
                             resetting = ApplyControlAsync(item, computationStop.Token);
                         }
                     }
-                    else { eof = true; OfferRecognition(force: true); }
+                    else { eof = true; OfferRecognition(force: true, endOfInput: true); }
                     incoming = null;
                 }
                 if (computing is null && resetting is null)
@@ -201,7 +206,7 @@ public sealed class SubtitlePipeline
         catch (Exception error)
         {
             status = error is PipelinePressureException pressure ? pressure.Reason : "pipeline_failed:" + error.GetType().Name;
-            if (gaps.Count < 256) gaps.Add(new(reducer.Identity.CaptureEpoch, new(recognizedEnd, Math.Max(observedEnd, Math.Max(recognizedEnd, store.End))), status));
+            RecordGap(new(ProcessedEnd, Math.Max(observedEnd, Math.Max(ProcessedEnd, store.End))), status);
         }
         finally
         {
@@ -247,7 +252,7 @@ public sealed class SubtitlePipeline
                 store.Append(start + offset, samples.AsSpan(offset, Math.Min(16000, samples.Length - offset)));
         }
         catch (InvalidOperationException) { throw new PipelinePressureException("audio_storage_pressure"); }
-        if (store.End - recognizedEnd > options.MaximumBacklogSamples) throw new PipelinePressureException("audio_backlog_capacity");
+        if (store.End - ProcessedEnd > options.MaximumBacklogSamples) throw new PipelinePressureException("audio_backlog_capacity");
         if (openSegment is null)
         {
             if (samples.All(x => x == 0)) { recognizedEnd = store.End; Reclaim(); Emit(); return; }
@@ -262,9 +267,12 @@ public sealed class SubtitlePipeline
 
     /// <summary>为开放块保留包含未处理锚点的最新快照；模型窗口长度不改变逻辑块。</summary>
     /// <param name="force">EOF 时允许不足刷新间隔的最后完整输入。</param>
-    private void OfferRecognition(bool force)
+    /// <param name="endOfInput">已确认没有后续音频可作为较长识别证据。</param>
+    private void OfferRecognition(bool force, bool endOfInput = false)
     {
         if (recognitionQueue.Pending?.RecoveryWindowSamples > 0 || recognitionQueue.Running?.RecoveryWindowSamples > 0) return;
+        if (options.PreferLiveSegments && failedRecognitionEnd >= 0 && hypothesis is null && openSegment is { } id &&
+            ResolveFailedLiveWindow(id, endOfInput)) return;
         if (openSegment is null || store.End <= lastOfferedEnd || !force && store.End - lastOfferedEnd < options.RefreshSamples) return;
         var segment = Segment(openSegment.Value);
         var acceptedEnd = hypothesis?.Range.End ?? segment.Range.Start;
@@ -276,14 +284,6 @@ public sealed class SubtitlePipeline
         {
             var limit = segment.Range.Start + LiveWindowLimit;
             offeredEnd = Math.Min(store.End, limit);
-            if (failedRecognitionEnd >= limit)
-            {
-                // 连续短段的首次识别也可能被截断。最多再试一个不同的短窗口，保留不可用范围与积压。
-                if (triedShorterWindow || recognitionQueue.Running is not null || recognitionQueue.Pending is not null) return;
-                offeredEnd = Math.Min(offeredEnd, segment.Range.Start + options.RefreshSamples);
-                if (offeredEnd >= failedRecognitionEnd) return;
-                triedShorterWindow = true;
-            }
             if (offeredEnd <= lastOfferedEnd) return;
         }
         else if (reachableEnd <= failedRecognitionEnd)
@@ -307,11 +307,43 @@ public sealed class SubtitlePipeline
                     recoveryWindow = offeredEnd - acceptedEnd <= 960000 - overlap ? 960000 : 1920000;
             }
         }
+        EnqueueRecognition(segment, offeredEnd, recoveryWindow);
+    }
+
+    /// <summary>登记指定逻辑块和终点的识别快照，并保留仍待处理的实际采样负担。</summary>
+    /// <param name="segment">当前来源锚点。</param><param name="offeredEnd">待识别终点。</param><param name="recoveryWindow">对齐扩窗预算。</param>
+    private void EnqueueRecognition(SubtitleSegment segment, long offeredEnd, int recoveryWindow)
+    {
         var request = new PipelineRequest(Guid.NewGuid(), ++nextRequest, PipelineRequestKind.Recognition, reducer.Identity,
             segment.Key, new(segment.Range.Start, offeredEnd), segment.SourceRevision);
-        var unprocessed = new SampleRange(Math.Clamp(recognizedEnd, segment.Range.Start, offeredEnd), offeredEnd);
+        var unprocessed = new SampleRange(Math.Clamp(ProcessedEnd, segment.Range.Start, offeredEnd), offeredEnd);
         if (!recognitionQueue.Offer(new(request, unprocessed, false, Stopwatch.GetTimestamp(), recoveryWindow))) throw new PipelinePressureException(recognitionQueue.Rejection!);
         lastOfferedEnd = offeredEnd;
+    }
+
+    /// <summary>最长可用短段已失败时补试一个刷新间隔；两者都失败后记录最短范围并从其终点继续。</summary>
+    /// <param name="id">尚无可信结果的当前块。</param><param name="endOfInput">是否以实际文件结尾限制最终证据。</param>
+    /// <returns>已有识别在途或刚排入一次短重试，调用方应等待结果时为 true。</returns>
+    private bool ResolveFailedLiveWindow(Guid id, bool endOfInput)
+    {
+        if (recognitionQueue.Running is not null || recognitionQueue.Pending is not null) return true;
+        var segment = Segment(id);
+        var longestEnd = segment.Range.Start + LiveWindowLimit;
+        if (endOfInput) longestEnd = Math.Min(store.End, longestEnd);
+        if (failedRecognitionEnd < longestEnd) return false;
+        var shortestEnd = Math.Min(longestEnd, segment.Range.Start + options.RefreshSamples);
+        if (shortestEnd < longestEnd && !triedShorterWindow)
+        {
+            triedShorterWindow = true;
+            EnqueueRecognition(segment, shortestEnd, 0);
+            return true;
+        }
+        RecordGap(new(segment.Range.Start, shortestEnd), "live_recognition_gap");
+        reducer.AdvanceEmptyAnchor(id, shortestEnd);
+        skippedEnd = lastOfferedEnd = shortestEnd;
+        failedRecognitionEnd = -1; triedShorterWindow = false; quietCandidateEnd = 0; recognitionIssue = null;
+        Reclaim(); Emit();
+        return false;
     }
 
     /// <summary>优先保留闭合译文；开放块两句翻译之间允许已到期的识别及时修订尾部。</summary>
@@ -578,6 +610,18 @@ public sealed class SubtitlePipeline
     /// <summary>获取直播普通开放段或持续讲话短段允许覆盖的最大采样数。</summary>
     private int LiveWindowLimit => usingShortLiveSegments ? Math.Min(LiveSegmentSamples, options.MaximumWindowSamples) : options.MaximumWindowSamples;
 
+    /// <summary>获取已经接受识别或明确登记为未识别的音频进度，仅用于排队和压力计算。</summary>
+    private long ProcessedEnd => Math.Max(recognizedEnd, skippedEnd);
+
+    /// <summary>按发生顺序登记采集代次内的缺口，仅保留最新的有限范围供同步消费者转存。</summary>
+    /// <param name="range">已知未识别或中断的半开采样范围。</param><param name="reason">结构化原因码。</param>
+    private void RecordGap(SampleRange range, string reason)
+    {
+        if (gaps.Count == 256) gaps.RemoveAt(0);
+        gaps.Add(new(reducer.Identity.CaptureEpoch, range, reason));
+        totalGaps++;
+    }
+
     /// <summary>处理已等待计算退出的采集或模型控制，旧许可全部撤销。</summary>
     /// <param name="input">控制事件。</param><param name="cancellationToken">恢复取消。</param><returns>模型重新就绪任务。</returns>
     private Task ApplyControlAsync(PipelineInput input, CancellationToken cancellationToken)
@@ -585,11 +629,12 @@ public sealed class SubtitlePipeline
         var identity = reducer.Identity;
         if (input is PipelineCaptureReset reset)
         {
-            if (reset.CaptureEpoch <= identity.CaptureEpoch || gaps.Count >= 256) throw new InvalidDataException("capture_reset_identity_or_capacity");
-            gaps.Add(new(identity.CaptureEpoch, new(recognizedEnd, Math.Max(recognizedEnd, observedEnd)), reset.Reason));
+            if (reset.CaptureEpoch <= identity.CaptureEpoch || captureResets >= 256) throw new InvalidDataException("capture_reset_identity_or_capacity");
+            captureResets++;
+            RecordGap(new(ProcessedEnd, Math.Max(ProcessedEnd, observedEnd)), reset.Reason);
             identity = identity with { CaptureEpoch = reset.CaptureEpoch, WorkerEpoch = identity.WorkerEpoch + 1 };
             store.Dispose(); store = createStore(); openSegment = null; hypothesis = null;
-            recognizedEnd = lastOfferedEnd = releaseBefore = observedEnd = 0; stableObservations = 0;
+            recognizedEnd = skippedEnd = lastOfferedEnd = releaseBefore = observedEnd = 0; stableObservations = 0;
             recognitionIssue = null; previousRightContext = false;
             usingShortLiveSegments = false;
             Array.Clear(rightContextSamples); rightContextPosition = rightContextCount = 0; rightContextEnergy = 0;
@@ -701,8 +746,8 @@ public sealed class SubtitlePipeline
     private PipelineSnapshot Emit()
     {
         var snapshot = new PipelineSnapshot(++snapshotSequence, reducer.Snapshot(), store.End, recognizedEnd,
-            Math.Max(0, store.End - recognizedEnd), translationQueue.ClosedCount, store.MemorySamples, store.SpilledSamples, store.PinCount,
-            status == "running" ? recognitionIssue ?? status : status, gaps.ToImmutableArray(), recognitionCalls, translationCalls, lastComputeSeconds);
+            Math.Max(0, store.End - ProcessedEnd), translationQueue.ClosedCount, store.MemorySamples, store.SpilledSamples, store.PinCount,
+            status == "running" ? recognitionIssue ?? status : status, gaps.ToImmutableArray(), recognitionCalls, translationCalls, lastComputeSeconds) { TotalGaps = totalGaps };
         publish(snapshot); return snapshot;
     }
 

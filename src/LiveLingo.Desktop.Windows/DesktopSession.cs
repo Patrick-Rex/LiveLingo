@@ -130,7 +130,7 @@ public sealed class DesktopSession(string contentRoot, DesktopHistory? history =
                 owned.Enqueue(connection); return connection;
             }, new Uri($"http://127.0.0.1:{port}/"), expected, options);
             var generation = 0;
-            var handledGaps = 0;
+            long handledGaps = 0;
             var auditClock = Stopwatch.StartNew();
             var pipeline = new SubtitlePipeline(new(id, 1, 1, 1), new(settings.EffectiveTranslationModel, settings.AsrLanguage, settings.AsrBackend, settings.TranslationBackend, settings.AsrApi, settings.TranslationApi), options, () =>
             {
@@ -141,10 +141,12 @@ public sealed class DesktopSession(string contentRoot, DesktopHistory? history =
             {
                 recorder?.Offer(snapshot.Subtitles);
                 string? notice = null;
-                while (handledGaps < snapshot.Gaps.Length)
+                var firstGap = snapshot.TotalGaps - snapshot.Gaps.Length;
+                handledGaps = Math.Max(handledGaps, firstGap);
+                while (handledGaps < snapshot.TotalGaps)
                 {
-                    var gap = snapshot.Gaps[handledGaps++];
-                    if (gap.Reason != "audio_backlog_capacity" || gap.Range.Length == 0) continue;
+                    var gap = snapshot.Gaps[(int)(handledGaps++ - firstGap)];
+                    if (gap.Reason is not ("audio_backlog_capacity" or "live_recognition_gap") || gap.Range.Length == 0) continue;
                     recorder?.RecordBacklogGap(gap.CaptureEpoch, gap.Range);
                     notice = $"采集片段 {gap.CaptureEpoch} 的 {gap.Range.Start / 16000.0:F1}–{gap.Range.End / 16000.0:F1} 秒未识别";
                 }

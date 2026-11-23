@@ -252,6 +252,20 @@ public sealed class SubtitleReducer
         CancelSegment(id); segments.Remove(id); retired.Add(id); Commit();
     }
 
+    /// <summary>未获得任何原文的直播段跨过已记录缺口后移动空锚点，并撤销上一范围的请求。</summary>
+    /// <param name="id">没有已接受来源的空段。</param><param name="end">已标记未识别区间的右侧采样。</param>
+    /// <exception cref="InvalidOperationException">会话已停止、段非空或锚点未向前移动。</exception>
+    public void AdvanceEmptyAnchor(Guid id, long end)
+    {
+        if (Stopped || !segments.TryGetValue(id, out var segment) || segment.SourceRevision != 0 ||
+            segment.Range.Length != 0 || segment.Range.Start >= end)
+            throw new InvalidOperationException("只能将尚无识别结果的空锚点向前移动。");
+        CancelSegment(id);
+        segments[id] = segment with { Key = new(id, checked(segment.Key.Generation + 1)), Range = new(end, end),
+            SubtitleRevision = checked(segment.SubtitleRevision + 1) };
+        Commit();
+    }
+
     /// <summary>固定已接受的直播音频范围，撤销其识别许可，保留原文、边界证据与当前版本的逐句翻译。</summary>
     /// <param name="id">已有完整识别结果的源块。</param>
     /// <returns>已固定音频范围的字幕快照。</returns>
