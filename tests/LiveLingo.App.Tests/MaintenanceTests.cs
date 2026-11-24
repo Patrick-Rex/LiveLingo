@@ -6,6 +6,27 @@ namespace LiveLingo.App.Tests;
 /// <summary>验证维护操作必须由用户确认且受窗口生命周期约束。</summary>
 public sealed class MaintenanceTests
 {
+    /// <summary>Windows 管理的安装只显示其更新入口，不检查或下载 GitHub 更新。</summary>
+    /// <returns>更新入口隔离检查任务。</returns>
+    [Fact]
+    public async Task WindowsManagedInstallDoesNotCheckOrDownloadApplicationUpdates()
+    {
+        var updates = new FakeUpdates { IsInstalled = false, UnavailableMessage = "请使用 Windows 更新此 MSIX。" };
+        var vm = new MaintenanceViewModel(new FakeEnvironment(), updates, () => new(), () => true);
+        try
+        {
+            await vm.InitializeAsync();
+            await vm.UpdateCommand.ExecuteAsync(null);
+            Assert.Equal(updates.UnavailableMessage, vm.UpdateMessage);
+            Assert.False(vm.CanUpdate);
+            Assert.False(vm.HasUpdateNotification);
+            Assert.False(vm.InstallAccepted);
+            Assert.Equal(0, updates.Checks);
+            Assert.Equal(0, updates.Downloads);
+        }
+        finally { await vm.CloseAsync(); }
+    }
+
     /// <summary>一次应用新来源触发复检，正在进行的旧检查不能回写过期依赖提示。</summary><returns>设置与检查竞态验证任务。</returns>
     [Fact]
     public async Task ApplyingModelSourcesRefreshesAndRejectsOldChecks()
@@ -188,14 +209,23 @@ public sealed class MaintenanceTests
     private sealed class FakeUpdates : IDesktopUpdates
     {
         public string CurrentVersion => "1.0.0";
-        public bool IsInstalled => true;
+        /// <inheritdoc />
+        public bool IsInstalled { get; init; } = true;
+        /// <inheritdoc />
+        public string? UnavailableMessage { get; init; }
+        /// <summary>获取向更新来源请求版本的次数。</summary>
+        public int Checks { get; private set; }
         public string? PendingVersion { get; set; }
         public bool WaitForCancellation { get; init; }
         public bool FailDownload { get; init; }
         public int Downloads { get; private set; }
         public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         /// <inheritdoc />
-        public Task<string?> CheckAsync(CancellationToken cancellationToken) => Task.FromResult<string?>("1.1.0");
+        public Task<string?> CheckAsync(CancellationToken cancellationToken)
+        {
+            Checks++;
+            return Task.FromResult<string?>("1.1.0");
+        }
         /// <inheritdoc />
         public async Task DownloadAsync(Action<int> progress, CancellationToken cancellationToken)
         {

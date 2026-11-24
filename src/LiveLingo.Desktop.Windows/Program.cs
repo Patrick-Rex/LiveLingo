@@ -14,7 +14,8 @@ internal static class Program
     [STAThread]
     public static int Main(string[] args)
     {
-        Velopack.VelopackApp.Build().SetAutoApplyOnStartup(false).Run();
+        var packageVersion = WindowsPackageIdentity.GetVersion();
+        if (packageVersion is null) Velopack.VelopackApp.Build().SetAutoApplyOnStartup(false).Run();
         var restartArguments = args.ToArray();
         var settingsPath = Path.Combine(DesktopSettings.ResourceRoot, "data", "settings.json");
         var settingsIndex = Array.IndexOf(args, "--settings");
@@ -36,11 +37,13 @@ internal static class Program
         }
         var history = new DesktopHistory(verificationData);
         builder.Services.AddSingleton(history);
-        builder.Services.AddSingleton<DesktopUpdates>();
+        builder.Services.AddSingleton(_ => new DesktopUpdates(packageVersion));
         builder.Services.AddSingleton<IDesktopEnvironment>(new DesktopEnvironment(AppContext.BaseDirectory));
         builder.Services.AddSingleton(new DesktopSession(AppContext.BaseDirectory, history));
         builder.Services.AddSingleton<IDesktopSession>(services => services.GetRequiredService<DesktopSession>());
-        builder.Services.AddSingleton<IDesktopSettingsStore>(new DesktopSettingsStore(settingsPath, legacyPath: settingsIndex < 0 ? @"D:\Soft Ware\LiveLingo\data\settings.json" : null));
+        builder.Services.AddSingleton<IDesktopSettingsStore>(new DesktopSettingsStore(settingsPath, packageVersion is not null
+            ? new DesktopSettings { AsrBackend = ModelBackend.OpenAiCompatible, TranslationBackend = ModelBackend.OpenAiCompatible }
+            : null, legacyPath: settingsIndex < 0 ? @"D:\Soft Ware\LiveLingo\data\settings.json" : null));
         using var host = builder.Build();
         return AppBuilder.Configure(() => new DesktopApplication(host, args, restartArguments)).UsePlatformDetect().StartWithClassicDesktopLifetime(args);
     }

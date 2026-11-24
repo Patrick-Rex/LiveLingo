@@ -2,7 +2,7 @@
 
 测试源码和可生成的夹具入库；执行结果、录音、截图和机器环境记录不入库。
 
-后续迭代按变更影响选择最小验证范围，不重跑首版阶段流程。纯文档检查内容、链接与格式，无需业务构建；真实设备、模型和原生窗口检查按受影响行为补充，旧报告的通过状态不能替代当前版本验证。
+按本次变更影响选择最小验证范围。纯文档检查内容、链接与格式，无需业务构建；真实设备、模型和原生窗口检查按受影响行为补充，旧报告的通过状态不能替代当前版本验证。
 
 ## .NET
 
@@ -18,7 +18,7 @@ dotnet test --solution LiveLingo.slnx -c Release --no-build --no-progress
 
 测试使用 xunit.v3 / Microsoft Testing Platform v2。Core 验证身份、字幕版本和对齐，Runtime 验证调度、缓存、设置与历史存储，Windows 验证原生适配、进程所有权和 DesktopHistory 宿主，App 验证视图模型与 Headless 布局。Windows 测试工程引用桌面宿主，DesktopHistoryTests 使用隔离文件、不启动 GPU 或模型；原生适配测试仍需要真实 Windows 环境。Headless 不替代真实窗口或多屏验收。
 
-桌面体验改造的最小测试可在相应工程完成 locked restore 和构建后按 MTP 类过滤运行；不使用 VSTest 的 `--filter`：
+桌面界面与历史记录的最小测试可在相应工程完成 locked restore 和构建后按 MTP 类过滤运行；不使用 VSTest 的 `--filter`：
 
 ```powershell
 dotnet test --project tests/LiveLingo.App.Tests/LiveLingo.App.Tests.csproj -c Release --no-build --no-progress --filter-class 'LiveLingo.App.Tests.*'
@@ -52,7 +52,7 @@ $env:LIVELINGO_TEST_PROBE = (Resolve-Path tools/LiveLingo.Probe/bin/Release/net1
 
 原生窗口检查使用 `scripts/Test-DesktopNative.ps1`，设置及退出检查使用 `scripts/Test-DesktopSettings.ps1`；两者要求 `-Executable` 和新的本地 `-OutputDirectory`。原生脚本使用独立的 `<OutputDirectory>.settings.json`，设置脚本使用输出目录中的设置文件，均不更改用户配置；验证历史位于 `<OutputDirectory>.data/history`。原生窗口脚本设计覆盖拖动、四边四角缩放、Ctrl+滚轮与恢复穿透，移动位置读取实际拖动区中心。验证模式输出三一级页面和设置分类的明暗主题、默认及最小尺寸截图。
 
-本轮已通过透明级别、原生样式、按钮几何和退出检查；自动输入检查因无法激活自有接收器提前结束，不能据此声称跨进程点击穿透、实际拖动或焦点验收通过。GPU、设备拔插、100%/150%/200% DPI 与物理多屏仍需单独验证。
+透明级别、原生样式、按钮几何与退出检查不能替代跨进程点击穿透、实际拖动或焦点检查。自动输入无法激活接收器时须记录为未完成。GPU、设备拔插、100%/150%/200% DPI 与物理多屏按实际执行范围单独记录。
 
 ## 安装包
 
@@ -64,16 +64,20 @@ $env:LIVELINGO_TEST_PROBE = (Resolve-Path tools/LiveLingo.Probe/bin/Release/net1
 
 ## 安装引导与增量更新
 
+MSIX 验证运行 `./scripts/Test-LiveLingoMsix.ps1 -Package './artifacts/msix/LiveLingo-0.2.6-win-x64-unsigned.msix'`（版本按实际修改），需要 Windows SDK MakeAppx；构建入口会自动运行同样检查。验证包含 SDK 解包、Windows 11 x64 full-trust 清单、独立 .NETCore 运行时及许可、必需载荷和禁止文件，不安装或启动包。使用 `--filter-class LiveLingo.Windows.Tests.DesktopUpdatesTests` 验证 MSIX 更新隔离，`LiveLingo.App.Tests.MaintenanceTests` 验证渠道提示及不发起 EXE 检查／下载，`LiveLingo.Runtime.Tests.Storage.DesktopSettingsStoreTests` 验证首次 API 默认和旧文件兼容；构建命令同上。真实安装及商店认证需另行验证。
+
 维护状态测试类 `LiveLingo.App.Tests.MaintenanceTests` 验证启动不下载、一次点击下载后请求安装、失败不重启、待应用设置保护、按缺项安装与关闭取消；`LiveLingo.Windows.Tests.EnvironmentCheckTests` 验证缺失和损坏模型提示，以及 Ollama 新版清单优先、旧版回退、错误新清单不回退和缺失 blob 拒绝。清单夹具不包含模型权重。`DependencySetupTests` 验证发现现有程序、保留已有路径，以及真实 PowerShell 的快照传递、错误与取消回收，不安装软件。沿用上文 MTP `--filter-class` 命令；多个类名作为独立参数传入。
 
 `Install-LiveLingoDependencies.ps1 -Component Check` 只报告路径，不安装。`Test-LiveLingoRelease.ps1 -FullPackage <full.nupkg>` 检查必要文件、外部依赖排除及唯一根应用清单；同时提供 `-PreviousPackage <旧full> -DeltaPackage <新delta>` 时，在隔离目录调用随包原生 Update.exe 还原差分并逐项校验内容。第三方 `.nuspec` 必须另存为 `.nuspec.xml`，以覆盖原生还原后清单选择与 CLI ZIP 顺序不同的回归。测试不安装程序、不启动模型，不能代替干净机器缺少 .NET/驱动的真实安装验收。发布命令见 [交付说明](../docs/packaging.md)。
 
 `scripts/Test-LiveLingoSetup.ps1` 可用 Windows PowerShell 5.1 或 PowerShell 7 执行，验证只检查不安装、C盘拒绝、旧 ZIP 混装拒绝、非空目录保护、错误资源路径拒绝和自定义模型缓存传播共6项，不下载依赖或修改正式安装。
 
-GitHubReleaseSourceTests 验证 API 403/429 回退、检查与下载来源一致、取消及其他错误不触发回退。
+UpdateReleaseSourceTests 使用真实 SimpleWebSource 与假下载器，验证固定更新 Release 的清单和包路径、多版本 full/delta 保留、404/403/429 不回退其他来源及取消传播。
+
+`./scripts/Test-LiveLingoReleaseExport.ps1` 用隔离夹具检查普通下载仅安装包、完整历史更新清单保留、脚本排除、哈希一致、安装器产品／版本一致，以及坏哈希、缺失、越界、重复和拒绝覆盖。实际分流运行 `./scripts/Export-LiveLingoRelease.ps1 -Version 0.2.6 -ReleaseDirectory artifacts/releases`，只生成本地待发布目录，不上传。
 
 `scripts/Start-LiveLingo.ps1` 优先读取当前用户卸载记录中的安装位置，再查默认用户目录，最后兼容既有 D 盘目录；从安装根的 `LiveLingo.exe` 启动。显式 `-ApplicationDirectory` 也支持独立发布目录中的 `LiveLingo.Desktop.Windows.exe`。修改入口时分别核对 Windows PowerShell 5.1 与 PowerShell 7 的路径选择；脚本使用 ASCII 提示，兼容无 BOM 文本在 PowerShell 5.1 中的解析。
 
-模型来源回归：App 的 ModelConfigurationTests 覆盖四种组合、整体 JSON 原子导入、表单切换、草稿/自动保存隔离和 Headless 可见性；Runtime 的 OpenAiApiTests 覆盖请求路径、Bearer、PCM16 WAV、结束状态、HTTP 错误、响应上限、取消与超时，DesktopSettingsStoreTests 覆盖旧设置和 API 字段持久化。Windows 的 EnvironmentCheckTests、ApiSessionTests 与 LocalPipelineModelsTests 覆盖按来源检查、全 API 无本地资产启动与已有本地清理路径。使用上文 MTP --filter-class 指定这些类；假传输与空输入宿主检查不代表真实服务商联调通过。
+模型来源回归：App 的 ModelConfigurationTests 覆盖四种组合、整体 JSON 原子导入、表单切换、草稿/自动保存隔离、Headless 可见性，以及两阶段来源下拉的展开/悬停/取消、明确点击/键盘选择和收起后滚轮滚动页面而不改来源；Runtime 的 OpenAiApiTests 覆盖请求路径、Bearer、PCM16 WAV、结束状态、HTTP 错误、响应上限、取消与超时，DesktopSettingsStoreTests 覆盖旧设置和 API 字段持久化。Windows 的 EnvironmentCheckTests、ApiSessionTests 与 LocalPipelineModelsTests 覆盖按来源检查、全 API 无本地资产启动与已有本地清理路径。使用上文 MTP --filter-class 指定这些类；假传输与空输入宿主检查不代表真实服务商联调通过。
 
 ApiSessionTests 另通过随机回环端口的 HTTP 测试服务，从非空音频贯通生产 DesktopSession 的转写、翻译和字幕输出，核对独立鉴权、地址前缀及全 API 不启动本地进程。响应为确定夹具，不代表外部服务商联调或模型质量验收。

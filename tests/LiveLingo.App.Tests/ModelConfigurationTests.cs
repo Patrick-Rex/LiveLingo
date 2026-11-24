@@ -1,6 +1,10 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Automation;
+using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
+using Avalonia.Input;
+using Avalonia.Input.Raw;
 using Avalonia.VisualTree;
 using LiveLingo.App.Services;
 using LiveLingo.App.ViewModels;
@@ -114,6 +118,105 @@ public sealed class ModelConfigurationTests
             vm.ModelInputMode = 1; window.UpdateLayout();
             Assert.Single(controls.Where(x => AutomationProperties.GetName(x) == "整体模型 JSON 配置" && x.IsEffectivelyVisible));
             Assert.False(controls.Single(x => AutomationProperties.GetName(x) == "识别 API 地址").IsEffectivelyVisible);
+        }
+        finally { window.Close(); await vm.CloseAsync(); }
+    }
+
+    /// <summary>收起后的来源选择器将滚轮交给页面，不把页面滚动写成模型来源草稿。</summary>
+    /// <param name="sourceName">被验证的来源选择器无障碍名称。</param>
+    /// <param name="initialIndex">滚动前的来源索引。</param>
+    /// <returns>来源保持与页面滚动验证任务。</returns>
+    [AvaloniaTheory]
+    [InlineData("语音识别来源", 0)]
+    [InlineData("语音识别来源", 1)]
+    [InlineData("翻译来源", 0)]
+    [InlineData("翻译来源", 1)]
+    public async Task ClosedSourceDropdownScrollsPageWithoutChangingSource(string sourceName, int initialIndex)
+    {
+        var store = new FakeStore();
+        var vm = new DesktopViewModel(new FakeSession(), store, action => action());
+        await vm.InitializeAsync();
+        var window = new ControlWindow { DataContext = vm };
+        try
+        {
+            vm.AsrBackendIndex = initialIndex; vm.TranslationBackendIndex = initialIndex;
+            vm.SelectedPageIndex = 2; vm.SelectedSettingsIndex = 2;
+            window.Show(); window.UpdateLayout();
+            var selector = window.GetVisualDescendants().OfType<ComboBox>()
+                .Single(x => AutomationProperties.GetName(x) == sourceName);
+            selector.BringIntoView(); window.UpdateLayout(); selector.Focus();
+            var scroll = selector.GetVisualAncestors().OfType<ScrollViewer>().First();
+            var originalOffset = scroll.Offset.Y;
+            var originalPending = vm.HasPendingSettings;
+            var point = selector.TranslatePoint(new Point(selector.Bounds.Width / 2, selector.Bounds.Height / 2), window)!.Value;
+
+            window.MouseWheel(point, new Vector(0, initialIndex == 0 ? -0.1 : 0.1)); window.UpdateLayout();
+
+            Assert.Equal(initialIndex, vm.AsrBackendIndex);
+            Assert.Equal(initialIndex, vm.TranslationBackendIndex);
+            Assert.Equal(originalPending, vm.HasPendingSettings);
+            Assert.NotEqual(originalOffset, scroll.Offset.Y);
+            Assert.Empty(store.Writes);
+        }
+        finally { window.Close(); await vm.CloseAsync(); }
+    }
+
+    /// <summary>来源下拉仅展开、悬停或取消不改变草稿，点击或键盘选择仍可写回。</summary>
+    /// <param name="sourceName">被验证的来源选择器无障碍名称。</param>
+    /// <param name="initialIndex">打开前的来源索引。</param>
+    /// <returns>真实控件输入和草稿边界的验证任务。</returns>
+    [AvaloniaTheory]
+    [InlineData("语音识别来源", 0)]
+    [InlineData("语音识别来源", 1)]
+    [InlineData("翻译来源", 0)]
+    [InlineData("翻译来源", 1)]
+    public async Task SourceDropdownChangesOnlyAfterExplicitSelection(string sourceName, int initialIndex)
+    {
+        var store = new FakeStore();
+        var vm = new DesktopViewModel(new FakeSession(), store, action => action());
+        await vm.InitializeAsync();
+        var window = new ControlWindow { DataContext = vm };
+        try
+        {
+            vm.AsrBackendIndex = initialIndex; vm.TranslationBackendIndex = initialIndex;
+            vm.SelectedPageIndex = 2; vm.SelectedSettingsIndex = 2;
+            window.Show(); window.UpdateLayout();
+            var selector = window.GetVisualDescendants().OfType<ComboBox>()
+                .Single(x => AutomationProperties.GetName(x) == sourceName);
+            selector.BringIntoView(); window.UpdateLayout();
+            var point = selector.TranslatePoint(new Point(selector.Bounds.Width - 16, selector.Bounds.Height / 2), window)!.Value;
+            var originalJson = vm.ModelJson;
+
+            window.MouseDown(point, MouseButton.Left); window.MouseUp(point, MouseButton.Left); window.UpdateLayout();
+            Assert.True(selector.IsDropDownOpen);
+            Assert.Equal(initialIndex, selector.SelectedIndex);
+            var other = selector.ContainerFromIndex(1 - initialIndex)!;
+            var popup = TopLevel.GetTopLevel(other)!;
+            var otherPoint = other.TranslatePoint(new Point(other.Bounds.Width / 2, other.Bounds.Height / 2), popup)!.Value;
+            popup.MouseMove(otherPoint);
+            popup.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
+            window.KeyReleaseQwerty(PhysicalKey.Escape, RawInputModifiers.None); window.UpdateLayout();
+            Assert.False(selector.IsDropDownOpen);
+            Assert.Equal(initialIndex, vm.AsrBackendIndex);
+            Assert.Equal(initialIndex, vm.TranslationBackendIndex);
+            Assert.Equal(originalJson, vm.ModelJson);
+            Assert.Empty(store.Writes);
+
+            window.MouseDown(point, MouseButton.Left); window.MouseUp(point, MouseButton.Left); window.UpdateLayout();
+            Assert.True(selector.IsDropDownOpen);
+            other = selector.ContainerFromIndex(1 - initialIndex)!;
+            popup = TopLevel.GetTopLevel(other)!;
+            otherPoint = other.TranslatePoint(new Point(other.Bounds.Width / 2, other.Bounds.Height / 2), popup)!.Value;
+            popup.MouseDown(otherPoint, MouseButton.Left); popup.MouseUp(otherPoint, MouseButton.Left); window.UpdateLayout();
+            Assert.False(selector.IsDropDownOpen);
+            Assert.Equal(1 - initialIndex, sourceName == "语音识别来源" ? vm.AsrBackendIndex : vm.TranslationBackendIndex);
+            Assert.Equal(initialIndex, sourceName == "语音识别来源" ? vm.TranslationBackendIndex : vm.AsrBackendIndex);
+            selector.Focus();
+            var key = initialIndex == 0 ? PhysicalKey.ArrowUp : PhysicalKey.ArrowDown;
+            window.KeyPressQwerty(key, RawInputModifiers.None); window.KeyReleaseQwerty(key, RawInputModifiers.None);
+            Assert.Equal(initialIndex, vm.AsrBackendIndex);
+            Assert.Equal(initialIndex, vm.TranslationBackendIndex);
+            Assert.Empty(store.Writes);
         }
         finally { window.Close(); await vm.CloseAsync(); }
     }

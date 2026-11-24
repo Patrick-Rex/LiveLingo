@@ -6,8 +6,9 @@ namespace LiveLingo.Runtime.Storage;
 
 /// <summary>在设置文件同目录写入临时文件，再原子替换唯一设置文件。</summary>
 /// <param name="path">设置文件绝对路径。</param>
+/// <param name="initialSettings">仅设置文件不存在时采用的安装渠道默认值；不改变已有或损坏文件的恢复规则。</param>
 /// <param name="legacyPath">升级时可读取的旧版默认文件，仅在新位置尚无设置时使用。</param>
-public sealed class DesktopSettingsStore(string path, string? legacyPath = null) : IDesktopSettingsStore
+public sealed class DesktopSettingsStore(string path, DesktopSettings? initialSettings = null, string? legacyPath = null) : IDesktopSettingsStore
 {
     private readonly string path = ValidatePath(path);
 
@@ -17,7 +18,7 @@ public sealed class DesktopSettingsStore(string path, string? legacyPath = null)
         try
         {
             var source = !File.Exists(path) && legacyPath is not null ? legacyPath : path;
-            if (!File.Exists(source)) return new(new(), null);
+            if (!File.Exists(source)) return new(initialSettings ?? new(), null);
             if (new FileInfo(source).Length > 65536) throw new InvalidDataException("设置文件过大。");
             await using var stream = File.OpenRead(source);
             var settings = await JsonSerializer.DeserializeAsync(stream, DesktopSettingsJsonContext.Default.DesktopSettings, cancellationToken).ConfigureAwait(false)

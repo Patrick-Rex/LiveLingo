@@ -1,5 +1,5 @@
 <UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:vm="using:LiveLingo.App.ViewModels" xmlns:core="using:LiveLingo.Core.Desktop" x:Class="LiveLingo.App.Views.SettingsView" x:DataType="vm:DesktopViewModel">
+             xmlns:vm="using:LiveLingo.App.ViewModels" xmlns:core="using:LiveLingo.Core.Desktop" xmlns:views="using:LiveLingo.App.Views" x:Class="LiveLingo.App.Views.SettingsView" x:DataType="vm:DesktopViewModel">
   <Grid RowDefinitions="Auto,*,Auto" RowSpacing="12">
     <StackPanel Spacing="4"><TextBlock Text="设置" Classes="pageTitle" /><TextBlock Text="主题与字幕外观即时保存，其余设置停止后应用。" Classes="caption" /></StackPanel>
     <TabControl Name="SettingsTabs" Grid.Row="1" SelectedIndex="{Binding SelectedSettingsIndex}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
@@ -73,7 +73,7 @@
             <StackPanel Spacing="16" IsVisible="{Binding IsModelForm}">
               <StackPanel Spacing="8">
                 <TextBlock Text="语音识别" Classes="section" />
-                <ComboBox ItemsSource="{Binding ModelBackends}" SelectedIndex="{Binding AsrBackendIndex}" HorizontalAlignment="Stretch" AutomationProperties.Name="语音识别来源" />
+                <views:ModelSourceSelector ItemsSource="{Binding ModelBackends}" SelectedIndex="{Binding AsrBackendIndex}" HorizontalAlignment="Stretch" AutomationProperties.Name="语音识别来源" />
                 <StackPanel Spacing="6" IsVisible="{Binding IsApiAsr}">
                   <TextBlock Text="Base URL（含版本前缀，例如 /v1）" /><TextBox Text="{Binding AsrApiBaseUrl}" AutomationProperties.Name="识别 API 地址" />
                   <TextBlock Text="API 模型" /><TextBox Text="{Binding AsrApiModel}" AutomationProperties.Name="识别 API 模型" />
@@ -82,7 +82,7 @@
               </StackPanel>
               <StackPanel Spacing="8">
                 <TextBlock Text="翻译" Classes="section" />
-                <ComboBox ItemsSource="{Binding ModelBackends}" SelectedIndex="{Binding TranslationBackendIndex}" HorizontalAlignment="Stretch" AutomationProperties.Name="翻译来源" />
+                <views:ModelSourceSelector ItemsSource="{Binding ModelBackends}" SelectedIndex="{Binding TranslationBackendIndex}" HorizontalAlignment="Stretch" AutomationProperties.Name="翻译来源" />
                 <StackPanel Spacing="6" IsVisible="{Binding IsLocalTranslation}"><TextBlock Text="本地翻译模型（Ollama）" /><ComboBox ItemsSource="{Binding Models}" SelectedItem="{Binding TranslationModel}" HorizontalAlignment="Stretch" AutomationProperties.Name="翻译模型" /></StackPanel>
                 <StackPanel Spacing="6" IsVisible="{Binding IsApiTranslation}">
                   <TextBlock Text="Base URL（含版本前缀，例如 /v1）" /><TextBox Text="{Binding TranslationApiBaseUrl}" AutomationProperties.Name="翻译 API 地址" />

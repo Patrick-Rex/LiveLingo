@@ -1,11 +1,14 @@
 <#
 .SYNOPSIS
 Builds the Windows x64 delivery ZIP from production outputs and an explicit setup file list.
+.PARAMETER SelfContained
+Includes the .NET runtime in an intermediate ZIP for MSIX; omit for legacy ZIP and Velopack delivery.
 #>
 [CmdletBinding()]
 param(
     [ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version = '0.1.0',
-    [string]$OutputDirectory = (Join-Path $PSScriptRoot '../artifacts/packages')
+    [string]$OutputDirectory = (Join-Path $PSScriptRoot '../artifacts/packages'),
+    [switch]$SelfContained
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'Enter-Development.ps1')
@@ -21,7 +24,7 @@ $workRoot = (Resolve-Path -LiteralPath $workRoot).ProviderPath
 $work = Join-Path $workRoot ([guid]::NewGuid().ToString('N'))
 $payload = Join-Path $work 'desktop'
 try {
-    & (Join-Path $PSScriptRoot 'Publish-LiveLingo.ps1') -OutputDirectory $payload -Version $Version
+    & (Join-Path $PSScriptRoot 'Publish-LiveLingo.ps1') -OutputDirectory $payload -Version $Version -SelfContained:$SelfContained
     $setup = Join-Path $payload 'scripts'
     New-Item -ItemType Directory -Path $setup -Force | Out-Null
     foreach ($file in @('Enter-Development.ps1', 'Enter-ModelEvaluation.ps1', 'Initialize-ModelRuntime.ps1', 'Install-LiveLingoDependencies.ps1')) {
@@ -62,6 +65,25 @@ try {
             New-Item -ItemType Directory -Path (Split-Path $licenseTarget -Parent) -Force | Out-Null
             Copy-Item -LiteralPath $file.FullName -Destination $licenseTarget
         }
+    }
+    if ($SelfContained) {
+        # Runtime packs are download dependencies, not entries in assets.libraries.
+        $runtimeConfig = Get-Content -LiteralPath (Join-Path $payload 'LiveLingo.Desktop.Windows.runtimeconfig.json') -Raw | ConvertFrom-Json
+        $frameworks = @($runtimeConfig.runtimeOptions.includedFrameworks)
+        if ($frameworks.Count -ne 1 -or $frameworks[0].name -ne 'Microsoft.NETCore.App') { throw 'Only the .NETCore runtime is expected for self-contained desktop delivery.' }
+        $runtimeVersion = $frameworks[0].version
+        $runtimeId = 'microsoft.netcore.app.runtime.win-x64'
+        $runtimePackage = $assets.packageFolders.PSObject.Properties.Name |
+            ForEach-Object { Join-Path $_ "$runtimeId/$runtimeVersion" } |
+            Where-Object { Test-Path -LiteralPath $_ -PathType Container } | Select-Object -First 1
+        if (-not $runtimePackage) { throw "Restored .NET runtime pack not found: $runtimeVersion" }
+        $runtimeNotices = Join-Path $notices "$runtimeId-$runtimeVersion"
+        New-Item -ItemType Directory -Path $runtimeNotices | Out-Null
+        foreach ($notice in @('LICENSE.TXT', 'THIRD-PARTY-NOTICES.TXT')) {
+            Copy-Item -LiteralPath (Join-Path $runtimePackage $notice) -Destination $runtimeNotices -ErrorAction Stop
+        }
+        Copy-Item -LiteralPath (Join-Path $runtimePackage "$runtimeId.nuspec") -Destination (Join-Path $runtimeNotices "$runtimeId.nuspec.xml")
+        $index.Add("- Microsoft.NETCore.App.Runtime.win-x64/$runtimeVersion`: MIT; see licenses/$runtimeId-$runtimeVersion/LICENSE.TXT and THIRD-PARTY-NOTICES.TXT.")
     }
     [IO.File]::WriteAllText((Join-Path $payload 'THIRD-PARTY-NOTICES.md'), ($index -join "`n") + "`n", [Text.UTF8Encoding]::new($false))
     $files = @(Get-ChildItem -LiteralPath $payload -Recurse -File | Sort-Object FullName | ForEach-Object {

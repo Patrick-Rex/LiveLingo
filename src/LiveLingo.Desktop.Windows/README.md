@@ -22,10 +22,12 @@ OverlayBridge 负责 HWND、Screens、缩放与工作区位置。即时外观事
 
 DesktopEnvironment 提供有限输出、15秒超时且可取消的 Python/驱动初检，本地模型只检查清单身份及长度；真实加载仍由会话负责。DesktopUpdates 隔离 Velopack，固定 GitHub 稳定源，元数据最多4 MiB、单请求30秒，更新包最多1 GiB、下载30分钟。Program 在创建宿主前禁用启动自动应用；用户请求安装后，DesktopApplication 先取消维护任务、结束既有退出流程，成功才调用等待退出的更新器，并保留原始启动参数。Velopack 使用 app/LiveLingo/current 与 packages；模型、设置和历史位于外部。
 
-GitHubReleaseSource 在 API 403/429 时回退同仓库 latest/download 的渠道清单，下载保持与成功检查的来源一致。取消及其他错误不启动额外回退请求。
+DesktopUpdates 使用固定 updates-win-x64 Release 的 SimpleWebSource，检查清单和 full/delta 下载均在同一固定地址，不经过 GitHub API、latest 别名或其他备用源；错误如实传播。多版本增量链由专用清单提供，缺少链时由 Velopack 回退完整包。
 
 DesktopEnvironment.Setup 从已配置路径、固定本地资源目录、PATH、VIRTUAL_ENV 和 OLLAMA_MODELS 有界查找缺失路径，不递归扫描整盘，不替换已有不兼容资产。界面点击缺项后，通过 ArgumentList 执行包内 PowerShell，使用已应用设置的临时快照；进程执行策略不修改全局配置。输出保留最后8Ki字符，安装限时2小时，取消与关闭回收自有进程树并删除快照；完成后重新发现与检查。QwenModel 与 TranslationModel 分别执行，避免安装单个模型时要求另一套运行环境。
 
 TranslateGemma 初检与路径发现优先读取 `manifests-v2/ollama.com/library/translategemma/<tag>`，仅在该文件不存在时使用 `manifests/registry.ollama.ai/library/translategemma/<tag>`。旧目录可能只是附加原清单引用的兼容副本，不能用其摘要代替有效新清单。新清单存在但指纹错误时明确失败；仍验证固定 digest 和所有引用 blob 的长度，不改写用户模型目录。
 
 007 模型来源独立选择：DesktopEnvironment 仅发现与检查所选本地组件；全 API 不探测 Python/NVIDIA，也不读取本地 profile。DesktopSession 只创建所选本地进程，API 接入沿用有界调度与退出取消。整体 JSON 模板随构建和发布输出；安装快照清除 API Key，准备脚本同样按来源跳过不需要的组件。
+
+WindowsPackageIdentity 从当前进程的 Windows 包身份读取四段版本。MSIX 启动跳过 Velopack bootstrap，DesktopUpdates 不创建更新器或下载器，检查时提示使用 Windows／商店更新，下载和应用入口也拒绝跨渠道更新。MSIX 无设置文件时由 Program 注入双 API 默认值，已有设置及本地模式能力保留；其他安装渠道默认值不变。

@@ -1,6 +1,6 @@
 # 打包、增量发布与安装回退
 
-本文覆盖 Velopack 增量发布，以及保留的旧 ZIP 手工替换流程。运行依赖与日常操作见 [用户指南](../packaging/USER-GUIDE.md)。
+本文覆盖 Velopack 增量发布、MSIX 构建，以及保留的旧 ZIP 手工替换流程。运行依赖与日常操作见 [用户指南](../packaging/USER-GUIDE.md)。
 
 ## Velopack 发布
 
@@ -9,28 +9,53 @@
 当前稳定版本为 [v0.2.8](https://github.com/Patrick-Rex/LiveLingo/releases/tag/v0.2.8)，直播可从已识别的终点分短段续接，修订时保留仍匹配的已译短句。v0.2.1 因原生增量清单冲突已标记为预发布，不再用于稳定更新。以下命令以 0.2.6 的构建和差分验证为例，在仓库根目录使用 PowerShell 7 执行。
 
 ```powershell
-# 保留 artifacts/releases 的上一 full 包；CI/新目录可显式下载上一公开稳定版本。
+# 保留 artifacts/releases 历史 full/delta；更新专用 Release 建立后可下载上一 full。
 ./scripts/New-LiveLingoRelease.ps1 -Version 0.2.6 -DownloadPrevious
 ./scripts/Test-LiveLingoRelease.ps1 -FullPackage artifacts/releases/LiveLingo-0.2.6-win-x64-full.nupkg -PreviousPackage artifacts/releases/LiveLingo-0.2.5-win-x64-full.nupkg -DeltaPackage artifacts/releases/LiveLingo-0.2.6-win-x64-delta.nupkg
 ```
 
 实际文件名以输出为准（默认 win-x64 渠道可能带渠道后缀）；差分验证同时传 `-PreviousPackage <旧full> -DeltaPackage <新delta>`，使用随包原生 Update.exe 在隔离目录还原并逐项比较 SHA-256。完整包与还原包均检查唯一的根应用清单。打包只生成本地产物，不上传。首版无 delta；后续同一输出目录有旧 full 时自动生成差分。保留全包供跨版本回退下载。`-OutputDirectory` 可覆盖输出位置，同版本不覆盖。
 
-发布目录包含单个 Setup.exe、full/delta nupkg、渠道 JSON/RELEASES 和 SHA256SUMS。普通用户只下载 Setup.exe；依赖脚本与指南位于程序载荷内，发布脚本不再复制为独立下载项。GitHub Release 仍须包含当前版本 full、delta（若有）和 feed，供程序自动更新。可用下列命令生成草稿，再附上 SHA256SUMS 并核对后发布，发布说明以单个 Setup.exe 链接作为安装入口：
+构建目录包含 Setup.exe、full/delta nupkg、渠道 JSON/RELEASES 和 SHA256SUMS，不直接整目录上传。构建前拒绝残留独立脚本、指南和其他非预期文件；构建校验清单显式选择当前安装器、full/delta 与渠道清单。`assets.win-x64.json` 和兼容用 `RELEASES-win-x64` 留在本地。发布前分流：
 
 ```powershell
-# 事先按 GitHub 授权配置 VPK_TOKEN；命令不把密钥写入仓库。
-dotnet tool run vpk -- upload github --repoUrl https://github.com/Patrick-Rex/LiveLingo --channel win-x64 --outputDir artifacts/releases --tag v0.2.6 --releaseName 'LiveLingo 0.2.6'
+./scripts/Export-LiveLingoRelease.ps1 -Version 0.2.6 -ReleaseDirectory artifacts/releases
 ```
 
-CLI 默认创建草稿；程序只读取正式的稳定 Releases。保留历史发布资产，不能只上传 Setup.exe。当前未配置代码签名；发布和干净机器下载安装须单独验证，生成包不等于线上已发布。
+默认输出 `artifacts/distribution/0.2.6`，可用 `-OutputDirectory` 指定新的空输出位置。`installers/` 只含 EXE；可显式传 `-MsixPackage <路径>` 添加同版 MSIX，报告记录签名状态，当前未签名开发包不自动加入正式安装下载。`updates/` 仅含 `releases.win-x64.json` 与其引用的全部 full/delta。哈希清单及分流报告留在输出根，供发布核验，不作为普通版本附件。导出先验证每个包的名称、尺寸、SHA-256、当前版本和缺失引用，拒绝路径越界及覆盖已有输出；不上传。
 
-手动上传时只把当前版本 full/delta 写入该 Release 的渠道清单，所有清单引用必须有同名附件；筛选后重新生成 SHA256SUMS，再核对远程附件大小与 SHA-256。应用的公开回退来源使用 latest/download，不跨 Release 查找清单引用。
+同仓库使用两个入口：
+
+- 普通版本 `v0.2.6` 等：只上传 `installers/` 的正式安装包，设为 latest。GitHub 自动显示的源码归档由平台生成，不属于手动上传的附件。
+- 固定 tag `updates-win-x64`：更新专用 Release，设为正式发布（非 prerelease）、不设为 latest。上传 `updates/` 的包和清单，所有引用文件必须存在于此 Release。新客户端使用 `https://github.com/Patrick-Rex/LiveLingo/releases/download/updates-win-x64/`，不使用 GitHub API 或 latest 别名，也不内置令牌。
+
+先上传带版本号的 nupkg 并验证远程大小／SHA-256，最后更新渠道 JSON，再发布普通安装包版本。不要覆盖已发布的同名版本包；不要删除旧清单仍引用的包。专用 Release 需要可更新附件，不能启用 immutable release；每次替换清单的短暂失败由应用提示重试。若需要保留多版本增量链，保留本地历史 full/delta 后再构建、导出完整清单。`-DownloadPrevious` 仅从固定更新源取上一 full，不能恢复完整历史链；新目录缺少旧 delta 时，旧客户端可回退完整包。首轮建立更新源时需先手动提供上一已验证 full，并省略 `-DownloadPrevious`。本地导出不等于线上发布完成。
+
+旧 0.2.5 使用 GitHub API 查前 10 个 Release，正常时能从其中正式发布的更新专用 Release 发现新版，普通安装版本缺少清单会被跳过。旧版遇 403/429 会回退 `latest/download`；新的普通版本只含安装包后，此旧回退会失效，固定专用 Release 离开前 10 项也会影响尚未迁移的旧版。此时等待限流结束重试，或运行新版安装器迁移；不能承诺旧客户端永久自动迁移。先建立并核验专用更新源，再迁移普通发布附件，保留可回退包；新客户端不受旧列表和 latest 路径限制。
 
 Setup.exe 是普通用户唯一安装入口，.NET 缺项由安装器在线补齐，首次使用默认用户目录，明确自定义目录可传 `--installto`。Velopack 使用 current/packages 布局和稳定启动入口。仓库中的安装 PowerShell 保留为高级自动化入口。旧 ZIP 的 app/desktop 不原地转换；先关闭旧版并独立安装，默认 data/settings.json 与模型保持复用。以下第1–7节只描述旧 ZIP 布局，不用于修改 Velopack 的 current 或 packages。
 
 完成托管安装及更新核对、不再需要旧版回退后，可清理旧 desktop、旧 ZIP、解压暂存、验证副本及发布临时目录。仓库启动脚本默认通过托管安装根的 LiveLingo.exe 启动；指定 ApplicationDirectory 时也支持独立发布目录。保留托管安装 packages 中的当前完整包供后续差分还原；模型、Python、共享 Ollama 权重、设置与历史不属于安装残留。
 
+
+## MSIX 构建
+
+MSIX 使用 Windows SDK 的 MakeAppx，面向 Windows 11 x64，与 EXE 使用独立安装及更新生命周期。MSIX 自带应用所需的 `Microsoft.NETCore.App` 运行时，不包含 ASP.NET Core、Windows Desktop Runtime、Python、模型、Ollama 或驱动；保留本地模式所需的小型脚本、worker、profile 和许可。发布不启用裁剪、AOT 或单文件，避免改变现有 Avalonia 与依赖的运行行为。
+
+安装 Windows SDK 10.0.26100.0 或更新版本，在仓库根 PowerShell 7 执行：
+
+```powershell
+./scripts/New-LiveLingoMsix.ps1 -Version 0.2.6
+./scripts/Test-LiveLingoMsix.ps1 -Package artifacts/msix/LiveLingo-0.2.6-win-x64-unsigned.msix
+```
+
+脚本默认查找本机 Windows SDK，也可用 `-MakeAppxPath <绝对路径>` 指定工具；`-OutputDirectory` 可覆盖产物目录，同名包拒绝覆盖。脚本使用 locked restore 和 self-contained publish，复用生产载荷与第三方许可收集，在隔离暂存中组装包并清理中间 ZIP。输出目录只新增一个 `*-unsigned.msix`，哈希打印到终端，不附带安装脚本、证书或额外 ZIP。构建完成自动执行包校验：SDK 解包、Windows 11 x64 full-trust 清单、运行时与许可、必要文件和排除项。它不安装、不启动、不上传程序。
+
+未提供正式身份时使用 `LiveLingo.Development` 和带微软未签名测试 OID 的开发 Publisher；与未来正式包身份隔离，不承诺原位升级。未来取得 Partner Center 身份或侧载签名证书后，同时传 `-IdentityName <正式名称> -Publisher <精确发布者>`，可用 `-PublisherDisplayName` 设置显示名；脚本仍只生成未签名包。三段版本映射为 `主.次.修订.0`，最后一段保留为零。清单、工具及开发图标见 [MSIX 资源说明](../packaging/msix/README.md)。
+
+当前没有签名证书或商店关联，包不能作为普通用户双击安装的正式下载。商店提交必须使用 Partner Center 分配的身份并完成认证；侧载分发须使用目标设备信任的签名。签名和商店提交未接入本脚本，`runFullTrust` 能力的商店审核也未验证。参考 [Microsoft 未签名包测试](https://learn.microsoft.com/en-us/windows/msix/package/unsigned-package)和 [MSIX 签名说明](https://learn.microsoft.com/en-us/windows/msix/package/signing-package-overview)。
+
+MSIX 启动依据真实 Windows 包身份跳过 Velopack，仅展示 Windows／商店更新说明，不访问 EXE 更新源。首次没有设置文件时默认双 API，已有本地或 API 设置继续复用；API 地址、模型及凭据由用户配置，不内置服务商密钥。数据与大型资源可放在任一本机可写盘。构建和单元测试不替代实际注册安装、字幕采集、外部服务商联调或商店认证。
 
 ## 1. 区分构建产物与正式安装
 
@@ -161,7 +186,7 @@ Write-Output "Installed files match package $($manifest.version)"
 
 已有环境直接复用；首次使用先按 [用户指南](../packaging/USER-GUIDE.md#首次准备依赖)仅为所选本地阶段准备 所选 Python 推理环境、Qwen 或 TranslateGemma；全 API 只需配置接口。启动后检查路径和设置，选择实际发声应用，验证字幕、右上角解锁/锁定、拖动缩放、显示模式、热键及设置保存，最后关闭并确认自有模型进程退出。真实模型、原生输入和多屏等检查分别记录，不能从包哈希通过推断这些行为通过。
 
-确认运行正常后可删除此次唯一解压目录，保留 ZIP、校验文件和回退备份。不要把 models、runtimes 或 data 当作安装暂存删除。需要记录本次结果时新建按日期/版本命名的记录，不继续追加首版 M4 报告。
+确认运行正常后可删除此次唯一解压目录，保留 ZIP、校验文件和回退备份。不要把 models、runtimes 或 data 当作安装暂存删除。需要记录本次结果时新建按日期/版本命名的记录。
 
 ## 6. 回退与失败恢复
 

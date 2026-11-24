@@ -39,6 +39,8 @@ TestResults/
 *.coveragexml
 *.nupkg
 *.snupkg
+*.msix
+*.msixbundle
 *.zip
 *.7z
 *.gguf

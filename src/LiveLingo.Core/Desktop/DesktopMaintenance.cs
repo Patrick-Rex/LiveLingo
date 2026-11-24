@@ -49,8 +49,10 @@ public interface IDesktopUpdates
 {
     /// <summary>获取安装版本；开发及旧 ZIP 运行显示非托管安装。</summary>
     string CurrentVersion { get; }
-    /// <summary>获取当前进程是否运行于受管理安装。</summary>
+    /// <summary>获取当前安装是否支持应用内下载并更新；Windows 管理的 MSIX 返回 false。</summary>
     bool IsInstalled { get; }
+    /// <summary>获取当前安装不支持应用内更新时的说明；支持时为空。</summary>
+    string? UnavailableMessage { get; }
     /// <summary>获取已经下载且等待安装的版本。</summary>
     string? PendingVersion { get; }
     /// <summary>检查稳定发布，不下载更新资产。</summary>

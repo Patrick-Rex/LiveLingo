@@ -4,29 +4,51 @@ using Velopack.Sources;
 
 namespace LiveLingo.Desktop.Windows;
 
-/// <summary>从固定公开仓库读取稳定更新，退出清理完成后才启动更新器。</summary>
+/// <summary>独立安装从固定更新专用 Release 读取更新；MSIX 由 Windows 管理，不创建应用更新器。</summary>
 public sealed class DesktopUpdates : IDesktopUpdates, IDisposable
 {
-    private readonly ReleaseDownloader downloader = new();
-    private readonly UpdateManager manager;
+    /// <summary>更新包与清单的固定下载根，不依赖普通版本的附件或 GitHub API。</summary>
+    internal const string UpdateBaseUrl = "https://github.com/Patrick-Rex/LiveLingo/releases/download/updates-win-x64/";
+
+    private readonly ReleaseDownloader? downloader;
+    private readonly UpdateManager? manager;
+    private readonly Version? packageVersion;
     private UpdateInfo? available;
     private VelopackAsset? pending;
 
-    /// <summary>创建固定 GitHub 来源，禁止隐式跨渠道或版本降级。</summary>
-    public DesktopUpdates() => manager = new(new GitHubReleaseSource(
-        new GithubSource("https://github.com/Patrick-Rex/LiveLingo", null, false, downloader),
-        new SimpleWebSource("https://github.com/Patrick-Rex/LiveLingo/releases/latest/download/", downloader)));
+    /// <summary>按当前进程包身份创建更新服务，MSIX 不连接 GitHub 更新来源。</summary>
+    public DesktopUpdates() : this(WindowsPackageIdentity.GetVersion()) { }
+
+    /// <summary>按宿主已读取的包身份创建服务；仅独立安装初始化 Velopack。</summary>
+    /// <param name="packageVersion">Windows 提供的包版本；独立安装为空。</param>
+    internal DesktopUpdates(Version? packageVersion)
+    {
+        this.packageVersion = packageVersion;
+        if (packageVersion is not null) return;
+        downloader = new();
+        manager = new(CreateUpdateSource(downloader));
+    }
+
+    /// <summary>以相同固定根读取完整增量链和更新包，失败时不回退普通版本附件。</summary>
+    /// <param name="fileDownloader">有界且可取消的下载器；测试可提供本地实现。</param>
+    /// <returns>用于清单与更新包下载的静态来源。</returns>
+    internal static SimpleWebSource CreateUpdateSource(IFileDownloader fileDownloader) => new(UpdateBaseUrl, fileDownloader);
+
     /// <inheritdoc />
-    public string CurrentVersion => manager.CurrentVersion?.ToString() ?? "源码 / ZIP 安装";
+    public string CurrentVersion => packageVersion?.ToString() ?? manager?.CurrentVersion?.ToString() ?? "源码 / ZIP 安装";
     /// <inheritdoc />
-    public bool IsInstalled => manager.IsInstalled;
+    public bool IsInstalled => manager?.IsInstalled == true;
     /// <inheritdoc />
-    public string? PendingVersion => (pending ??= IsInstalled ? manager.UpdatePendingRestart : null)?.Version.ToString();
+    public string? UnavailableMessage => packageVersion is not null
+        ? "MSIX 由 Windows 管理更新。商店安装请在 Microsoft Store 检查更新；旁加载安装请使用发布者提供的新版 MSIX。"
+        : IsInstalled ? null : "当前为源码或旧 ZIP 安装，请先运行新版安装器以启用增量更新。";
+    /// <inheritdoc />
+    public string? PendingVersion => (pending ??= IsInstalled ? manager?.UpdatePendingRestart : null)?.Version.ToString();
 
     /// <inheritdoc />
     public async Task<string?> CheckAsync(CancellationToken cancellationToken)
     {
-        if (!IsInstalled) return null;
+        if (!IsInstalled || manager is null || downloader is null) return null;
         downloader.OperationToken = cancellationToken;
         available = null;
         var result = await manager.CheckForUpdatesAsync().ConfigureAwait(false);
@@ -38,6 +60,7 @@ public sealed class DesktopUpdates : IDesktopUpdates, IDisposable
     /// <inheritdoc />
     public async Task DownloadAsync(Action<int> progress, CancellationToken cancellationToken)
     {
+        if (manager is null || downloader is null) throw new InvalidOperationException(UnavailableMessage);
         var update = available ?? throw new InvalidOperationException("请先检查新版本。");
         downloader.OperationToken = cancellationToken;
         await manager.DownloadUpdatesAsync(update, progress, cancellationToken).ConfigureAwait(false);
@@ -49,12 +72,13 @@ public sealed class DesktopUpdates : IDesktopUpdates, IDisposable
     /// <param name="arguments">保留独立设置等原始启动参数。</param>
     public void ApplyAfterExit(string[] arguments)
     {
+        if (manager is null) throw new InvalidOperationException(UnavailableMessage);
         var asset = pending ?? manager.UpdatePendingRestart ?? throw new InvalidOperationException("没有已下载的更新。");
         manager.WaitExitThenApplyUpdates(asset, silent: false, restart: true, restartArgs: arguments);
     }
 
     /// <inheritdoc />
-    public void Dispose() => downloader.Dispose();
+    public void Dispose() => downloader?.Dispose();
 }
 
 /// <summary>为不接受取消令牌的更新检查补充有界且可取消的网络请求。</summary>

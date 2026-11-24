@@ -4,8 +4,6 @@ Windows 实时双语字幕工具。采集指定应用的声音，语音识别和
 
 音频在本机采集。本地模式在本机推理，首次准备依赖和模型需要联网；API 识别发送音频窗口，API 翻译发送原文到所配置服务，服务商可能收费。
 
-M0–M4 首版里程碑已完成，项目进入持续迭代；当前能力与支持范围以本文和使用指南为准。
-
 ## 功能
 
 - 采集指定应用及其子进程的音频，支持目标重启、设备变化与睡眠恢复处理。
@@ -22,7 +20,7 @@ M0–M4 首版里程碑已完成，项目进入持续迭代；当前能力与支
 | 项目 | 要求 |
 | --- | --- |
 | 操作系统 | Windows 11 x64，build 22000 或更高 |
-| 应用运行时 | .NET 10.0 x64 Runtime，兼容各稳定补丁版本，建议使用最新维护版本 |
+| 应用运行时 | EXE 使用 .NET 10.0 x64 Runtime，缺少时安装器在线补齐；MSIX 自带所需运行时 |
 | 本地识别（可选） | 独立 Python 环境和 Qwen 权重，可从设置中按需安装 |
 | 本地识别 GPU | 默认使用 CPU；兼容的 AMD Radeon 可选 ROCm，NVIDIA 可选 CUDA 12.8 或 13.0 |
 | 翻译来源 | 本地 Ollama / TranslateGemma，或 OpenAI 兼容 API，二选一 |
@@ -32,7 +30,9 @@ M0–M4 首版里程碑已完成，项目进入持续迭代；当前能力与支
 
 ## 安装与使用
 
-只需下载一个 [LiveLingo 安装程序](https://github.com/Patrick-Rex/LiveLingo/releases/latest/download/LiveLingo-win-x64-Setup.exe)，双击即可安装并打开程序。缺少 .NET 10 x64 Runtime 时，安装器提示并在线补齐；安装脚本和使用指南已包含在安装包内，不需要另行下载或输入命令。模型、Python 环境、Ollama、驱动和 .NET 均不打进程序包。
+只需下载一个 [LiveLingo EXE 安装程序](https://github.com/Patrick-Rex/LiveLingo/releases/latest/download/LiveLingo-win-x64-Setup.exe)，双击即可安装并打开程序。缺少 .NET 10 x64 Runtime 时，安装器提示并在线补齐；安装脚本和使用指南已包含在安装包内，不需要另行下载或输入命令。新的普通版本 Release 仅放安装包，增量包和清单放在同仓库的更新专用 Release，用户无需下载。EXE 包不包含 .NET、模型、Python 环境、Ollama 或驱动。
+
+另提供 [MSIX 构建入口](docs/packaging.md#msix-构建)：包含应用所需 .NET 运行时，首次无设置时默认识别和翻译都使用 API，保留切换本地模型的能力并沿用已有配置。当前生成未签名开发包，尚未作为正式安装下载或上架微软商店；MSIX 通过 Windows 安装新包或未来商店更新，不使用应用内 Velopack 更新。
 
 首次安装默认使用 Windows 用户应用目录，从开始菜单启动。新装默认将资源放在当前用户的 %LOCALAPPDATA%\LiveLingoData，可在“设置 → 运行环境”更换路径。升级沿用已有设置和模型。旧 ZIP 迁移和高级安装位置说明见[用户指南](packaging/USER-GUIDE.md)。保留托管安装的 `packages`，后续差分还原需要当前完整包。
 
@@ -114,4 +114,4 @@ Windows 目标框架中的 `10.0.26100.0` 是编译 API 基线，最低运行平
 
 本项目采用 [Apache License 2.0](LICENSE)，版权声明见 [NOTICE](NOTICE)。第三方依赖及模型遵循各自许可证；本项目许可证不替代其条款。
 
-GitHub API 限流时，更新检查可回退同仓库的公开发布清单，无需配置 GitHub 令牌。
+EXE 更新直接读取同仓库 updates-win-x64 专用 Release 的公开清单，不依赖 GitHub API 或 latest 别名，无需配置 GitHub 令牌。

@@ -1,10 +1,10 @@
 # LiveLingo 安装与使用
 
-Windows 11 x64 实时日语转简体中文字幕，识别和翻译分别选择本地或 API。只需一个 Setup.exe 安装程序；程序包不包含 .NET、模型、Python 环境、Ollama、驱动、测试录音或测试源码。
+Windows 11 x64 实时日语转简体中文字幕，识别和翻译分别选择本地或 API。正式下载使用一个 Setup.exe 安装程序；EXE 包不包含 .NET、模型、Python 环境、Ollama、驱动、测试录音或测试源码。
 
 ## 推荐安装与增量更新
 
-下载 [LiveLingo-win-x64-Setup.exe](https://github.com/Patrick-Rex/LiveLingo/releases/latest/download/LiveLingo-win-x64-Setup.exe)，双击后自动安装程序本体并启动。缺少 .NET 10 x64 Runtime 时安装器会提示并在线安装，已有兼容运行时直接复用。无需另行下载脚本、清单或 nupkg；Release 的其他附件由更新程序使用。
+下载 [LiveLingo-win-x64-Setup.exe](https://github.com/Patrick-Rex/LiveLingo/releases/latest/download/LiveLingo-win-x64-Setup.exe)，双击后自动安装程序本体并启动。缺少 .NET 10 x64 Runtime 时安装器会提示并在线安装，已有兼容运行时直接复用。无需另行下载脚本、清单或 nupkg；新的普通版本仅列安装包，更新文件由应用从独立更新专用 Release 获取。
 
 首次双击 Setup.exe 使用用户本地应用目录。高级用户可用 `Setup.exe --installto "<本机安装目录>"` 指定程序目录。Velopack 管理安装根内的 `current`、`packages` 和 `Update.exe`，从开始菜单或安装根的稳定启动程序打开，不手工改动 `current`。程序文件与模型、环境、缓存和数据可分开存放，只有一个系统盘也可以安装。
 
@@ -15,6 +15,12 @@ Windows 11 x64 实时日语转简体中文字幕，识别和翻译分别选择�
 确认托管安装和更新正常、不再需要旧版回退后，可以删除旧 `app\desktop`、旧 ZIP、解压暂存和测试副本。保留托管安装根内的 `current`、`packages`、`Update.exe` 与稳定启动器；`packages` 中的当前完整包是后续增量还原的基础。模型、环境、用户设置与历史继续保留，不将整个 LiveLingo 根目录当作临时目录清理。
 
 安装或更新失败时保留原安装与数据，重新打开查看状态；保留旧版安装包和设置备份。需要人工回退时先退出并备份数据，再按对应旧版本安装方式恢复；禁止手工混合 current 与 desktop 文件。增量更新不会自动降级或迁移用户设置。
+
+## MSIX 开发包
+
+MSIX 包自带应用所需 .NET 运行时，不需要另装 .NET；不包含 Python、模型、Ollama 或驱动。首次启动且没有既有设置文件时，识别和翻译都默认选择 OpenAI 兼容 API；填写各自的地址、模型和密钥后使用，服务费用由所选提供商决定。已有设置照常复用，之后仍可在运行环境中切换本地模式并准备依赖。
+
+MSIX 的安装和升级由 Windows 负责，将来商店版由 Microsoft Store 管理；应用内不会下载或应用 EXE 渠道更新。当前仅提供未签名构建，不能作为普通用户直接双击安装的正式下载，也尚未通过商店认证。开发构建和验证见 [交付说明](../docs/packaging.md#msix-构建)。模型、环境、缓存和数据与 EXE 共用可配置的本地路径。
 
 ## 旧 ZIP 安装与更新
 
@@ -189,4 +195,4 @@ AMD 的型号、驱动和操作系统要求见 [Windows 兼容表](https://rocm.
 
 LiveLingo 使用随包 LICENSE 中的 Apache-2.0 许可证，版权声明见 NOTICE。第三方许可文件位于 licenses，索引为 THIRD-PARTY-NOTICES.md，NuGet 元数据原文以 `.nuspec.xml` 保存；另行下载的模型遵循各自条款。
 
-GitHub API 返回限流状态时，程序自动使用同仓库最新稳定 Release 的公开下载清单；不要求填写令牌。此路径只有当前发布的差分，缺少跨版本差分时仍可回退完整包。
+EXE 使用同仓库 updates-win-x64 更新专用 Release，无需 GitHub 令牌；优先使用可用增量链，缺少差分或还原失败时回退完整包。旧版遇限流或无法发现新版时，可重试或运行新版安装器迁移，设置和模型继续保留。

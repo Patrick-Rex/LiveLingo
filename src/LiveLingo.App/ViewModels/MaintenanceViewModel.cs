@@ -118,7 +118,7 @@ public sealed partial class MaintenanceViewModel(IDesktopEnvironment environment
         Updating = true; AvailableVersion = null; UpdateMessage = "正在检查更新…";
         try
         {
-            if (!updates.IsInstalled) { UpdateMessage = "当前为源码或旧 ZIP 安装，请先运行新版安装器以启用增量更新。"; return; }
+            if (!updates.IsInstalled) { UpdateMessage = updates.UnavailableMessage ?? "当前安装不支持应用内更新。"; return; }
             if (updates.PendingVersion is { } pending)
             { UpdateReady = true; UpdateMessage = $"{pending} 已下载，点击安装并重启。"; return; }
             var available = await updates.CheckAsync(lifetime.Token);

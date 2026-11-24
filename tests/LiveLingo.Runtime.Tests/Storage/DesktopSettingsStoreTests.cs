@@ -34,6 +34,34 @@ public sealed class DesktopSettingsStoreTests
         finally { Directory.Delete(root, recursive: true); }
     }
 
+    /// <summary>渠道默认值仅用于首次启动，不能重写既有本地配置或损坏文件。</summary><returns>真实设置文件兼容验证任务。</returns>
+    [Fact]
+    public async Task InstallationDefaultsApplyOnlyWhenSettingsFileIsMissing()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "channel-settings-" + Guid.NewGuid().ToString("N"));
+        var path = Path.Combine(directory, "settings.json");
+        var initial = new DesktopSettings { AsrBackend = ModelBackend.OpenAiCompatible, TranslationBackend = ModelBackend.OpenAiCompatible };
+        var store = new DesktopSettingsStore(path, initial);
+        try
+        {
+            var first = await store.LoadAsync(TestContext.Current.CancellationToken);
+            Assert.Null(first.Error); Assert.Equal(initial, first.Settings); Assert.False(File.Exists(path));
+            Assert.Equal(ModelBackend.Local, (await new DesktopSettingsStore(path).LoadAsync(TestContext.Current.CancellationToken)).Settings.AsrBackend);
+            await store.SaveAsync(new(), TestContext.Current.CancellationToken);
+            var legacy = System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken))!.AsObject();
+            Assert.True(legacy.Remove("AsrBackend")); Assert.True(legacy.Remove("TranslationBackend"));
+            await File.WriteAllTextAsync(path, legacy.ToJsonString(), TestContext.Current.CancellationToken);
+            var existing = await store.LoadAsync(TestContext.Current.CancellationToken);
+            Assert.Null(existing.Error);
+            Assert.Equal(ModelBackend.Local, existing.Settings.AsrBackend); Assert.Equal(ModelBackend.Local, existing.Settings.TranslationBackend);
+            await File.WriteAllTextAsync(path, "{broken", TestContext.Current.CancellationToken);
+            var corrupt = await store.LoadAsync(TestContext.Current.CancellationToken);
+            Assert.NotNull(corrupt.Error); Assert.Equal(ModelBackend.Local, corrupt.Settings.AsrBackend);
+            Assert.Equal("{broken", await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken));
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true); }
+    }
+
     /// <summary>旧文件默认双本地，整体 API 配置及明文 Key 可往返，非法来源保留原文件。</summary><returns>真实文件兼容检查任务。</returns>
     [Fact]
     public async Task ModelSourcesAndApiSettingsRoundTripWithoutLocalPaths()
