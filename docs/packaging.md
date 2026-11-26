@@ -6,12 +6,12 @@
 
 固定 SDK 与本地 CLI 为 1.2.161（MIT）；不使用 Velopack Flow。生产程序保持 framework-dependent，安装器声明 `net10.0-x64-runtime`，缺失时在线安装；外部 .NET 安装脚本使用 winget。模型、Python 环境、Ollama、驱动与 .NET 不入包，必要脚本、worker、profile/锁和第三方许可随包。
 
-当前稳定版本为 [v0.2.8](https://github.com/Patrick-Rex/LiveLingo/releases/tag/v0.2.8)，直播可从已识别的终点分短段续接，修订时保留仍匹配的已译短句。v0.2.1 因原生增量清单冲突已标记为预发布，不再用于稳定更新。以下命令以 0.2.6 的构建和差分验证为例，在仓库根目录使用 PowerShell 7 执行。
+当前稳定版本为 [v0.2.9](https://github.com/Patrick-Rex/LiveLingo/releases/tag/v0.2.9)，支持四种显式识别语言、可选词库和字幕回看。Windows x64 客户端通过固定的 [自动更新渠道](https://github.com/Patrick-Rex/LiveLingo/releases/tag/updates-win-x64) 获取更新。v0.2.1 曾因原生增量清单冲突标记为预发布。以下命令展示从 0.2.8 验证 0.2.9 差分的过程，在仓库根目录使用 PowerShell 7 执行。
 
 ```powershell
-# 保留 artifacts/releases 历史 full/delta；更新专用 Release 建立后可下载上一 full。
-./scripts/New-LiveLingoRelease.ps1 -Version 0.2.6 -DownloadPrevious
-./scripts/Test-LiveLingoRelease.ps1 -FullPackage artifacts/releases/LiveLingo-0.2.6-win-x64-full.nupkg -PreviousPackage artifacts/releases/LiveLingo-0.2.5-win-x64-full.nupkg -DeltaPackage artifacts/releases/LiveLingo-0.2.6-win-x64-delta.nupkg
+# 首次建立更新渠道时，先在输出目录放入与 GitHub v0.2.8 SHA-256 一致的上一版 full。
+./scripts/New-LiveLingoRelease.ps1 -Version 0.2.9
+./scripts/Test-LiveLingoRelease.ps1 -FullPackage artifacts/releases/LiveLingo-0.2.9-win-x64-full.nupkg -PreviousPackage artifacts/releases/LiveLingo-0.2.8-win-x64-full.nupkg -DeltaPackage artifacts/releases/LiveLingo-0.2.9-win-x64-delta.nupkg
 ```
 
 实际文件名以输出为准（默认 win-x64 渠道可能带渠道后缀）；差分验证同时传 `-PreviousPackage <旧full> -DeltaPackage <新delta>`，使用随包原生 Update.exe 在隔离目录还原并逐项比较 SHA-256。完整包与还原包均检查唯一的根应用清单。打包只生成本地产物，不上传。首版无 delta；后续同一输出目录有旧 full 时自动生成差分。保留全包供跨版本回退下载。`-OutputDirectory` 可覆盖输出位置，同版本不覆盖。

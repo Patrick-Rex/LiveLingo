@@ -6,6 +6,110 @@ namespace LiveLingo.Runtime.Tests.Storage;
 /// <summary>验证真实文件原子设置保存和损坏保护，不启动模型。</summary>
 public sealed class DesktopSettingsStoreTests
 {
+    /// <summary>读取旧语言字段时保留其他设置，首次应用新选择后重启仍使用所选语言。</summary>
+    /// <param name="previousLanguage">旧字段值，空引用表示旧文件缺少该字段。</param><returns>真实文件的迁移与保存检查。</returns>
+    [Theory, InlineData("auto"), InlineData(null), InlineData("Japanese")]
+    public async Task LegacyLanguageLoadsAsJapaneseAndNewChoicePersists(string? previousLanguage)
+    {
+        var directory = Directory.CreateTempSubdirectory();
+        try
+        {
+            var path = Path.Combine(directory.FullName, "settings.json");
+            var token = TestContext.Current.CancellationToken;
+            var store = new DesktopSettingsStore(path);
+            Assert.Equal("Japanese", (await store.LoadAsync(token)).Settings.AsrLanguage);
+            await store.SaveAsync(new() { FontSize = 36 }, token);
+            var json = System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(path, token))!.AsObject();
+            if (previousLanguage is null) json.Remove("AsrLanguage");
+            else json["AsrLanguage"] = previousLanguage;
+            var legacy = json.ToJsonString();
+            await File.WriteAllTextAsync(path, legacy, token);
+            var loaded = await store.LoadAsync(token);
+            Assert.Null(loaded.Error);
+            Assert.Equal("Japanese", loaded.Settings.AsrLanguage);
+            Assert.Equal(36, loaded.Settings.FontSize);
+            Assert.Equal(legacy, await File.ReadAllTextAsync(path, token));
+            await store.SaveAsync(loaded.Settings with { AsrLanguage = "Korean" }, token);
+            var restarted = await new DesktopSettingsStore(path).LoadAsync(token);
+            Assert.Null(restarted.Error);
+            Assert.Equal("Korean", restarted.Settings.AsrLanguage);
+            await Assert.ThrowsAsync<ArgumentException>(() => store.SaveAsync(loaded.Settings with { AsrLanguage = "auto" }, token));
+        }
+        finally { directory.Delete(recursive: true); }
+    }
+
+    /// <summary>过大的配置或空 JSON 对象值保留原文件，并返回桌面可显示的错误。</summary>
+    /// <param name="oversized">是否生成刚超过存储上限的配置。</param><returns>实际加载与原文件保护检查。</returns>
+    [Theory, InlineData(false), InlineData(true)]
+    public async Task OversizedOrNullDocumentReportsLoadError(bool oversized)
+    {
+        var directory = Directory.CreateTempSubdirectory();
+        try
+        {
+            var path = Path.Combine(directory.FullName, "settings.json");
+            var token = TestContext.Current.CancellationToken;
+            var content = oversized ? new string(' ', 256 * 1024) + "{}" : "null";
+            await File.WriteAllTextAsync(path, content, token);
+            var result = await new DesktopSettingsStore(path).LoadAsync(token);
+            Assert.NotNull(result.Error);
+            Assert.False(result.Settings.GlossaryLibrary.Enabled);
+            Assert.Equal(content, await File.ReadAllTextAsync(path, token));
+        }
+        finally { directory.Delete(recursive: true); }
+    }
+
+    /// <summary>旧设置默认关闭词库，选择与自定义词表可往返；无效草稿保留上次保存的配置。</summary>
+    /// <returns>使用独立临时设置文件的验证任务。</returns>
+    [Fact]
+    public async Task GlossarySelectionSurvivesDisablingAndRestart()
+    {
+        var directory = Directory.CreateTempSubdirectory();
+        try
+        {
+            var path = Path.Combine(directory.FullName, "settings.json");
+            var store = new DesktopSettingsStore(path);
+            var token = TestContext.Current.CancellationToken;
+            await store.SaveAsync(new(), token);
+            var legacy = System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(path, token))!.AsObject();
+            Assert.True(legacy.Remove(nameof(DesktopSettings.GlossaryLibrary)));
+            await File.WriteAllTextAsync(path, legacy.ToJsonString(), token);
+            var previous = await store.LoadAsync(token);
+            Assert.Null(previous.Error);
+            Assert.False(previous.Settings.GlossaryLibrary.Enabled);
+            Assert.Empty(previous.Settings.TranslationGlossaryText);
+
+            var selected = previous.Settings.GlossaryLibrary with
+            {
+                Profiles = previous.Settings.GlossaryLibrary.Profiles.Add(new("演出", "アンコール=安可", LocalOnly: true)),
+                SelectedIndex = 1, Enabled = true
+            };
+            var enabled = previous.Settings with { GlossaryLibrary = selected };
+            await store.SaveAsync(enabled, token);
+            var restored = (await new DesktopSettingsStore(path).LoadAsync(token)).Settings;
+            Assert.Equal(enabled, restored);
+            Assert.Equal("アンコール=安可", restored.TranslationGlossaryText);
+            Assert.Empty((restored with { TranslationBackend = ModelBackend.OpenAiCompatible }).TranslationGlossaryText);
+
+            var oldProfile = System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(path, token))!;
+            Assert.True(oldProfile["GlossaryLibrary"]!["Profiles"]![1]!.AsObject().Remove("LocalOnly"));
+            await File.WriteAllTextAsync(path, oldProfile.ToJsonString(), token);
+            var oldSettings = await store.LoadAsync(token);
+            Assert.Null(oldSettings.Error);
+            Assert.Equal("アンコール=安可", (oldSettings.Settings with { TranslationBackend = ModelBackend.OpenAiCompatible }).TranslationGlossaryText);
+
+            var disabled = restored with { GlossaryLibrary = selected with { Enabled = false } };
+            await store.SaveAsync(disabled, token);
+            var duplicate = selected with { Profiles = selected.Profiles.Add(new("演出", "歌=歌曲")) };
+            await Assert.ThrowsAsync<ArgumentException>(() => store.SaveAsync(disabled with { GlossaryLibrary = duplicate }, token));
+            var result = await store.LoadAsync(token);
+            Assert.Null(result.Error);
+            Assert.Equal(disabled, result.Settings);
+            Assert.Empty(result.Settings.TranslationGlossaryText);
+            Assert.Equal("演出", result.Settings.GlossaryLibrary.Profiles[result.Settings.GlossaryLibrary.SelectedIndex].Name);
+        }
+        finally { directory.Delete(recursive: true); }
+    }
+
     /// <summary>读取旧位置和自定义 cu130 解释器，首次保存写入新位置并优先使用新文件。</summary>
     /// <returns>兼容迁移与新安装默认值的验证任务。</returns>
     [Fact]

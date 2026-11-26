@@ -16,12 +16,15 @@ from translation import api, translate
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
+from workers.qwen_asr.inference import SUPPORTED_LANGUAGES
+
 
 def main():
     """Retain complete raw results and failures; this capacity experiment does not prove alignment quality."""
     parser = argparse.ArgumentParser()
     for name in ("profile", "model", "audio", "ollama", "output"):
         parser.add_argument("--" + name, required=True)
+    parser.add_argument("--language", choices=SUPPORTED_LANGUAGES, default="Japanese")
     args = parser.parse_args()
     require_owned_job()
     configure_cache()
@@ -42,7 +45,7 @@ def main():
             if len(audio) != 120 * 16000:
                 raise ValueError("Prepare exactly 120 seconds; no implicit padding or truncation")
             report.update(profile=profile, modelRevision=manifest["revision"], inputSha256=sha256(args.audio),
-                          inputPath=str(pathlib.Path(args.audio).resolve()), language="auto",
+                          inputPath=str(pathlib.Path(args.audio).resolve()), language=args.language,
                           policy="explicit trailing windows sharing the same endpoint; not semantic segmentation")
             if profile["backend"] == "cuda":
                 sampler.thread.start()
@@ -84,7 +87,7 @@ def main():
                     report["runs"].append(entry)
                     engine.max_new_tokens = entry["tokenBudget"]
                     try:
-                        entry["asr"] = engine.recognize(audio[entry["sampleStart"]:], None)
+                        entry["asr"] = engine.recognize(audio[entry["sampleStart"]:], args.language)
                         entry["placementAfter"] = api(endpoint, "/api/ps")
                     except Exception as error:
                         entry["error"] = {"type": type(error).__name__, "message": str(error)}

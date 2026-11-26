@@ -166,14 +166,18 @@ public static class HypothesisAlignment
         return length;
     }
 
-    /// <summary>仅为稳定性证据比较字词序列，忽略标点和空白变化，不修改或去重任何输出文本。</summary>
+    /// <summary>比较稳定性证据，忽略表层标点及多余空白，英语和韩语保留有语义的词间边界。</summary>
     /// <param name="previous">此前完整原文。</param><param name="current">新完整原文。</param><param name="allowAdditionalContent">是否允许新原文继续增长。</param>
+    /// <param name="language">决定词间空白是否参与稳定性判断的源语言。</param>
     /// <returns>此前每个非标点字符按原顺序逐字保留时为 true。</returns>
-    public static bool HasStableContent(string previous, string current, bool allowAdditionalContent)
+    public static bool HasStableContent(string previous, string current, bool allowAdditionalContent, string language = AsrLanguages.Default)
     {
         var left = 0; var right = 0; var compared = 0; var previousRight = -1;
+        var preserveWordBoundaries = language is "English" or "Korean";
         while (true)
         {
+            var leftGap = left;
+            var rightGap = right;
             while (left < previous.Length && IsBoundaryPunctuation(previous, left)) left++;
             while (right < current.Length && IsBoundaryPunctuation(current, right)) right++;
             if (left == previous.Length)
@@ -186,9 +190,23 @@ public static class HypothesisAlignment
                     if (current[index] is '。' or '！' or '？' or '.' or '!' or '?') return true;
                 return false;
             }
-            if (right == current.Length || previous[left++] != current[right++]) return false;
+            if (right == current.Length || previous[left] != current[right]) return false;
+            if (preserveWordBoundaries && HasWordSpace(previous, leftGap, left) != HasWordSpace(current, rightGap, right))
+                return false;
+            left++; right++;
             compared++; previousRight = right - 1;
         }
+    }
+
+    /// <summary>区分实际分开的字词和连写字词，连续空白或不同空白字符均表示一个边界。</summary>
+    /// <param name="text">当前比较的原文。</param><param name="start">上个有效字符之后的位置。</param>
+    /// <param name="end">下个有效字符的位置。</param><returns>两个字母或数字间是否出现空白。</returns>
+    private static bool HasWordSpace(string text, int start, int end)
+    {
+        if (start == end || start == 0 || !char.IsLetterOrDigit(text[start - 1]) || !char.IsLetterOrDigit(text[end])) return false;
+        foreach (var character in text.AsSpan(start, end - start))
+            if (char.IsWhiteSpace(character)) return true;
+        return false;
     }
 
     /// <summary>只忽略文本表层断句符号；引号和括号仍参与逐字比较及语义配对。</summary>

@@ -127,7 +127,7 @@ class PersistentTests(unittest.TestCase):
         return {"ticket": {"id": str(uuid.uuid4()), "sequence": 1, "kind": 0, "sourceRevision": 0,
                            "identity": {"sessionId": audio["sessionId"], "captureEpoch": 1, "workerEpoch": 1, "configEpoch": 1},
                            "segment": {"id": str(uuid.uuid4()), "generation": 1}, "range": dict(interval)},
-                "windowRange": dict(interval), "bodyStartSample": interval["start"], "language": "auto", "maxNewTokens": 512}
+                "windowRange": dict(interval), "bodyStartSample": interval["start"], "language": "Japanese", "maxNewTokens": 512}
 
 
 if __name__ == "__main__":

@@ -8,6 +8,7 @@ param(
     [Parameter(ParameterSetName = 'Replay')][switch]$LivePriority,
     [Parameter(Mandatory, ParameterSetName = 'Capture')][ValidateRange(1, 2147483647)][int]$TargetPid,
     [ValidateRange(0, 86400)][int]$DurationSeconds = 0,
+    [ValidateSet('Chinese','English','Japanese','Korean', IgnoreCase = $false)][string]$AsrLanguage = 'Japanese',
     [ValidateSet('translategemma:4b', 'translategemma:12b')][string]$TranslationModel = 'translategemma:12b',
     [ValidateSet(0, 60, 120)][int]$AlignmentRecoverySeconds = 120,
     [switch]$PreserveObservedRepetitions,
@@ -15,13 +16,14 @@ param(
     [string]$PythonPath = (Join-Path $env:LOCALAPPDATA "LiveLingoData\runtimes\$RuntimeProfile\Scripts\python.exe"),
     [string]$Model = (Join-Path $env:LOCALAPPDATA 'LiveLingoData\models\Qwen3-ASR-1.7B-7278e1e'),
     [string]$Ollama = (Join-Path $env:LOCALAPPDATA 'Programs\Ollama\ollama.exe'),
+    [string]$CacheRoot = (Join-Path $env:LOCALAPPDATA 'LiveLingoData\cache'),
     [string]$OutputDirectory,
     [switch]$SkipBuild
 )
 
 $ErrorActionPreference = 'Stop'
 $repository = Split-Path $PSScriptRoot -Parent
-. (Join-Path $PSScriptRoot 'Enter-ModelEvaluation.ps1')
+. (Join-Path $PSScriptRoot 'Enter-ModelEvaluation.ps1') -CacheRoot $CacheRoot
 $probePath = Join-Path $repository 'tools\LiveLingo.Probe\bin\Release\net10.0-windows10.0.26100.0\LiveLingo.Probe.exe'
 if (-not $SkipBuild) {
     $buildLog = Join-Path $env:TEMP ('pipeline-build-' + [Guid]::NewGuid().ToString('N') + '.log')
@@ -36,7 +38,7 @@ if (-not $OutputDirectory) {
 }
 $profile = Join-Path $repository "runtime-profiles\$RuntimeProfile\profile.json"
 $arguments = @('--repository', $repository, '--profile', $profile, '--python', $PythonPath, '--model', $model, '--ollama', $ollama,
-    '--output', $OutputDirectory, '--translation-model', $TranslationModel, '--alignment-recovery-seconds', $AlignmentRecoverySeconds.ToString())
+    '--output', $OutputDirectory, '--asr-language', $AsrLanguage, '--translation-model', $TranslationModel, '--alignment-recovery-seconds', $AlignmentRecoverySeconds.ToString())
 if ($PreserveObservedRepetitions) { $arguments += '--preserve-observed-repetitions' }
 if ($PSCmdlet.ParameterSetName -eq 'Capture') {
     if ($DurationSeconds -eq 0) { $DurationSeconds = 180 }

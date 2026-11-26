@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using LiveLingo.App.Services;
 using LiveLingo.Core.Desktop;
+using LiveLingo.Core.Transcription;
 
 namespace LiveLingo.App.ViewModels;
 
@@ -54,8 +55,17 @@ public sealed partial class DesktopViewModel : ObservableObject
         }
     }
     private string runtimeProfile = "win-x64-cpu";
-    /// <summary>获取已验证的识别语言策略。</summary>
-    public string[] Languages { get; } = ["auto", "Japanese"];
+    /// <summary>获取与识别语言契约顺序一致的中文选项。</summary>
+    public string[] LanguageLabels { get; } = [.. AsrLanguages.Names.Select(AsrLanguages.DisplayName)];
+    /// <summary>将设置页选择的中文标签映射到模型使用的语言名。</summary>
+    public int AsrLanguageIndex
+    {
+        get => AsrLanguages.Names.IndexOf(AsrLanguage);
+        set
+        {
+            if (CanEdit && value >= 0 && value < AsrLanguages.Names.Length) AsrLanguage = AsrLanguages.Names[value];
+        }
+    }
     /// <summary>获取与字幕显示模式数值顺序一致的本地化选项。</summary>
     public string[] DisplayModes { get; } = ["双语", "仅中文", "仅原文"];
     /// <summary>获取与桌面主题数值顺序一致的显示名称。</summary>
@@ -92,8 +102,18 @@ public sealed partial class DesktopViewModel : ObservableObject
     public bool IsSettingsPage => SelectedPageIndex == 2;
     /// <summary>获取或设置设置页当前分类。</summary>
     [ObservableProperty] public partial int SelectedSettingsIndex { get; set; }
-    /// <summary>获取已生效的模型和识别策略摘要。</summary>
-    public string RuntimeSummary => $"识别：{(settings.AsrBackend == ModelBackend.Local ? "本地 Qwen" : "API " + settings.AsrApi.Model)} · 翻译：{(settings.TranslationBackend == ModelBackend.Local ? "本地 " : "API ")}{settings.EffectiveTranslationModel}";
+    /// <summary>显示已应用的识别设备配置和翻译模型，便于从实时页核对本地运行方式。</summary>
+    public string RuntimeSummary
+    {
+        get
+        {
+            var recognition = settings.AsrBackend == ModelBackend.Local
+                ? $"本地 Qwen · {RuntimeProfileLabels[Array.IndexOf(RuntimeProfileIds, settings.RuntimeProfile)]}"
+                : $"API {settings.AsrApi.Model}";
+            var translation = settings.TranslationBackend == ModelBackend.Local ? "本地" : "API";
+            return $"原文：{AsrLanguages.DisplayName(settings.AsrLanguage)}　识别：{recognition}　翻译：{translation} {settings.EffectiveTranslationModel}";
+        }
+    }
     /// <summary>获取或设置浮窗显示模式；忽略选择控件初始化的空选项。</summary>
     public int DisplayModeIndex
     {
@@ -138,7 +158,7 @@ public sealed partial class DesktopViewModel : ObservableObject
     public bool CanToggle => initialized && !Busy && !closing && Maintenance?.ExclusiveOperation != true && (Active || SelectedTarget is not null && !HasPendingSettings);
     /// <summary>获取符合当前操作状态的主按钮文案。</summary>
     public string SessionButtonText => Busy ? "正在处理…" : Active ? "停止翻译" : "开始翻译";
-    /// <summary>获取模型、资源路径或快捷键是否尚未手动提交。</summary>
+    /// <summary>获取运行设置是否有待提交的修改，包括模型、词库和资源路径。</summary>
     public bool HasPendingSettings => ModelJsonError.Length != 0 || ReadSettings() != settings;
 
     /// <summary>维护操作开始或结束时刷新会话和设置入口。</summary>
@@ -219,11 +239,12 @@ public sealed partial class DesktopViewModel : ObservableObject
     /// <summary>获取字幕窗是否允许拖动及滚动。</summary>
     [ObservableProperty, NotifyPropertyChangedFor(nameof(LayoutActionText))] public partial bool LayoutMode { get; set; }
     /// <summary>获取字幕右上角锁定按钮的下一步操作。</summary>
-    public string LayoutActionText => LayoutMode ? "锁定位置" : "解锁拖动";
+    public string LayoutActionText => LayoutMode ? "锁定位置" : "解锁以滚动回看或调整字幕";
     /// <summary>获取待保存翻译模型。</summary>
     [ObservableProperty] public partial string TranslationModel { get; set; } = "translategemma:12b";
     /// <summary>获取待保存识别语言。</summary>
-    [ObservableProperty] public partial string AsrLanguage { get; set; } = "auto";
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(AsrLanguageIndex))]
+    public partial string AsrLanguage { get; set; } = AsrLanguages.Default;
     /// <summary>获取隔离解释器路径输入。</summary>
     [ObservableProperty] public partial string PythonPath { get; set; } = new DesktopSettings().PythonPath;
     /// <summary>获取 Qwen 权重目录输入。</summary>
@@ -348,6 +369,7 @@ public sealed partial class DesktopViewModel : ObservableObject
         OllamaModelsPath = settings.OllamaModelsPath; DataPath = settings.DataPath; CachePath = settings.CachePath;
         StartKey = settings.StartKey; VisibilityKey = settings.VisibilityKey; LayoutKey = settings.LayoutKey;
         HistoryRetentionDays = settings.HistoryRetentionDays;
+        LoadGlossaryLibrary();
     }
 
     /// <inheritdoc />
@@ -451,7 +473,7 @@ public sealed partial class DesktopViewModel : ObservableObject
     /// <summary>手动回看时保留当前阅读身份，不让新块替换正在阅读的内容。</summary>
     public void PauseFollowing() { if (!closing) FollowLatest = false; }
 
-    /// <summary>回到最近两块有效字幕并恢复自动滚动，运行中的推理不受影响。</summary>
+    /// <summary>回到当前阅读模式的最新字幕并恢复自动滚动。</summary>
     [RelayCommand]
     private void ResumeFollowing()
     {
@@ -551,7 +573,7 @@ public sealed partial class DesktopViewModel : ObservableObject
         UpdatePhrases(OverlayPhrases, phrases);
     }
 
-    /// <summary>按块身份与句序更新虚拟列表，保留未变条目的容器、展开状态和回看位置。</summary>
+    /// <summary>按块身份与句序更新虚拟列表，保留未变条目的容器和回看位置。</summary>
     /// <param name="value">有效语义块快照。</param>
     partial void OnHistoryChanged(IReadOnlyList<SubtitleRow> value)
     {
@@ -605,7 +627,8 @@ public sealed partial class DesktopViewModel : ObservableObject
         RuntimeProfile = runtimeProfile, AsrBackend = (ModelBackend)AsrBackendIndex, TranslationBackend = (ModelBackend)TranslationBackendIndex,
         AsrApi = new() { BaseUrl = AsrApiBaseUrl, Model = AsrApiModel, ApiKey = AsrApiKey },
         TranslationApi = new() { BaseUrl = TranslationApiBaseUrl, Model = TranslationApiModel, ApiKey = TranslationApiKey },
-        TranslationModel = TranslationModel, AsrLanguage = AsrLanguage, PythonPath = PythonPath, ModelPath = ModelPath,
+        TranslationModel = TranslationModel, AsrLanguage = AsrLanguage, GlossaryLibrary = glossaryDraft,
+        PythonPath = PythonPath, ModelPath = ModelPath,
         OllamaPath = OllamaPath, OllamaModelsPath = OllamaModelsPath, DataPath = DataPath, CachePath = CachePath,
         StartKey = StartKey, VisibilityKey = VisibilityKey, LayoutKey = LayoutKey, HistoryRetentionDays = HistoryRetentionDays
     };

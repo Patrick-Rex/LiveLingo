@@ -8,6 +8,7 @@ using System.Text.Json.Serialization;
 using LiveLingo.Core.Desktop;
 using LiveLingo.Core.Sessions;
 using LiveLingo.Core.Subtitles;
+using LiveLingo.Core.Transcription;
 using LiveLingo.Platform.Windows.Processes;
 using LiveLingo.Probe.Recording;
 using LiveLingo.Runtime.Asr;
@@ -28,17 +29,18 @@ internal static class PipelineReplayCheck
     /// <param name="preserveObservedRepetitions">是否启用扩窗已观察重复减少拒收实验。</param>
     /// <param name="livePriority">为 WAV 回放启用桌面直播的短段识别和积压续接策略。进程采集始终使用该策略。</param>
     /// <param name="pythonPath">可选的隔离环境解释器路径。</param>
+    /// <param name="asrLanguage">此次回放或采集的明确原文语言。</param>
     /// <returns>运行和清理成功时为零，模型质量另看证据。</returns>
     public static async Task<int> RunAsync(string repository, string profilePath, string model, string ollamaExecutable, string input,
         string output, double durationSeconds, string translationModel, int targetPid = 0, int alignmentRecoverySeconds = 120,
-        bool preserveObservedRepetitions = false, bool livePriority = false, string? pythonPath = null)
+        bool preserveObservedRepetitions = false, bool livePriority = false, string? pythonPath = null, string asrLanguage = AsrLanguages.Default)
     {
         foreach (var path in new[] { repository, profilePath, model, ollamaExecutable }.Concat(targetPid == 0 ? [input] : Array.Empty<string>()))
             if (!Path.IsPathFullyQualified(path)) throw new ArgumentException("需要绝对路径。");
         if (durationSeconds < 0 || durationSeconds > 86400) throw new ArgumentException("回放时长必须位于 0–86400 秒。");
         if (targetPid < 0 || targetPid != 0 && durationSeconds == 0) throw new ArgumentException("采集需要正的目标 PID 和有限时长。");
         var target = targetPid == 0 ? null : WindowsTargets.Query(targetPid).Identity ?? throw new ArgumentException("无法核实采集目标。");
-        var selection = new PipelineModelSelection(translationModel); selection.Validate();
+        var selection = new PipelineModelSelection(translationModel, asrLanguage); selection.Validate();
         var useLivePolicy = target is not null || livePriority;
         var options = new PipelineOptions
         {

@@ -6,6 +6,31 @@ namespace LiveLingo.Core.Tests.Subtitles;
 /// <summary>证明来源重叠与语义证据不能被单纯字符串去重或标点替代。</summary>
 public sealed class AlignmentBoundaryTests
 {
+    /// <summary>英语和韩语改变分词会改变含义，单纯连续空白的显示变化不推迟稳定确认。</summary>
+    /// <param name="language">词间空白有意义的语言。</param><param name="separated">含两个词的句子。</param>
+    /// <param name="joined">字母相同但连写的句子。</param>
+    [Theory, InlineData("English", "It was a part.", "It was apart."), InlineData("Korean", "큰 집에 간다.", "큰집에 간다.")]
+    public void StableContentPreservesWordBoundaries(string language, string separated, string joined)
+    {
+        Assert.False(HypothesisAlignment.HasStableContent(separated, joined, false, language));
+        Assert.False(HypothesisAlignment.HasStableContent(joined, separated, true, language));
+        Assert.True(HypothesisAlignment.HasStableContent(separated, separated.Replace(" ", "  "), false, language));
+    }
+
+    /// <summary>非日语文字需要清楚的句末、闭合结构、两次稳定观察和右侧证据共同支持。</summary>
+    /// <param name="language">当前源语言。</param><param name="statement">结构平衡的完整句子。</param>
+    [Theory, InlineData("Chinese", "他說：“已經到了。”"), InlineData("English", "He said \"we are ready.\""), InlineData("Korean", "도착했어요.")]
+    public void SourceLanguageRequiresIndependentBoundaryEvidence(string language, string statement)
+    {
+        Assert.True(SubtitleBoundaryPolicy.Evaluate(language, statement, 2, true, true).CanClose);
+        Assert.False(SubtitleBoundaryPolicy.Evaluate(language, statement, 1, true, true).CanClose);
+        Assert.False(SubtitleBoundaryPolicy.Evaluate(language, statement, 2, false, true).CanClose);
+        Assert.False(SubtitleBoundaryPolicy.Evaluate(language, statement, 2, true, false).CanClose);
+        Assert.False(SubtitleBoundaryPolicy.Evaluate(language, "（" + statement, 2, true, true).CanClose);
+        Assert.False(SubtitleBoundaryPolicy.Evaluate(language, "wait...", 2, true, true).CanClose);
+        Assert.False(SubtitleBoundaryPolicy.Evaluate(language, "!!!", 2, true, true).CanClose);
+    }
+
     /// <summary>增长窗口返回完整替换原文，真实重复和新增否定都保留。</summary>
     [Fact]
     public void GrowingHypothesisPreservesRepeatedSourceAndNegation()

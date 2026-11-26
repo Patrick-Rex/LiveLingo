@@ -35,7 +35,7 @@
         </Grid>
       </Grid>
       <Border Name="LockAnchor" Grid.Column="1" Width="40" Height="40" VerticalAlignment="Top" />
-      <ScrollViewer Name="SubtitleScroll" Grid.Row="1" Grid.ColumnSpan="2" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"
+      <ScrollViewer Name="SubtitleScroll" Grid.Row="1" Grid.ColumnSpan="2" HorizontalScrollBarVisibility="Disabled" AllowAutoHide="False"
                     AutomationProperties.Name="实时字幕正文">
         <ItemsControl Name="PhraseList" ItemsSource="{Binding OverlayPhrases}">
           <ItemsControl.ItemsPanel><ItemsPanelTemplate><VirtualizingStackPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
@@ -46,7 +46,8 @@
                            Text="{Binding Phrase.Source}" TextWrapping="Wrap" Foreground="#C4D2DF" />
                 <TextBlock Classes="translation" IsVisible="{DynamicResource TranslationVisible}" FontSize="{DynamicResource TranslationFontSize}"
                            Text="{Binding Translation}" TextWrapping="Wrap" FontWeight="SemiBold" Foreground="White" />
-                <TextBlock Classes="subtitle-state" Text="{Binding StatusText}" FontSize="12" Foreground="#A9BBCB" />
+                <TextBlock Classes="subtitle-state" Text="{Binding StatusText}" FontSize="12" Foreground="#A9BBCB"
+                           IsVisible="{Binding StatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
               </StackPanel>
             </DataTemplate>
           </ItemsControl.ItemTemplate>

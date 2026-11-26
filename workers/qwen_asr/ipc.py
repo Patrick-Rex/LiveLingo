@@ -7,6 +7,8 @@ import struct
 import sys
 import uuid
 
+from workers.qwen_asr.inference import SUPPORTED_LANGUAGES
+
 MAX_HEADER = 65536
 MAX_PAYLOAD = 16777216
 TYPES = {"Hello", "Ready", "Failed", "AudioChunk", "Recognize", "Transcription",
@@ -93,7 +95,7 @@ def validate(header, payload_length):
             raise ValueError("ipc_window_range")
         integer(request["bodyStartSample"], window_start, window_end - 1)
         integer(request["maxNewTokens"], 1, 2048)
-        if request["language"] not in ("auto", "Japanese"):
+        if request["language"] not in SUPPORTED_LANGUAGES:
             raise ValueError("ipc_language")
     if kind == "Transcription":
         elapsed = header.get("elapsedSeconds")

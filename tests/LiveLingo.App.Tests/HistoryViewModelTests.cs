@@ -8,6 +8,19 @@ namespace LiveLingo.App.Tests;
 /// <summary>验证历史页面的选择、确认、固定导出与生命周期，不依赖磁盘或原生对话框。</summary>
 public sealed class HistoryViewModelTests
 {
+    /// <summary>历史正文显示该场保存的识别语言，包括旧版自动识别记录。</summary>
+    /// <param name="language">归档时保存的语言值。</param><param name="label">显示的中文标签。</param>
+    /// <returns>历史页面加载任务。</returns>
+    [Theory, InlineData("Korean", "韩语"), InlineData("auto", "自动识别")]
+    public async Task ArchiveShowsItsRecordedSourceLanguage(string language, string label)
+    {
+        var document = CreateDocument("player.exe", HistorySessionState.Completed, 1);
+        document = document with { Summary = document.Summary with { Info = document.Summary.Info with { SourceLanguage = language } } };
+        var model = await CreateModelAsync(new MemoryHistoryStore(document), new MemoryHistoryInteraction());
+        try { Assert.StartsWith($"{label} → 简体中文", model.DocumentDetail); }
+        finally { await model.CloseAsync(); }
+    }
+
     /// <summary>运行中的记录可阅读复制导出，但任何选择均不能绕过删除限制。</summary><returns>交互验证任务。</returns>
     [Fact]
     public async Task RecordingCanBeCopiedAndExportedButCannotBeDeleted()

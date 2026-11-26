@@ -32,11 +32,22 @@ class IpcTests(unittest.TestCase):
                   "range": {"start": 0, "end": 640000}, "sourceRevision": 8}
         header = {"version": 1, "type": "Recognize", "workerEpoch": 3,
                   "correlation": {"ticket": ticket, "windowRange": {"start": 160000, "end": 640000},
-                                  "bodyStartSample": 170000, "language": "auto", "maxNewTokens": 512}}
-        pipe = ShortPipe()
-        ipc.write_frame(pipe, header)
-        pipe.seek(0)
-        self.assertEqual((header, bytearray()), ipc.read_frame(pipe))
+                                  "bodyStartSample": 170000, "language": "Japanese", "maxNewTokens": 512}}
+        for language in ("Chinese", "English", "Japanese", "Korean"):
+            with self.subTest(language=language):
+                header["correlation"]["language"] = language
+                pipe = ShortPipe()
+                ipc.write_frame(pipe, header)
+                pipe.seek(0)
+                self.assertEqual((header, bytearray()), ipc.read_frame(pipe))
+        for invalid in ("auto", None, "", "japanese"):
+            with self.subTest(language=invalid), self.assertRaises(ValueError):
+                header["correlation"]["language"] = invalid
+                ipc.validate(header, 0)
+        del header["correlation"]["language"]
+        with self.assertRaises(ValueError):
+            ipc.validate(header, 0)
+        header["correlation"]["language"] = "Japanese"
         header["correlation"]["ticket"]["identity"]["workerEpoch"] = 2
         with self.assertRaises(ValueError):
             ipc.validate(header, 0)

@@ -125,7 +125,10 @@ public sealed class DesktopSession(string contentRoot, DesktopHistory? history =
             var generation = 0;
             long handledGaps = 0;
             var auditClock = Stopwatch.StartNew();
-            var pipeline = new SubtitlePipeline(new(id, 1, 1, 1), new(settings.EffectiveTranslationModel, settings.AsrLanguage, settings.AsrBackend, settings.TranslationBackend, settings.AsrApi, settings.TranslationApi), options, () =>
+            var selection = new PipelineModelSelection(settings.EffectiveTranslationModel, settings.AsrLanguage,
+                settings.AsrBackend, settings.TranslationBackend, settings.AsrApi, settings.TranslationApi,
+                TranslationGlossary.Parse(settings.TranslationGlossaryText));
+            var pipeline = new SubtitlePipeline(new(id, 1, 1, 1), selection, options, () =>
             {
                 var parent = Path.Combine(settings.DataPath, "pipeline-cache"); Directory.CreateDirectory(parent);
                 var path = Path.Combine(parent, id.ToString("N") + "-" + generation++); temporary.Add(path);

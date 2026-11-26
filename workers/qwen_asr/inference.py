@@ -6,6 +6,8 @@ import wave
 
 from workers.qwen_asr.output import parse_output
 
+SUPPORTED_LANGUAGES = ("Chinese", "English", "Japanese", "Korean")
+
 
 def select_device(torch, profile):
     """Validate the selected build and require its requested execution device."""
@@ -71,14 +73,14 @@ class QwenInference:
             attn_implementation="sdpa", local_files_only=True,
             max_inference_batch_size=1, max_new_tokens=max_new_tokens)
 
-    def recognize(self, audio, language="Japanese"):
+    def recognize(self, audio, language):
         """Generate the complete window; never call upstream repetition correction."""
         import numpy as np
         import torch
         if audio.ndim != 1 or not 0 < audio.size <= self.max_window_seconds * 16000 or not np.isfinite(audio).all():
             raise ValueError("Invalid bounded mono audio window")
-        if language not in (None, "Japanese", "English", "Chinese"):
-            raise ValueError("Unsupported evaluation language")
+        if language not in SUPPORTED_LANGUAGES:
+            raise ValueError("Explicit supported recognition language required")
         if digital_silence(audio):
             return {"raw": "", "text": "", "language": language, "generatedTokens": 0,
                     "endedWithEos": False, "truncated": False, "complete": True,
@@ -90,8 +92,7 @@ class QwenInference:
         messages = [{"role": "system", "content": ""},
                     {"role": "user", "content": [{"type": "audio", "audio": ""}]}]
         prompt = self.asr.processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
-        if language:
-            prompt += f"language {language}<asr_text>"
+        prompt += f"language {language}<asr_text>"
         if self.device != "cpu":
             torch.cuda.synchronize()
             torch.cuda.reset_peak_memory_stats()

@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using LiveLingo.Core.Transcription;
 
 namespace LiveLingo.Core.Desktop;
 
@@ -33,14 +34,19 @@ public sealed record DesktopSettings
     /// <param name="translationApi">可选翻译 API 配置；旧文件未提供时使用空模型配置。</param>
     /// <param name="runtimeProfile">本地推理配置；旧文件有解释器但无配置标识时沿用 cu130。</param>
     /// <param name="pythonPath">保存的隔离解释器路径；新配置使用所选 profile 的用户目录。</param>
+    /// <param name="glossaryLibrary">已保存的命名词库；旧版本没有此字段时使用关闭的示例库。</param>
+    /// <param name="asrLanguage">识别语言。读取旧版 auto 或缺失字段时，沿用项目的日语优先设置。</param>
     [JsonConstructor]
     public DesktopSettings(int historyRetentionDays = 30, OpenAiApiSettings? asrApi = null, OpenAiApiSettings? translationApi = null,
-        string? runtimeProfile = null, string? pythonPath = null)
+        string? runtimeProfile = null, string? pythonPath = null, TranslationGlossaryLibrary? glossaryLibrary = null,
+        string asrLanguage = AsrLanguages.Default)
     {
         RuntimeProfile = runtimeProfile ?? (pythonPath is null ? "win-x64-cpu" : "win-x64-cu130");
         PythonPath = pythonPath ?? GetManagedInterpreter(RuntimeProfile);
         HistoryRetentionDays = historyRetentionDays;
         AsrApi = asrApi ?? new(); TranslationApi = translationApi ?? new();
+        GlossaryLibrary = glossaryLibrary ?? new();
+        AsrLanguage = asrLanguage == "auto" ? AsrLanguages.Default : asrLanguage;
     }
 
     /// <summary>获取文件契约主版本。</summary>
@@ -62,8 +68,21 @@ public sealed record DesktopSettings
     public string EffectiveTranslationModel => TranslationBackend == ModelBackend.Local ? TranslationModel : TranslationApi.Model;
     /// <summary>获取明确选择的翻译模型。</summary>
     public string TranslationModel { get; init; } = "translategemma:12b";
-    /// <summary>获取识别语言策略。</summary>
-    public string AsrLanguage { get; init; } = "auto";
+    /// <summary>获取本地保存的命名词库；首次安装和旧设置默认关闭。</summary>
+    public TranslationGlossaryLibrary GlossaryLibrary { get; init; }
+    /// <summary>获取已启用且适用于当前翻译来源的词库正文，供会话启动时构建匹配表。</summary>
+    [JsonIgnore]
+    public string TranslationGlossaryText
+    {
+        get
+        {
+            if (!GlossaryLibrary.Enabled) return "";
+            var profile = GlossaryLibrary.Profiles[GlossaryLibrary.SelectedIndex];
+            return profile.LocalOnly && TranslationBackend != ModelBackend.Local ? "" : profile.Text;
+        }
+    }
+    /// <summary>获取本地或 API 识别使用的明确原文语言。</summary>
+    public string AsrLanguage { get; init; }
     /// <summary>获取每用户的资源根，独立于可更新或卸载的程序目录。</summary>
     public static string ResourceRoot => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "LiveLingoData");
     /// <summary>获取选中的本地推理配置标识。</summary>
@@ -106,9 +125,11 @@ public sealed record DesktopSettings
     /// <exception cref="ArgumentException">配置不满足本地桌面契约。</exception>
     public void Validate()
     {
-        if (SchemaVersion != 1 || AsrLanguage is not ("auto" or "Japanese") || !Enum.IsDefined(AsrBackend) || !Enum.IsDefined(TranslationBackend))
+        if (SchemaVersion != 1 || !Enum.IsDefined(AsrBackend) || !Enum.IsDefined(TranslationBackend))
             throw new ArgumentException("设置版本、模型或语言不受支持。");
+        if (!AsrLanguages.IsSupported(AsrLanguage)) throw new ArgumentException("请选择中文、英语、日语或韩语作为识别语言。");
         if (!IsSupportedRuntime(RuntimeProfile)) throw new ArgumentException("本地识别运行配置不受支持。");
+        (GlossaryLibrary ?? throw new ArgumentException("词库配置须为对象。")).Validate();
         if (!Enum.IsDefined(DisplayMode)) throw new ArgumentException("字幕显示模式不受支持。");
         if (!Enum.IsDefined(Theme)) throw new ArgumentException("界面主题不受支持。");
         if (HistoryRetentionDays is not (0 or 7 or 30 or 90)) throw new ArgumentException("历史保留期须为永久、7、30 或 90 天。");

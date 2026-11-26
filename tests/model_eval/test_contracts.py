@@ -49,6 +49,14 @@ class EvaluationContracts(unittest.TestCase):
         body = "表示は <asr_text> のままです。"
         self.assertEqual(body, parse_output(body, "Japanese", [99], [99], 20)["text"])
 
+    def test_forced_language_preserves_literal_header_and_requires_eos_for_no_speech(self):
+        """The forced Qwen prompt expects plain text and keeps the requested language on empty outputs."""
+        body = "language Chinese<asr_text>는 문자입니다."
+        result = parse_output(body, "Korean", [99], [99], 20)
+        self.assertEqual(("Korean", body), (result["language"], result["text"]))
+        self.assertTrue(parse_output("", "English", [99], [99], 20)["noSpeech"])
+        self.assertFalse(parse_output("", "English", [1], [99], 20)["noSpeech"])
+
     def test_official_translation_prompt_matches_golden(self):
         """Lock the official wording and exact two blank lines before source data."""
         expected = (pathlib.Path(__file__).parent / "translation-prompt.txt").read_text(encoding="utf-8")

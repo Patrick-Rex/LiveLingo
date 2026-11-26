@@ -1,6 +1,6 @@
 # Python 运行配置
 
-桌面本地识别使用 Qwen3-ASR 1.7B。首次安装默认使用 CPU。只需准备所选配置，模型权重可在各配置之间共用。
+桌面本地识别使用 Qwen3-ASR 1.7B。首次安装默认使用 CPU。只需准备所选配置，模型权重可在各配置之间共用。CPU、ROCm 和 CUDA 配置共用同一套识别语言选择。每场固定为中文、英语、日语或韩语，首次配置默认日语，切换语言无需另装权重。
 
 | 配置 | Python x64 | PyTorch | 设备与精度 |
 | --- | --- | --- | --- |
@@ -21,4 +21,4 @@
 
 每个配置的 `requirements.in` 记录直接依赖，`requirements.lock` 固定完整依赖与 SHA-256，`profile.json` 记录运行时身份和锁文件哈希。AMD 的 ROCm 组件从 AMD 获取，PyTorch CPU/CUDA wheel 从 PyTorch 获取，运行时与驱动按需安装。模型加载前验证指纹，实际推理性能取决于硬件和窗口长度。[用户指南](../packaging/USER-GUIDE.md)
 
-独立的 `win-x64-whisper` 仅供开发评测使用。
+[validated.json](validated.json) 记录当时的硬件与测量参数。独立的 `win-x64-whisper` 用于开发评测。

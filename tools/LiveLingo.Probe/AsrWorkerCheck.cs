@@ -5,6 +5,7 @@ using System.Text.Json.Serialization;
 using LiveLingo.Core.Desktop;
 using LiveLingo.Core.Sessions;
 using LiveLingo.Core.Subtitles;
+using LiveLingo.Core.Transcription;
 using LiveLingo.Platform.Windows.Processes;
 using LiveLingo.Probe.Recording;
 using LiveLingo.Runtime.Asr;
@@ -19,11 +20,13 @@ internal static class AsrWorkerCheck
     /// <param name="repository">项目绝对根路径。</param><param name="profilePath">固定 profile。</param><param name="model">准备好的模型目录。</param>
     /// <param name="input">完整 16k mono PCM16 WAV。</param><param name="output">本机独占证据目录。</param>
     /// <param name="pythonPath">可选的隔离环境解释器路径。</param>
+    /// <param name="asrLanguage">本次固定的识别语言。</param>
     /// <returns>0 表示管道运行和清理通过，不表示语义全部正确。</returns>
-    public static async Task<int> RunAsync(string repository, string profilePath, string model, string input, string output, string? pythonPath = null)
+    public static async Task<int> RunAsync(string repository, string profilePath, string model, string input, string output, string? pythonPath = null, string asrLanguage = AsrLanguages.Default)
     {
         foreach (var path in new[] { repository, profilePath, model, input })
             if (!Path.IsPathFullyQualified(path)) throw new ArgumentException("所有输入路径必须为绝对路径。");
+        if (!AsrLanguages.IsSupported(asrLanguage)) throw new ArgumentException("识别语言不受支持。", nameof(asrLanguage));
         var audio = ReadWave(input);
         using var profile = JsonDocument.Parse(File.ReadAllBytes(profilePath));
         var root = profile.RootElement;
@@ -64,7 +67,7 @@ internal static class AsrWorkerCheck
             for (var index = 1; index <= 2; index++)
             {
                 var request = new AsrRequest(new(Guid.NewGuid(), index, PipelineRequestKind.Recognition, identity, segment, new(0, audio.Length), 0),
-                    new(0, audio.Length), 0, "auto", 512);
+                    new(0, audio.Length), 0, asrLanguage, 512);
                 started = Stopwatch.GetTimestamp();
                 var inference = client.RecognizeAsync(request, stop.Token);
                 await client.PingAsync(stop.Token).ConfigureAwait(false);
@@ -133,7 +136,7 @@ internal static class AsrWorkerCheck
 
 /// <summary>实际调用证据，正文仅在显式评测保存。</summary>
 /// <param name="RequestId">独立调用。</param><param name="Sequence">顺序。</param><param name="StartSample">真实窗口起点。</param>
-/// <param name="EndSample">真实窗口终点。</param><param name="Text">原始文本。</param><param name="Language">检测语言。</param>
+/// <param name="EndSample">真实窗口终点。</param><param name="Text">原始文本。</param><param name="Language">本次窗口采用的固定语言。</param>
 /// <param name="Complete">正常生成。</param><param name="Reason">终止原因。</param><param name="InferenceSeconds">识别推理时间。</param>
 /// <param name="RoundTripSeconds">完整管道耗时。</param>
 internal sealed record AsrCheckResult(Guid RequestId, long Sequence, long StartSample, long EndSample, string Text, string? Language,

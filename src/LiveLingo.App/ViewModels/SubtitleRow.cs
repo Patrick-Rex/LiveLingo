@@ -23,11 +23,11 @@ public sealed record SubtitleRow
     /// <summary>获取按识别顺序排列的原译短句，尚无当前译文的句子保留其位置。</summary>
     public IReadOnlyList<SubtitlePhraseRow> Phrases { get; private set; } = [];
 
-    /// <summary>获取完整日语原文。</summary>
+    /// <summary>获取当前语义块的完整识别原文。</summary>
     public string Source => Segment.Source;
     /// <summary>获取最近译文，空结果显示等待。</summary>
     public string Translation => Segment.Translation ?? "等待中文…";
-    /// <summary>获取面向阅读的简短状态；陈旧或失败译文不会显示为已定稿。</summary>
+    /// <summary>获取需要随正文显示的阶段或异常提示，常规已译分段留空。</summary>
     public string StatusText => GetStatusText(Segment);
 
     /// <summary>读取实时与历史共用的块状态，无需创建短句投影。</summary>
@@ -38,7 +38,7 @@ public sealed record SubtitleRow
         segment.Phase switch
         {
             SubtitlePhase.Final when segment.TranslationState == TranslationState.Complete => "已定稿",
-            _ when segment.SourceRangeSealed && segment.TranslationState == TranslationState.Complete => "已翻译",
+            _ when segment.SourceRangeSealed && segment.TranslationState == TranslationState.Complete => "",
             SubtitlePhase.Draft => "草稿",
             _ => "更新中"
         };
@@ -67,7 +67,7 @@ public sealed record SubtitleRow
             var source = index < sources.Length ? sources[index] : null;
             if (!translations.IsDefaultOrEmpty && index < translations.Length && translations[index] is { } current && current.Source == source)
             {
-                result.Add(new(Segment.Key, index, current.Source, current.Translation, final ? "已定稿" : "已翻译", detail, final));
+                result.Add(new(Segment.Key, index, current.Source, current.Translation, final ? "已定稿" : "", detail, final));
             }
             else if (index < previous.Length && previous[index] is { } old)
             {

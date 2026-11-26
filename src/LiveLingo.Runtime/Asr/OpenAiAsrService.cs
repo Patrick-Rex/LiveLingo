@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using LiveLingo.Core.Desktop;
+using LiveLingo.Core.Transcription;
 using LiveLingo.Runtime.Api;
 using LiveLingo.Runtime.Storage;
 
@@ -32,7 +33,7 @@ public sealed class OpenAiAsrService : IDisposable
         var form = new MultipartFormDataContent(); message.Content = form;
         form.Add(new StringContent(model), "model");
         form.Add(new StringContent("json"), "response_format");
-        if (request.Language == "Japanese") form.Add(new StringContent("ja"), "language");
+        form.Add(new StringContent(AsrLanguages.ToApiCode(request.Language)), "language");
         var audio = new ByteArrayContent(EncodeWave(window.Samples.Span));
         audio.Headers.ContentType = new MediaTypeHeaderValue("audio/wav");
         form.Add(audio, "file", "window.wav");
@@ -45,7 +46,7 @@ public sealed class OpenAiAsrService : IDisposable
         var result = new IpcHeader
         {
             Type = "Transcription", WorkerEpoch = request.Ticket.Identity.WorkerEpoch, Correlation = request,
-            Text = text.GetString(), Language = request.Language == "Japanese" ? "Japanese" : "unknown",
+            Text = text.GetString(), Language = request.Language,
             Complete = complete, Reason = complete ? "api_response" : "api_incomplete",
             ElapsedSeconds = Stopwatch.GetElapsedTime(started).TotalSeconds
         };

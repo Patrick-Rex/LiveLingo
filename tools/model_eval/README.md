@@ -29,7 +29,9 @@ $resourceRoot = Join-Path $env:LOCALAPPDATA 'LiveLingoData'
 
 用对应脚本的 `--help` 查看输入参数。模型评测应由 [Probe 的 model-eval](../LiveLingo.Probe/README.md) 监管，以回收本次子进程。输出使用新的本机目录；不要把退出码或规则检查通过等同于语义正确。
 
-默认翻译使用官方单 user 提示，保持完整原文，关闭质量重试；其他提示、保守重复检查及重试选项仅供显式实验。
+`asr_benchmark.py` 和 `window_recovery_benchmark.py` 的 `--language` 支持 `Chinese`、`English`、`Japanese`、`Korean`，默认固定日语。PowerShell 入口 `Invoke-AsrEvaluation.ps1` 使用 `-Language` 选择语种，使用 `-CacheRoot` 指定与桌面相同的缓存目录。四语桌面流水线的端到端检查使用 [Probe 回放](../LiveLingo.Probe/README.md#完整字幕管道)，脚本参数为 `-AsrLanguage`。
+
+独立的日中翻译对照脚本默认使用官方单 user 提示，保持完整原文，关闭质量重试；其他提示、保守重复检查及重试选项仅供显式实验。
 
 公开语料由使用者按其授权条款下载，不收入仓库。已登记素材可用 `scripts/Remove-EvaluationCorpus.ps1 -Directory <素材目录>` 删除，脚本先校验清单与哈希。测试命令见 [测试说明](../../tests/README.md)；评测结果和录音留在本地。
 

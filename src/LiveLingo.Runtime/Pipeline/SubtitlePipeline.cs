@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Diagnostics;
 using LiveLingo.Core.Audio;
+using LiveLingo.Core.Desktop;
 using LiveLingo.Core.Segmentation;
 using LiveLingo.Core.Subtitles;
 using LiveLingo.Core.Transcription;
@@ -71,6 +72,7 @@ public sealed class SubtitlePipeline
     private double lastComputeSeconds;
     private bool used;
     private bool previousRightContext;
+    private bool offeredQuietReview;
     private bool recognizeBeforeNextPhrase;
     private bool usingShortLiveSegments;
     private string? recognitionIssue;
@@ -259,8 +261,14 @@ public sealed class SubtitlePipeline
             openSegment = Guid.NewGuid(); reducer.Add(openSegment.Value, new(start, start));
             hypothesis = null; stableObservations = 0; lastOfferedEnd = start;
         }
-        var quietRefresh = quietTail && store.End - lastOfferedEnd >= 8000;
-        if (quietRefresh) quietCandidateEnd = store.End;
+        if (!quietTail) offeredQuietReview = false;
+        var quietRefresh = quietTail && store.End - lastOfferedEnd >= 8000 &&
+            (!IsLocalLive || !offeredQuietReview || stableObservations < 2);
+        if (quietRefresh)
+        {
+            quietCandidateEnd = store.End;
+            offeredQuietReview = true;
+        }
         OfferRecognition(quietRefresh);
         Reclaim(); Emit();
     }
@@ -273,7 +281,11 @@ public sealed class SubtitlePipeline
         if (recognitionQueue.Pending?.RecoveryWindowSamples > 0 || recognitionQueue.Running?.RecoveryWindowSamples > 0) return;
         if (options.PreferLiveSegments && failedRecognitionEnd >= 0 && hypothesis is null && openSegment is { } id &&
             ResolveFailedLiveWindow(id, endOfInput)) return;
-        if (openSegment is null || store.End <= lastOfferedEnd || !force && store.End - lastOfferedEnd < options.RefreshSamples) return;
+        if (openSegment is null || store.End <= lastOfferedEnd) return;
+        var firstLocalWindow = IsLocalLive && hypothesis is null && failedRecognitionEnd < 0 &&
+            recognitionQueue.Pending is null && recognitionQueue.Running is null;
+        var refresh = firstLocalWindow ? Math.Min(options.RefreshSamples, 16000) : options.RefreshSamples;
+        if (!force && store.End - lastOfferedEnd < refresh) return;
         var segment = Segment(openSegment.Value);
         var acceptedEnd = hypothesis?.Range.End ?? segment.Range.Start;
         var advance = hypothesis is null ? options.MaximumWindowSamples : Math.Max(options.RefreshSamples, options.MaximumWindowSamples / 2);
@@ -389,7 +401,16 @@ public sealed class SubtitlePipeline
             {
                 var segment = Segment(work.Request.Segment.Id);
                 var phrases = SubtitlePhrases.Split(segment.Source);
-                var input = new TranslationInput(work.Request, phrases[segment.NextPhraseIndex]);
+                var source = phrases[segment.NextPhraseIndex];
+                var match = selection.Glossary?.Match(source) ?? default;
+                var input = new TranslationInput(work.Request, source, match.Terms, selection.AsrLanguage);
+                cancellationToken.ThrowIfCancellationRequested();
+                if (match.ExactTranslation is { } exact)
+                {
+                    var elapsed = Stopwatch.GetElapsedTime(started);
+                    var direct = new TranslationResult(input, exact, true, "glossary_exact", elapsed, null, null, null, null);
+                    return new(work, null, direct, null, elapsed.TotalSeconds, false, queued);
+                }
                 translationCalls++; counted = true;
                 var result = await gpu.RunAsync(token => models.TranslateAsync(input, token), cancellationToken).ConfigureAwait(false);
                 if (result.Input != input) throw new InvalidDataException("translation_correlation_mismatch");
@@ -423,7 +444,8 @@ public sealed class SubtitlePipeline
     {
         var ticket = result.Work.Request;
         var queue = ticket.Kind == PipelineRequestKind.Recognition ? recognitionQueue : translationQueue;
-        queue.Complete(ticket.Id); lastComputeSeconds = result.Elapsed;
+        queue.Complete(ticket.Id);
+        if (result.CountedAttempt) lastComputeSeconds = result.Elapsed;
         var disposition = "not_applied";
         try
         {
@@ -489,10 +511,10 @@ public sealed class SubtitlePipeline
                     var acceptedShorterRetry = options.PreferLiveSegments && failedRecognitionEnd > ticket.Range.End;
                     recognitionIssue = null; failedRecognitionEnd = -1; triedShorterWindow = false;
                     var previous = hypothesis;
-                    var previousBoundary = previous is null ? BoundaryDecision.Pending : JapaneseBoundaryPolicy.Evaluate(previous.Text, 2, previousRightContext, true);
+                    var previousBoundary = previous is null ? BoundaryDecision.Pending : SubtitleBoundaryPolicy.Evaluate(selection.AsrLanguage, previous.Text, 2, previousRightContext, true);
                     if (previous is not null && previousBoundary.CanClose && current.Range.End > previous.Range.End &&
-                        HypothesisAlignment.HasStableContent(previous.Text, alignment.Hypothesis!.Text, true) &&
-                        !HypothesisAlignment.HasStableContent(previous.Text, alignment.Hypothesis.Text, false) &&
+                        HypothesisAlignment.HasStableContent(previous.Text, alignment.Hypothesis!.Text, true, selection.AsrLanguage) &&
+                        !HypothesisAlignment.HasStableContent(previous.Text, alignment.Hypothesis.Text, false, selection.AsrLanguage) &&
                         reducer.ConfirmBoundary(ticket, previous.Text, previousBoundary))
                     {
                         disposition = "boundary_confirmation";
@@ -503,9 +525,9 @@ public sealed class SubtitlePipeline
                     hypothesis = alignment.Hypothesis!;
                     previousRightContext = result.RightContext;
                     stableObservations = previous is not null && (previous.Text.Length == 0 && hypothesis.Text.Length == 0 ||
-                        HypothesisAlignment.HasStableContent(previous.Text, hypothesis.Text, false)) &&
+                        HypothesisAlignment.HasStableContent(previous.Text, hypothesis.Text, false, selection.AsrLanguage)) &&
                         hypothesis.Range.End > previous.Range.End ? stableObservations + 1 : 1;
-                    var boundary = JapaneseBoundaryPolicy.Evaluate(hypothesis.Text, stableObservations, result.RightContext, true);
+                    var boundary = SubtitleBoundaryPolicy.Evaluate(selection.AsrLanguage, hypothesis.Text, stableObservations, result.RightContext, true);
                     if (reducer.AcceptSource(ticket, hypothesis.Text, true, boundary))
                     {
                         disposition = "accepted";
@@ -572,7 +594,7 @@ public sealed class SubtitlePipeline
     private void CloseOpen(long end)
     {
         recognitionQueue.InvalidatePending(); openSegment = null; hypothesis = null; stableObservations = 0; previousRightContext = false; failedRecognitionEnd = -1;
-        quietCandidateEnd = 0; triedShorterWindow = false;
+        quietCandidateEnd = 0; offeredQuietReview = false; triedShorterWindow = false;
         lastOfferedEnd = end;
         if (store.End > end)
         {
@@ -609,6 +631,10 @@ public sealed class SubtitlePipeline
 
     /// <summary>获取直播普通开放段或持续讲话短段允许覆盖的最大采样数。</summary>
     private int LiveWindowLimit => usingShortLiveSegments ? Math.Min(LiveSegmentSamples, options.MaximumWindowSamples) : options.MaximumWindowSamples;
+
+    /// <summary>获取是否可采用仅针对本机识别和翻译的直播刷新节奏。</summary>
+    private bool IsLocalLive => options.PreferLiveSegments && selection.AsrBackend == ModelBackend.Local &&
+        selection.TranslationBackend == ModelBackend.Local;
 
     /// <summary>获取已经接受识别或明确登记为未识别的音频进度，仅用于排队和压力计算。</summary>
     private long ProcessedEnd => Math.Max(recognizedEnd, skippedEnd);
@@ -677,7 +703,7 @@ public sealed class SubtitlePipeline
     {
         reducer.AdvanceIdentity(identity);
         stableObservations = 0; failedRecognitionEnd = -1; recognizeBeforeNextPhrase = false;
-        quietCandidateEnd = 0; triedShorterWindow = false;
+        quietCandidateEnd = 0; offeredQuietReview = false; triedShorterWindow = false;
         recognitionQueue = Queue(PipelineRequestKind.Recognition); translationQueue = Queue(PipelineRequestKind.Translation);
         status = "recovering_models"; Emit();
         return models.ResetAsync(identity, selection, cancellationToken);

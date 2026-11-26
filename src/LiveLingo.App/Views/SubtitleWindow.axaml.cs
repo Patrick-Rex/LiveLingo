@@ -57,6 +57,7 @@ public partial class SubtitleWindow : Window
         this.FindControl<Grid>("ReviewToolbar")!.IsVisible = enabled;
         Grid.SetRow(subtitleScroll, enabled ? 1 : 0);
         Grid.SetRowSpan(subtitleScroll, enabled ? 1 : 2);
+        subtitleScroll.VerticalScrollBarVisibility = enabled ? ScrollBarVisibility.Auto : ScrollBarVisibility.Hidden;
         subtitleScroll.Margin = enabled ? default : new Thickness(0, 0, 40, 0);
         this.FindControl<Border>("Surface")!.BorderBrush = new SolidColorBrush(Color.Parse(enabled ? "#9EDFC7" : "#395267"));
         Cursor = Cursor.Default;

@@ -3,7 +3,7 @@ using Avalonia.Input;
 
 namespace LiveLingo.App.Views;
 
-/// <summary>保留来源选择的点击和键盘交互，收起时让滚轮继续滚动设置页。</summary>
+/// <summary>供来源及词库选择器使用，收起时让滚轮继续滚动设置页，点击或键盘可切换选项。</summary>
 public sealed class ModelSourceSelector : ComboBox
 {
     /// <summary>沿用标准下拉框的主题、模板及共享样式。</summary>

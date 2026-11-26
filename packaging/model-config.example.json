@@ -11,5 +11,5 @@
     "api_key": "",
     "model": "your-translation-model"
   },
-  "asr_language": "auto"
+  "asr_language": "Japanese"
 }

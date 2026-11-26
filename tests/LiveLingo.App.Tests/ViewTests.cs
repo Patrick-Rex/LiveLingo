@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
@@ -55,6 +56,7 @@ public sealed class ViewTests
             Assert.False(overlay.FindControl<Button>("ResumeFollowingButton")!.IsEffectivelyVisible);
             Assert.Equal(ThemeVariant.Dark, overlay.RequestedThemeVariant);
             var text = overlay.GetVisualDescendants().OfType<TextBlock>().Where(x => x.IsEffectivelyVisible).Select(x => x.Text).ToArray();
+            Assert.Contains("完整译文。", text);
             Assert.Contains("已定稿", text);
             Assert.DoesNotContain(text, x => x is not null && (x.Contains("源 v", StringComparison.Ordinal) || x.Contains(vm.Status, StringComparison.Ordinal)));
 
@@ -97,6 +99,31 @@ public sealed class ViewTests
         Assert.Contains("源 v2 / 字幕 v3", row.Detail);
     }
 
+    /// <summary>档案的常规已译条目只显示原译文，存在失败时可在同一行读到状态和具体原因。</summary>
+    [AvaloniaFact]
+    public void ArchiveEntriesKeepBilingualTextAndExposeFailures()
+    {
+        var translated = new SubtitleSegment(new(Guid.NewGuid(), 1), new(0, 16000), 1, 2, "原句。", "译文。", 1,
+            SubtitlePhase.Revised, TranslationState.Complete, null, BoundaryDecision.Pending) { SourceRangeSealed = true };
+        var failed = translated with { Key = new(Guid.NewGuid(), 1), Translation = null, TranslationState = TranslationState.Failed, Error = "服务超时" };
+        var vm = new DesktopViewModel(new FakeSession(), new FakeStore(), action => action()) { SelectedPageIndex = 1 };
+        var control = new ControlWindow { DataContext = vm };
+        try
+        {
+            var list = control.FindControl<HistoryView>("ArchivePage")!.FindControl<ListBox>("ArchiveEntries")!;
+            list.ItemsSource = new HistoryEntryItem[] { new(new(1, translated), () => { }), new(new(1, failed), () => { }) };
+            control.Show(); control.UpdateLayout();
+            var first = list.ContainerFromIndex(0)!;
+            Assert.Empty(first.GetVisualDescendants().OfType<Expander>());
+            var text = first.GetVisualDescendants().OfType<TextBlock>().Where(block => block.IsEffectivelyVisible).Select(block => block.Text);
+            Assert.Equal(["原句。", "译文。"], text);
+            var second = list.ContainerFromIndex(1)!.GetVisualDescendants().OfType<TextBlock>().Where(block => block.IsEffectivelyVisible).ToArray();
+            Assert.Contains(second, block => block.Text == "翻译未完成");
+            Assert.Contains("服务超时", AutomationProperties.GetHelpText(second.Single(block => block.Text == "尚无译文")));
+        }
+        finally { control.Close(); }
+    }
+
     /// <summary>主窗口明暗主题切换会更新实际画刷，字幕窗口始终使用独立的深色阅读背景。</summary>
     [AvaloniaFact]
     public void MainThemeChangesWithoutChangingSubtitleAppearance()
@@ -133,8 +160,8 @@ public sealed class ViewTests
             var button = overlay.LayoutLock.FindControl<Button>("LayoutLockButton")!;
             overlay.LayoutLock.UpdateLayout();
             var point = button.TranslatePoint(new Point(button.Bounds.Width / 2, button.Bounds.Height / 2), overlay.LayoutLock)!.Value;
-            Assert.Equal("解锁拖动", AutomationProperties.GetName(button)); Assert.False(overlay.CanResize);
-            Assert.Equal("解锁拖动", ToolTip.GetTip(button));
+            Assert.Equal("解锁以滚动回看或调整字幕", AutomationProperties.GetName(button)); Assert.False(overlay.CanResize);
+            Assert.Equal("解锁以滚动回看或调整字幕", ToolTip.GetTip(button));
             Assert.True(button.Bounds.Width >= 32 && button.Bounds.Height >= 32);
             Assert.True(overlay.LayoutLock.FindControl<Avalonia.Controls.Shapes.Path>("LockedIcon")!.IsVisible);
             overlay.LayoutLock.MouseDown(point, MouseButton.Left); overlay.LayoutLock.MouseUp(point, MouseButton.Left);
@@ -298,9 +325,11 @@ public sealed class ViewTests
             var top = pair.TranslatePoint(default, scroll)!.Value.Y;
             Assert.InRange(top, -1, scroll.Viewport.Height - pair.Bounds.Height + 1);
             var texts = pair.GetVisualDescendants().OfType<TextBlock>().Where(text => text.IsEffectivelyVisible).Select(text => text.Text).ToArray();
-            Assert.Equal(new[] { latest.Source, latest.Translation, latest.StatusText }, texts);
+            Assert.Equal(new[] { latest.Source, latest.Translation }, texts);
             var list = control.FindControl<ListBox>("HistoryList")!;
             Assert.True(list.Scroll!.Offset.Y > 0);
+            var listBar = list.GetVisualDescendants().OfType<ScrollBar>().Single(bar => bar.Orientation == Avalonia.Layout.Orientation.Vertical);
+            Assert.True(listBar.IsEffectivelyVisible); Assert.False(listBar.AllowAutoHide);
             var hit = list.TranslatePoint(new Point(30, 40), control)!.Value;
             control.MouseWheel(hit, new Vector(0, 4)); control.UpdateLayout();
             Assert.True(vm.ReviewingTranscript); Assert.True(vm.FollowLatest);
@@ -351,12 +380,21 @@ public sealed class ViewTests
                 }
             }
             overlay.SetInteractive(true); overlay.UpdateLayout();
-            var pointer = scroll.TranslatePoint(new Point(60, 35), overlay)!.Value;
-            overlay.MouseWheel(pointer, new Vector(0, 20)); overlay.UpdateLayout();
+            var overlayBar = scroll.GetVisualDescendants().OfType<ScrollBar>().Single(bar => bar.Orientation == Avalonia.Layout.Orientation.Vertical);
+            Assert.True(overlayBar.IsEffectivelyVisible); Assert.False(overlayBar.AllowAutoHide);
+            var thumb = overlayBar.GetVisualDescendants().OfType<Thumb>().Single();
+            var pointer = thumb.TranslatePoint(new Point(thumb.Bounds.Width / 2, thumb.Bounds.Height / 2), overlay)!.Value;
+            var topOfTrack = overlayBar.TranslatePoint(new Point(overlayBar.Bounds.Width / 2, 0), overlay)!.Value;
+            overlay.MouseDown(pointer, MouseButton.Left);
+            overlay.MouseMove(topOfTrack, RawInputModifiers.LeftMouseButton);
+            overlay.MouseUp(topOfTrack, MouseButton.Left); overlay.UpdateLayout();
             Assert.False(vm.FollowLatest);
-            scroll.ScrollToHome(); overlay.UpdateLayout(); Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
             overlay.UpdateLayout();
+            Assert.Equal(0, scroll.Offset.Y);
             Assert.Contains(body.ContainerFromIndex(0)!.GetVisualDescendants().OfType<TextBlock>(), x => x.Text == "译文1。");
+            overlay.SetInteractive(false); overlay.UpdateLayout();
+            Assert.False(overlayBar.IsEffectivelyVisible);
         }
         finally { overlay.Close(); control.Close(); }
     }
@@ -388,7 +426,7 @@ public sealed class ViewTests
         finally { overlay.Close(); }
     }
 
-    /// <summary>鼠标停在当前会话行上时，音频状态和其他短句的回填不会重建悬停行或收起详情。</summary>
+    /// <summary>鼠标停在当前会话行上时，音频状态和其他短句的回填保留悬停行，并更新其无障碍诊断。</summary>
     /// <returns>真实视图接收会话更新的验证任务。</returns>
     [AvaloniaFact]
     public async Task HoveredTranscriptRowKeepsItsVisualsAcrossAudioAndTranslationUpdates()
@@ -408,8 +446,8 @@ public sealed class ViewTests
             control.Show(); control.UpdateLayout();
             var list = control.FindControl<ListBox>("HistoryList")!;
             var item = (ListBoxItem)list.ContainerFromIndex(0)!;
-            var detail = item.GetVisualDescendants().OfType<Expander>().Single();
-            detail.IsExpanded = true; control.UpdateLayout();
+            Assert.Empty(item.GetVisualDescendants().OfType<Expander>());
+            var translation = item.GetVisualDescendants().OfType<TextBlock>().Single(text => text.Text == "第一条译文");
             var hit = item.TranslatePoint(new Point(25, 25), control)!.Value;
             control.MouseMove(hit); control.UpdateLayout();
             Assert.True(item.IsPointerOver);
@@ -420,10 +458,9 @@ public sealed class ViewTests
             session.Publish(new(vm.SessionId, 3, snapshot with { StateSequence = 3, Segments = [segment] }, "运行中", 0, true));
             Avalonia.Threading.Dispatcher.UIThread.RunJobs(); control.UpdateLayout();
             Assert.Same(item, list.ContainerFromIndex(0));
-            Assert.Same(detail, item.GetVisualDescendants().OfType<Expander>().Single());
-            Assert.True(item.IsPointerOver); Assert.True(detail.IsExpanded);
+            Assert.True(item.IsPointerOver);
             Assert.Equal(0, changes);
-            Assert.Contains("字幕 v3", ((TextBlock)detail.Content!).Text);
+            Assert.Contains("字幕 v3", AutomationProperties.GetHelpText(translation));
             Assert.Contains(list.ContainerFromIndex(1)!.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "第二条译文");
         }
         finally { control.Close(); await vm.CloseAsync(); }

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using LiveLingo.Core.Desktop;
+using LiveLingo.Core.Transcription;
 
 namespace LiveLingo.App.Services;
 
@@ -31,7 +32,8 @@ public static class ModelConfigurationJson
         }
         catch (JsonException) { throw new ArgumentException("JSON 格式无效：请提供 asr、translation 和 asr_language，检查字段名称及值类型。"); }
         if (config.Asr is null || config.Translation is null) throw new ArgumentException("整体配置必须同时包含 asr 和 translation。");
-        if (config.AsrLanguage is not ("auto" or "Japanese")) throw new ArgumentException("识别语言须为 auto 或 Japanese。");
+        if (!AsrLanguages.IsSupported(config.AsrLanguage))
+            throw new ArgumentException($"请填写 asr_language，可选值为 {string.Join("、", AsrLanguages.Names)}。");
         var asrBackend = Backend(config.Asr.Provider);
         var translationBackend = Backend(config.Translation.Provider);
         if (asrBackend == ModelBackend.Local && config.Asr.Model != "Qwen/Qwen3-ASR-1.7B") throw new ArgumentException("本地识别模型须为 Qwen/Qwen3-ASR-1.7B。");
@@ -79,7 +81,7 @@ public static class ModelConfigurationJson
 
 /// <summary>一次编辑与导入两个阶段的完整模型配置。</summary>
 /// <param name="Asr">识别来源与模型。</param><param name="Translation">翻译来源与模型。</param><param name="AsrLanguage">识别语言。</param>
-internal sealed record ModelConfiguration(ModelEndpoint Asr, ModelEndpoint Translation, string AsrLanguage = "auto");
+internal sealed record ModelConfiguration(ModelEndpoint Asr, ModelEndpoint Translation, string AsrLanguage);
 /// <summary>使用通用客户端字段表达一个阶段，不引入服务商专有参数。</summary>
 /// <param name="Provider">local 或 openai。</param><param name="Model">模型标识。</param>
 /// <param name="BaseUrl">API 版本根地址。</param><param name="ApiKey">API 凭据。</param>

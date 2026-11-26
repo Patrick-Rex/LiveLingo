@@ -50,10 +50,10 @@ public sealed class OllamaTranslationService : ITranslationService, IDisposable
     public async Task<TranslationResult> TranslateAsync(TranslationInput input, CancellationToken cancellationToken)
     {
         if (!validated) throw new InvalidOperationException("模型身份尚未通过验证。");
-        var prompt = OfficialTranslationPrompt.Format(input.Source);
+        var prompt = OfficialTranslationPrompt.Format(input.Source, input.Terms, input.SourceLanguage);
         // UTF-8 字节上界为 byte-fallback 留足 token 余量，另留 256 个模板 token；超限保留原文并报告。
-        if (Encoding.UTF8.GetByteCount(prompt) > 4096 - 512 - 256) throw new ArgumentException("完整块超出已支持上下文预算。", nameof(input));
-        var body = new OllamaChatRequest(model, false, "5m", [new("user", prompt)], new(4096, 512, 0, 42, 1.0));
+        if (Encoding.UTF8.GetByteCount(prompt) > OfficialTranslationPrompt.MaximumPromptBytes) throw new ArgumentException("完整块超出已支持上下文预算。", nameof(input));
+        var body = new OllamaChatRequest(model, false, -1, [new("user", prompt)], new(4096, 512, 0, 42, 1.0));
         using var request = new HttpRequestMessage(HttpMethod.Post, "api/chat")
         { Content = new ByteArrayContent(JsonSerializer.SerializeToUtf8Bytes(body, TranslationJsonContext.Default.OllamaChatRequest)) };
         request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
@@ -106,9 +106,9 @@ public sealed class OllamaTranslationService : ITranslationService, IDisposable
 }
 
 /// <summary>固定 Ollama 请求，使用源生成 JSON 避免运行时反射契约漂移。</summary>
-/// <param name="Model">模型标签。</param><param name="Stream">固定非流式。</param><param name="KeepAlive">显式驻留时间。</param>
+/// <param name="Model">模型标签。</param><param name="Stream">固定非流式。</param><param name="KeepAlive">负值使权重常驻至会话回收私有服务。</param>
 /// <param name="Messages">唯一 user 消息。</param><param name="Options">已测推理参数。</param>
-internal sealed record OllamaChatRequest(string Model, bool Stream, string KeepAlive, OllamaMessage[] Messages, OllamaOptions Options);
+internal sealed record OllamaChatRequest(string Model, bool Stream, int KeepAlive, OllamaMessage[] Messages, OllamaOptions Options);
 /// <summary>官方单条对话消息。</summary><param name="Role">user 角色。</param><param name="Content">完整提示。</param>
 internal sealed record OllamaMessage(string Role, string Content);
 /// <summary>固定上下文与输出预算，不隐式采用服务默认值。</summary>

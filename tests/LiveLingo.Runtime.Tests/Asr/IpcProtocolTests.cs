@@ -14,7 +14,7 @@ public sealed class IpcProtocolTests
     public async Task CorrelationSurvivesShortReads()
     {
         var request = new AsrRequest(new(Guid.NewGuid(), 7, PipelineRequestKind.Recognition, new(Guid.NewGuid(), 2, 3, 4),
-            new(Guid.NewGuid(), 2), new(0, 640000), 8), new(160000, 640000), 170000, "auto", 512);
+            new(Guid.NewGuid(), 2), new(0, 640000), 8), new(160000, 640000), 170000, "Korean", 512);
         var header = new IpcHeader { Type = "Recognize", WorkerEpoch = 3, Correlation = request };
         using var bytes = new MemoryStream();
         await IpcProtocol.WriteAsync(bytes, new(header, []), CancellationToken.None);
@@ -24,6 +24,8 @@ public sealed class IpcProtocolTests
         Assert.Empty(frame.Payload);
         Assert.Equal(480000, frame.Header.Correlation!.WindowRange.Length);
         Assert.Equal(640000, frame.Header.Correlation.Ticket.Range.Length);
+        foreach (var invalid in new[] { "auto", "", null, "korean" })
+            Assert.Throws<InvalidDataException>(() => IpcProtocol.Validate(header with { Correlation = request with { Language = invalid! } }, 0));
     }
 
     /// <summary>损坏长度在读取正文前拒绝，未知版本、重复键及不完整 EOF 均失败。</summary>

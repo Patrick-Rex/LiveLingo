@@ -11,6 +11,8 @@ from prepare_model import verify_model
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
+from workers.qwen_asr.inference import SUPPORTED_LANGUAGES
+
 
 def main():
     """Keep original text, failures and cold/warm timings in explicit local evidence."""
@@ -22,7 +24,7 @@ def main():
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--max-new-tokens", type=int, default=512)
     parser.add_argument("--max-window-seconds", type=int, default=30)
-    parser.add_argument("--language", choices=("Japanese", "English", "Chinese", "auto"), default="Japanese")
+    parser.add_argument("--language", choices=SUPPORTED_LANGUAGES, default="Japanese")
     args = parser.parse_args()
     output = new_output(args.output)
     report = {"schemaVersion": 1, "kind": "inference-performance", "startedUtc": utc_now(),
@@ -48,7 +50,7 @@ def main():
             torch.cuda.synchronize()
         report["modelLoadSeconds"] = time.perf_counter() - started
         for index in range(args.repeats):
-            result = engine.recognize(audio, None if args.language == "auto" else args.language)
+            result = engine.recognize(audio, args.language)
             result.update(index=index, temperature="first-request" if index == 0 else "warm")
             report["runs"].append(result)
         report["passed"] = all(x["complete"] for x in report["runs"])

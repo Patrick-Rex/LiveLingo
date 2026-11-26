@@ -6,6 +6,7 @@ import os
 import pathlib
 import platform
 import sys
+from concurrent.futures import ThreadPoolExecutor
 
 from workers.qwen_asr import ipc
 from workers.qwen_asr.inference import QwenInference, select_device
@@ -23,7 +24,7 @@ class ModelAdapter:
         """Infer exactly the supplied window, keeping the source text unmodified."""
         import numpy as np
         self.engine.max_new_tokens = request["maxNewTokens"]
-        return self.engine.recognize(np.frombuffer(data, dtype="<f4"), None if request["language"] == "auto" else request["language"])
+        return self.engine.recognize(np.frombuffer(data, dtype="<f4"), request["language"])
 
     def close(self):
         """Release model references and cached allocations before shutdown acknowledgement."""
@@ -60,20 +61,22 @@ def main():
     configure_cache()
     print("worker_cache_configured", file=sys.stderr, flush=True)
     profile = load_profile(args.profile, os.environ.get("LIVELINGO_PROFILE_INTERPRETER"))
-    manifest = verify_model(args.model)
+    # Only file hashing runs off-thread. Native imports stay on the main thread,
+    # and no model files are loaded for inference until the manifest passes.
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        verification = executor.submit(verify_model, args.model)
+        import torch
+        print("worker_torch_imported", file=sys.stderr, flush=True)
+        import qwen_asr
+        print("worker_model_dependencies_imported", file=sys.stderr, flush=True)
+        manifest = verification.result()
     print("worker_assets_verified", file=sys.stderr, flush=True)
-    import torch
-    print("worker_torch_imported", file=sys.stderr, flush=True)
     device = select_device(torch, profile)
     information = {"python": platform.python_version(), "torch": torch.__version__, "cuda": profile["cuda"],
                    "modelRevision": manifest["revision"], "device": "CPU" if device == "cpu" else torch.cuda.get_device_name(0)}
     if os.environ.get("LIVELINGO_WORKER_DIAGNOSTICS") == "1":
         import faulthandler
         faulthandler.dump_traceback_later(20, file=sys.stderr)
-    # Import native numerical libraries before another thread blocks on stdin.
-    # The model itself remains owned and executed by the serial inference thread.
-    import qwen_asr
-    print("worker_model_dependencies_imported", file=sys.stderr, flush=True)
     worker = PersistentWorker(args.worker_epoch, information, lambda: ModelAdapter(args.model, device),
                               lambda header: ipc.write_frame(binary_output, header))
     worker.start()

@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
+using LiveLingo.Core.Desktop;
 using LiveLingo.Core.Subtitles;
 using LiveLingo.Runtime.Translation;
 
@@ -21,6 +22,37 @@ public sealed class OllamaTranslationTests
         var source = "\n田中さん、田中さん。\n今日は行きません。\n";
         Assert.EndsWith(":\n\n\n" + source, OfficialTranslationPrompt.Format(source));
         Assert.Throws<ArgumentException>(() => OfficialTranslationPrompt.Format(" "));
+    }
+
+    /// <summary>单条模型提示从当前配置明确源语，词库沿用同一语言，正文仍是逐字原文。</summary>
+    /// <param name="language">选定源语言。</param><param name="code">两位小写代码。</param><param name="source">当前短句原文。</param>
+    [Theory]
+    [InlineData("Chinese", "zh", "準備好了。")]
+    [InlineData("English", "en", "All set.")]
+    [InlineData("Japanese", "ja", "準備ができました。")]
+    [InlineData("Korean", "ko", "준비됐습니다.")]
+    public void LocalPromptCarriesSelectedLanguage(string language, string code, string source)
+    {
+        var prompt = OfficialTranslationPrompt.Format(source, [new(source[..1], "示例")], language);
+        Assert.Contains($"{language} ({code}) to Chinese (zh-Hans)", prompt);
+        Assert.Contains($"the {language} terms", prompt);
+        Assert.EndsWith($"the following {language} text into Chinese:\n\n\n" + source, prompt);
+        if (language == "Chinese") Assert.Contains("natural Simplified Chinese", prompt);
+    }
+
+    /// <summary>有余量时按字面提供匹配译名，正文占满原预算时完整保留原始提示。</summary>
+    [Fact]
+    public void MatchedTermsYieldToFullSourceAndKeepLiteralValues()
+    {
+        var glossary = TranslationGlossary.Parse("神ゲー=神作\n推し=我推");
+        const string source = "この神ゲーはすごい。";
+        var prompt = OfficialTranslationPrompt.Format(source, glossary.Match(source).Terms);
+        Assert.Contains("\"神ゲー\":\"神作\"", prompt);
+        Assert.DoesNotContain("我推", prompt);
+        Assert.EndsWith("\n\n\n" + source, prompt);
+        var remaining = 4096 - 512 - 256 - Encoding.UTF8.GetByteCount(OfficialTranslationPrompt.Format(source));
+        var fullSource = source + new string('a', remaining);
+        Assert.Equal(OfficialTranslationPrompt.Format(fullSource), OfficialTranslationPrompt.Format(fullSource, glossary.Match(fullSource).Terms));
     }
 
     /// <summary>所有 HTTP 参数显式且正文完整，权重先检查再调用。</summary>
@@ -43,7 +75,7 @@ public sealed class OllamaTranslationTests
         using var body = JsonDocument.Parse(requests[1]);
         var root = body.RootElement;
         Assert.False(root.GetProperty("stream").GetBoolean());
-        Assert.Equal("5m", root.GetProperty("keep_alive").GetString());
+        Assert.Equal(-1, root.GetProperty("keep_alive").GetInt32());
         var message = Assert.Single(root.GetProperty("messages").EnumerateArray());
         Assert.Equal("user", message.GetProperty("role").GetString());
         Assert.Equal(OfficialTranslationPrompt.Format(input.Source), message.GetProperty("content").GetString());

@@ -35,7 +35,7 @@ def main():
         verify_model(args.model)
         audio = read_audio(args.audio)
         engine = QwenInference(args.model)
-        report["warmup"] = engine.recognize(audio)
+        report["warmup"] = engine.recognize(audio, "Japanese")
         if args.hold_after_ready:
             write_json(output / "ready.json", {"utc": utc_now(), "allocatedBytes": torch.cuda.memory_allocated(),
                                               "purpose": "GPU model resident; waiting for supervisor deadline"})
@@ -46,7 +46,7 @@ def main():
         except (ValueError, FileNotFoundError) as error:
             report["missingModelRejected"] = {"type": type(error).__name__, "message": str(error)}
         try:
-            engine.recognize(np.full(16000, np.nan, dtype=np.float32))
+            engine.recognize(np.full(16000, np.nan, dtype=np.float32), "Japanese")
         except ValueError as error:
             report["invalidAudioRejected"] = str(error)
         # Bound only this process's allocator; Windows shared memory can otherwise mask VRAM pressure.
@@ -69,12 +69,12 @@ def main():
         finally:
             torch.cuda.set_per_process_memory_fraction(original_fraction)
         torch.cuda.empty_cache()
-        report["afterOom"] = engine.recognize(audio)
-        report["silence"] = engine.recognize(np.zeros(5 * 16000, dtype=np.float32))
+        report["afterOom"] = engine.recognize(audio, "Japanese")
+        report["silence"] = engine.recognize(np.zeros(5 * 16000, dtype=np.float32), "Japanese")
         report["silence"]["knownReference"] = ""
         # Serialized requests measure repeatability only, not a realtime queue or semantic corpus.
         for index in range(20):
-            result = engine.recognize(audio)
+            result = engine.recognize(audio, "Japanese")
             result.update(index=index, allocatedAfterBytes=torch.cuda.memory_allocated(),
                           reservedAfterBytes=torch.cuda.memory_reserved())
             report["continuousRuns"].append(result)

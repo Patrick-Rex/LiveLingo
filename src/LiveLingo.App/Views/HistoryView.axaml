@@ -52,16 +52,15 @@
           <Button Content="导出 Markdown" Command="{Binding ExportMarkdownCommand}" IsEnabled="{Binding CanRead}" Margin="0,0,0,4" />
         </WrapPanel>
         <ListBox Grid.Row="3" Name="ArchiveEntries" Classes="transcript" ItemsSource="{Binding Entries}"
-                 ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="历史双语正文">
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.AllowAutoHide="False" AutomationProperties.Name="历史双语正文">
           <ListBox.ItemTemplate>
             <DataTemplate DataType="vm:HistoryEntryItem">
               <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8" Margin="0,8">
                 <CheckBox IsChecked="{Binding IsChecked}" VerticalAlignment="Top" AutomationProperties.Name="选择记录" />
-                <StackPanel Grid.Column="1" Spacing="6">
-                  <TextBlock Text="{Binding StatusText}" FontSize="12" Foreground="{DynamicResource DesktopSecondaryText}" />
+                <StackPanel Grid.Column="1" Spacing="6" ToolTip.Tip="{Binding Detail}">
                   <SelectableTextBlock Text="{Binding Source}" TextWrapping="Wrap" Foreground="{DynamicResource DesktopSecondaryText}" />
-                  <SelectableTextBlock Text="{Binding Translation}" FontSize="18" TextWrapping="Wrap" />
-                  <Expander Header="详情" FontSize="12"><TextBlock Text="{Binding Detail}" TextWrapping="Wrap" /></Expander>
+                  <SelectableTextBlock Text="{Binding Translation}" FontSize="18" TextWrapping="Wrap" AutomationProperties.HelpText="{Binding Detail}" />
+                  <TextBlock Text="{Binding StatusText}" Classes="caption" IsVisible="{Binding StatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                 </StackPanel>
               </Grid>
             </DataTemplate>

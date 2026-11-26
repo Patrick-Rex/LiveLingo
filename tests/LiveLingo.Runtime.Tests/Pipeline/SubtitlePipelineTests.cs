@@ -2,7 +2,9 @@ using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
 using LiveLingo.Core.Audio;
+using LiveLingo.Core.Desktop;
 using LiveLingo.Core.Subtitles;
+using LiveLingo.Core.Transcription;
 using LiveLingo.Runtime.Asr;
 using LiveLingo.Runtime.Pipeline;
 using LiveLingo.Runtime.Storage;
@@ -13,6 +15,43 @@ namespace LiveLingo.Runtime.Tests.Pipeline;
 /// <summary>运行完整事件循环与受控模型边界，验证否定修订、慢速合并和显式压力。</summary>
 public sealed class SubtitlePipelineTests
 {
+    /// <summary>本地直播首秒送识别；开放句已连续识别稳定时，同一安静尾部按常规刷新继续确认。</summary>
+    /// <returns>真实事件循环中识别窗口、调用数与译文保留的验证任务。</returns>
+    [Fact]
+    public async Task LocalLiveSpeechStartsEarlyAndRechecksStableSilenceAtNormalCadence()
+    {
+        var models = new ControlledModels();
+        var stable = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var input = Channel.CreateBounded<PipelineInput>(4);
+        var pipeline = Create(models, snapshot =>
+        {
+            if (snapshot.RecognizedEnd == 24000) stable.TrySetResult();
+        }, new() { PreferLiveSegments = true });
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var run = pipeline.RunAsync(input.Reader.ReadAllAsync(timeout.Token), timeout.Token);
+        await input.Writer.WriteAsync(Audio(0, 16000, quietTail: false), timeout.Token);
+        var first = await models.NextAsync(timeout.Token);
+        Assert.Equal(16000, first.Request.WindowRange.End);
+        first.Reply.SetResult("続きを話すので");
+        await models.Translated.Reader.ReadAsync(timeout.Token);
+
+        await input.Writer.WriteAsync(Audio(16000, 24000), timeout.Token);
+        var review = await models.NextAsync(timeout.Token);
+        Assert.Equal(24000, review.Request.WindowRange.End);
+        review.Reply.SetResult("続きを話すので");
+        await stable.Task.WaitAsync(timeout.Token);
+        await input.Writer.WriteAsync(Audio(24000, 32000), timeout.Token);
+        await input.Writer.WriteAsync(new PipelineAudio(1, new(new(32000, 56000), new float[24000])), timeout.Token);
+        var next = await models.NextAsync(timeout.Token);
+        Assert.Equal(56000, next.Request.WindowRange.End);
+        next.Reply.SetResult("続きを話すので");
+        input.Writer.Complete();
+        var final = await run.WaitAsync(timeout.Token);
+        Assert.Equal(3, final.RecognitionCalls);
+        Assert.Equal("続きを話すので", Assert.Single(final.Subtitles.Segments).Translation);
+        Assert.Equal(0, final.BacklogSamples);
+    }
+
     /// <summary>旧草稿译文被完整空原文修订后，可按既有稳定无语音规则撤销并继续下一段。</summary>
     /// <returns>无语音撤销及后续音频连续处理验证任务。</returns>
     [Fact]
@@ -92,6 +131,35 @@ public sealed class SubtitlePipelineTests
         Assert.Equal(final.RecognitionCalls + final.TranslationCalls, operations.Count);
         Assert.All(operations, x => { Assert.Equal("accepted", x.Disposition); Assert.True(x.GenerationComplete); Assert.True(x.QueueSeconds >= 0); });
         Assert.All(operations.Where(x => x.Request.Kind == PipelineRequestKind.Recognition), x => Assert.Equal(x.Request.Range, x.Window));
+    }
+
+    /// <summary>整句固定译文走正常字幕接收；同一块中只有需要模型的短句计入调用数。</summary>
+    /// <returns>从真实调度与诊断中检查两条翻译来源的任务。</returns>
+    [Fact]
+    public async Task GlossaryExactMatchSkipsModelButPreservesSubtitleAndDiagnostics()
+    {
+        var models = new ControlledModels();
+        var operations = new ConcurrentQueue<PipelineOperation>();
+        var input = Channel.CreateBounded<PipelineInput>(8);
+        var glossary = TranslationGlossary.Parse("ナイスプレイ！=打得漂亮！\n神ゲー=神作");
+        var pipeline = Create(models, _ => { }, publishOperation: operations.Enqueue, glossary: glossary);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var run = pipeline.RunAsync(input.Reader.ReadAllAsync(timeout.Token), timeout.Token);
+        await input.Writer.WriteAsync(Audio(0, 32000), timeout.Token);
+        (await models.NextAsync(timeout.Token)).Reply.SetResult("ナイスプレイ！この神ゲーだ。");
+        Assert.Equal("この神ゲーだ。", await models.Translated.Reader.ReadAsync(timeout.Token));
+        input.Writer.Complete();
+        var final = await run.WaitAsync(timeout.Token);
+        Assert.Equal("打得漂亮！", Assert.Single(final.Subtitles.Segments).PhraseTranslations[0]?.Translation);
+        Assert.Equal(1, final.TranslationCalls);
+        Assert.False(models.Translated.Reader.TryRead(out _));
+        var direct = Assert.Single(operations, op => op.Termination == "glossary_exact");
+        Assert.True(direct.GenerationComplete);
+        Assert.Equal("accepted", direct.Disposition);
+        Assert.False(direct.CountedAttempt);
+        Assert.Null(direct.ModelDigest);
+        Assert.Null(direct.OutputTokens);
+        Assert.Equal("神作", Assert.Single(models.LatestTranslation!.Terms).Value);
     }
 
     /// <summary>开放块逐句发布已译前缀，积压识别可修订未译尾句，同文的两次发言各保留一条。</summary>
@@ -421,30 +489,40 @@ public sealed class SubtitlePipelineTests
     }
 
     /// <summary>增长输出只用来确认旧边界，新增语音必须从缓存独立识别且不划入旧块。</summary>
+    /// <param name="language">用户选中的识别与翻译源语言。</param><param name="first">可独立闭合的初句。</param>
+    /// <param name="second">后续语音的第二句。</param>
     /// <returns>两个连续语义块及范围守恒检查任务。</returns>
-    [Fact]
-    public async Task StablePrefixClosesOnlyPreviouslyObservedRange()
+    [Theory]
+    [InlineData("Japanese", "今日は行きません。", "明日は行きます。")]
+    [InlineData("Chinese", "今天不會去。", "明天會去。")]
+    [InlineData("English", "I will not go today.", "I will go tomorrow.")]
+    [InlineData("Korean", "오늘은 가지 않아요.", "내일은 갈 거예요.")]
+    public async Task StablePrefixClosesOnlyPreviouslyObservedRange(string language, string first, string second)
     {
         var models = new ControlledModels();
         var input = Channel.CreateBounded<PipelineInput>(8);
-        var pipeline = Create(models, _ => { });
+        var pipeline = Create(models, _ => { }, language: language);
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var run = pipeline.RunAsync(input.Reader.ReadAllAsync(timeout.Token), timeout.Token);
         await input.Writer.WriteAsync(Audio(0, 32000), TestContext.Current.CancellationToken);
-        (await models.NextAsync(timeout.Token)).Reply.SetResult("今日は行きません。");
+        var initial = await models.NextAsync(timeout.Token);
+        Assert.Equal(language, initial.Request.Language);
+        initial.Reply.SetResult(first);
         await models.Translated.Reader.ReadAsync(timeout.Token);
         await input.Writer.WriteAsync(Audio(32000, 64000), TestContext.Current.CancellationToken);
-        (await models.NextAsync(timeout.Token)).Reply.SetResult("今日は行きません。明日は行きます。");
+        (await models.NextAsync(timeout.Token)).Reply.SetResult(first + " " + second);
         var following = await models.NextAsync(timeout.Token);
         Assert.Equal(new SampleRange(32000, 64000), following.Request.WindowRange);
-        following.Reply.SetResult("明日は行きます。");
+        following.Reply.SetResult(second);
         input.Writer.Complete();
         var final = await run.WaitAsync(timeout.Token);
         Assert.Equal(2, final.Subtitles.Segments.Length);
         Assert.Equal(new SampleRange(0, 32000), final.Subtitles.Segments[0].Range);
         Assert.Equal(SubtitlePhase.Final, final.Subtitles.Segments[0].Phase);
-        Assert.Equal("今日は行きません。", final.Subtitles.Segments[0].Source);
-        Assert.Equal("明日は行きます。", final.Subtitles.Segments[1].Source);
+        Assert.Equal(first, final.Subtitles.Segments[0].Source);
+        Assert.Equal(second, final.Subtitles.Segments[1].Source);
+        Assert.Equal(language, models.LatestTranslation?.SourceLanguage);
+        Assert.Equal(2, final.TranslationCalls);
         Assert.Equal(0, final.BacklogSamples);
     }
 
@@ -1334,12 +1412,14 @@ public sealed class SubtitlePipelineTests
     /// <param name="models">受控后端。</param><param name="publish">快照观察者。</param><param name="options">可选限额。</param>
     /// <param name="publishOperation">可选逐次操作证据。</param>
     /// <param name="publishRejection">可选显式拒收原文证据。</param>
+    /// <param name="glossary">本会话选定的测试词库。</param>
+    /// <param name="language">本次识别语言，按同一选择翻译短句。</param>
     /// <returns>尚未运行的独立会话。</returns>
     private static SubtitlePipeline Create(IPipelineModels models, Action<PipelineSnapshot> publish, PipelineOptions? options = null, Action<PipelineOperation>? publishOperation = null,
-        Action<RecognitionRejection>? publishRejection = null)
+        Action<RecognitionRejection>? publishRejection = null, TranslationGlossary? glossary = null, string language = AsrLanguages.Default)
     {
         options ??= new() { AlignmentRecoverySamples = 0 };
-        return new(new(Guid.NewGuid(), 1, 1, 1), new(), options,
+        return new(new(Guid.NewGuid(), 1, 1, 1), new(Glossary: glossary, AsrLanguage: language), options,
             () => new ContinuousAudioStore(new FileAudioSpillStore(Path.Combine(Path.GetTempPath(), "pipeline-test-" + Guid.NewGuid().ToString("N"))),
                 options.MemorySamples, options.SpillSamples, options.MaximumLeaseSamples), models, publish, publishOperation, publishRejection);
     }
@@ -1363,6 +1443,8 @@ public sealed class SubtitlePipelineTests
         private int translationCalls;
         /// <summary>获取已开始的翻译通知。</summary>
         public Channel<string> Translated { get; } = Channel.CreateBounded<string>(16);
+        /// <summary>获取最近一次送入模型的完整输入，供检查匹配词条。</summary>
+        public TranslationInput? LatestTranslation { get; private set; }
         /// <summary>获取模型最大实际并发。</summary>
         public int MaximumConcurrent { get; private set; }
         /// <summary>获取仍在执行的操作数。</summary>
@@ -1413,7 +1495,7 @@ public sealed class SubtitlePipelineTests
                 Assert.Equal(request.WindowRange.Length, window.Samples.Length);
                 var complete = (request.MaxNewTokens <= 512 || RecoveryComplete) && RecognitionComplete(request);
                 return new() { Type = "Transcription", WorkerEpoch = request.Ticket.Identity.WorkerEpoch, Correlation = request,
-                    Text = text, Language = "Japanese", Complete = complete,
+                    Text = text, Language = request.Language, Complete = complete,
                     Reason = !complete ? "incomplete-generation" : NoSpeechForEmpty && text.Length == 0 ? "model-no-speech" : "model-eos", ElapsedSeconds = 0.1 };
             }
             finally { Interlocked.Decrement(ref concurrent); }
@@ -1424,6 +1506,7 @@ public sealed class SubtitlePipelineTests
             MaximumConcurrent = Math.Max(MaximumConcurrent, Interlocked.Increment(ref concurrent));
             try
             {
+                LatestTranslation = input;
                 Assert.True(Translated.Writer.TryWrite(input.Source));
                 if (++translationCalls >= TranslationDelayFromCall && TranslationDelay is not null) await TranslationDelay.WaitAsync(cancellationToken);
                 if (FailTranslations > 0) { FailTranslations--; throw new IOException("translation_service_failed"); }

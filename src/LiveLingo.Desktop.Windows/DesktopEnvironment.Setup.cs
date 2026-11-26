@@ -104,7 +104,13 @@ public sealed partial class DesktopEnvironment
         var output = new StringBuilder(); var gate = new object();
         try
         {
-            await File.WriteAllTextAsync(snapshot, JsonSerializer.Serialize(settings with { AsrApi = settings.AsrApi with { ApiKey = "" }, TranslationApi = settings.TranslationApi with { ApiKey = "" } }), timeout.Token).ConfigureAwait(false);
+            var installerSettings = settings with
+            {
+                AsrApi = settings.AsrApi with { ApiKey = "" },
+                TranslationApi = settings.TranslationApi with { ApiKey = "" },
+                GlossaryLibrary = new()
+            };
+            await File.WriteAllTextAsync(snapshot, JsonSerializer.Serialize(installerSettings), timeout.Token).ConfigureAwait(false);
             started = process.Start();
             await Task.WhenAll(PumpInstallerAsync(process.StandardOutput, output, gate, progress, timeout.Token),
                 PumpInstallerAsync(process.StandardError, output, gate, progress, timeout.Token),

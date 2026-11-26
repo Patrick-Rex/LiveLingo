@@ -40,7 +40,7 @@
                 <Button Grid.Column="1" Content="刷新" Command="{Binding RefreshCommand}" IsEnabled="{Binding CanEdit}" AutomationProperties.Name="刷新采集应用" />
               </Grid>
               <TextBlock Text="包括应用的子进程；浏览器可能包含多个标签页。" Classes="caption" />
-              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8"><TextBlock Text="{Binding RuntimeSummary}" Classes="caption" VerticalAlignment="Center" /><Button Grid.Column="1" Content="更改" Command="{Binding OpenRuntimeSettingsCommand}" AutomationProperties.Name="更改模型与识别语言" /></Grid>
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8"><TextBlock Text="{Binding RuntimeSummary}" Classes="caption" TextWrapping="Wrap" VerticalAlignment="Center" /><Button Grid.Column="1" Content="更改" Command="{Binding OpenRuntimeSettingsCommand}" AutomationProperties.Name="更改识别语言、模型与设备" /></Grid>
               <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12"><TextBlock Text="{Binding Status}" TextWrapping="Wrap" /><TextBlock Grid.Column="1" Text="{Binding Backlog}" Classes="caption" /></Grid>
             </StackPanel>
           </Border>
@@ -54,13 +54,12 @@
                 <StackPanel IsVisible="{Binding !HasLiveHistory}" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="24" Spacing="8">
                   <TextBlock Text="等待语音开始" FontSize="18" HorizontalAlignment="Center" /><TextBlock Text="开始翻译后，原文与译文会显示在这里。&#10;字幕可能随上下文继续修订。" Classes="caption" TextAlignment="Center" />
                 </StackPanel>
-                <ListBox Name="HistoryList" Classes="transcript" ItemsSource="{Binding LivePhrases}" IsVisible="{Binding HasLiveHistory}" AutoScrollToSelectedItem="False" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                <ListBox Name="HistoryList" Classes="transcript" ItemsSource="{Binding LivePhrases}" IsVisible="{Binding HasLiveHistory}" AutoScrollToSelectedItem="False" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.AllowAutoHide="False">
                   <ListBox.ItemTemplate><DataTemplate DataType="vm:LivePhraseItem">
-                    <StackPanel Spacing="3">
+                    <StackPanel Spacing="3" ToolTip.Tip="{Binding Phrase.Detail}">
                       <TextBlock Text="{Binding Phrase.Source}" TextWrapping="Wrap" Foreground="{DynamicResource DesktopSecondaryText}" />
-                      <TextBlock Text="{Binding Translation}" TextWrapping="Wrap" FontSize="19" />
-                      <Expander Header="{Binding StatusText}" AutomationProperties.Name="字幕状态与详细信息" HorizontalAlignment="Stretch"
-                                MinHeight="0" Padding="6,1"><TextBlock Text="{Binding Phrase.Detail}" Classes="caption" /></Expander>
+                      <TextBlock Text="{Binding Translation}" TextWrapping="Wrap" FontSize="19" AutomationProperties.HelpText="{Binding Phrase.Detail}" />
+                      <TextBlock Text="{Binding StatusText}" Classes="caption" IsVisible="{Binding StatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                     </StackPanel>
                   </DataTemplate></ListBox.ItemTemplate>
                 </ListBox>

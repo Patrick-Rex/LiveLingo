@@ -81,7 +81,7 @@ def main():
             if profile["backend"] == "cuda":
                 sampler.thread.start()
             engine = QwenInference(args.model, device=device)
-            report["asrWarmup"] = engine.recognize(audio)
+            report["asrWarmup"] = engine.recognize(audio, "Japanese")
             with socket.socket() as reservation:
                 reservation.bind(("127.0.0.1", 0))
                 port = reservation.getsockname()[1]
@@ -113,11 +113,11 @@ def main():
                     started = time.perf_counter()
                     try:
                         if mode == "serial":
-                            entry["asr"] = engine.recognize(audio)
+                            entry["asr"] = engine.recognize(audio, "Japanese")
                             entry["translation"] = translate(endpoint, model, text)
                         else:
                             with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-                                asr = pool.submit(engine.recognize, audio)
+                                asr = pool.submit(engine.recognize, audio, "Japanese")
                                 translation = pool.submit(translate, endpoint, model, text)
                                 entry["asr"], entry["translation"] = asr.result(), translation.result()
                         entry["complete"] = entry["asr"]["complete"] and entry["translation"]["complete"]

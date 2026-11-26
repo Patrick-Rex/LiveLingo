@@ -37,6 +37,36 @@ public sealed class OpenAiApiTests
         Assert.Null(result.LoadNanoseconds);
     }
 
+    /// <summary>术语渲染加入独立翻译规则，模型仍收到当前短句的完整原文。</summary>
+    /// <param name="language">选定源语言。</param><param name="term">该语言的源词。</param><param name="source">含词的测试句子。</param>
+    /// <returns>受控 API 传输检查任务。</returns>
+    [Theory]
+    [InlineData("Chinese", "試玩", "現在來試玩。")]
+    [InlineData("English", "playthrough", "My first playthrough.")]
+    [InlineData("Japanese", "初見プレイ", "初見プレイです。")]
+    [InlineData("Korean", "첫 플레이", "첫 플레이예요.")]
+    public async Task GlossaryHintsReachApiWithoutChangingSource(string language, string term, string source)
+    {
+        var glossary = TranslationGlossary.Parse($"{term}=初见游玩\n神ゲー=神作");
+        var input = Input() with { Source = source, Terms = glossary.Match(source).Terms, SourceLanguage = language };
+        using var service = new OpenAiTranslationService(Settings(), TimeSpan.FromSeconds(2), new Handler(async (request, token) =>
+        {
+            using var json = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(token));
+            var messages = json.RootElement.GetProperty("messages");
+            var instructions = messages[0].GetProperty("content").GetString();
+            Assert.Contains($"{language} text", instructions);
+            Assert.Contains("Simplified Chinese", instructions);
+            Assert.Contains($"the {language} terms", instructions);
+            Assert.Contains($"\"{term}\":\"初见游玩\"", instructions);
+            if (language == "Chinese") Assert.Contains("Traditional Chinese", instructions);
+            Assert.DoesNotContain("神作", instructions);
+            Assert.Equal(source, messages[1].GetProperty("content").GetString());
+            return Json("""{"choices":[{"message":{"content":"这是初见游玩。"},"finish_reason":"stop"}]}""");
+        }));
+        var result = await service.TranslateAsync(input, TestContext.Current.CancellationToken);
+        Assert.True(result.Complete);
+    }
+
     /// <summary>截断、拒绝、工具调用及空响应不能被标为完整译文。</summary>
     /// <param name="reason">服务结束原因。</param><param name="message">模型消息 JSON。</param><returns>完成状态检查任务。</returns>
     [Theory]
@@ -51,10 +81,10 @@ public sealed class OpenAiApiTests
         Assert.False((await service.TranslateAsync(Input(), TestContext.Current.CancellationToken)).Complete);
     }
 
-    /// <summary>上传真正的单声道 PCM16 WAV，自动语言不发送固定语言字段，保留原始请求身份。</summary>
-    /// <param name="language">识别语言。</param><returns>音频请求与返回检查任务。</returns>
-    [Theory, InlineData("auto"), InlineData("Japanese")]
-    public async Task RecognitionUsesWaveMultipartAndCorrelation(string language)
+    /// <summary>上传单声道 PCM16 WAV，每条请求始终带所选语言代码，响应保留指定语言与原始请求身份。</summary>
+    /// <param name="language">识别语言。</param><param name="code">标准 API 语言字段。</param><returns>音频请求与返回检查任务。</returns>
+    [Theory, InlineData("Chinese", "zh"), InlineData("English", "en"), InlineData("Japanese", "ja"), InlineData("Korean", "ko")]
+    public async Task RecognitionUsesWaveMultipartAndCorrelation(string language, string code)
     {
         using var audio = new ContinuousAudioStore(new FileAudioSpillStore(Path.Combine(Path.GetTempPath(), "api-audio-" + Guid.NewGuid().ToString("N"))), 4, 0, 4, 4);
         audio.Append(0, [-1f, 0f, 0.5f, 1f]);
@@ -73,12 +103,13 @@ public sealed class OpenAiApiTests
             Assert.Equal(1, BinaryPrimitives.ReadInt16LittleEndian(bytes.AsSpan(22)));
             Assert.Equal(16, BinaryPrimitives.ReadInt16LittleEndian(bytes.AsSpan(34)));
             Assert.Equal(52, bytes.Length); Assert.Equal(short.MinValue, BinaryPrimitives.ReadInt16LittleEndian(bytes.AsSpan(44)));
-            var languagePart = parts.SingleOrDefault(x => x.Headers.ContentDisposition!.Name!.Trim('"') == "language");
-            if (language == "auto") Assert.Null(languagePart); else Assert.Equal("ja", await languagePart!.ReadAsStringAsync(token));
+            var languagePart = Assert.Single(parts.Where(x => x.Headers.ContentDisposition!.Name!.Trim('"') == "language"));
+            Assert.Equal(code, await languagePart.ReadAsStringAsync(token));
             return Json("{\"text\":\"行きません。\"}");
         }));
         var result = await service.RecognizeAsync(request, lease, TestContext.Current.CancellationToken);
         Assert.Equal(request, result.Correlation); Assert.True(result.Complete); Assert.Equal("api_response", result.Reason);
+        Assert.Equal(language, result.Language);
         Assert.Equal("行きません。", result.Text);
     }
 
@@ -129,7 +160,7 @@ public sealed class OpenAiApiTests
     {
         await using var models = new LocalPipelineModels(null, null, null, null, new());
         await models.ResetAsync(new(Guid.NewGuid(), 1, 1, 1),
-            new("chosen-model", "auto", ModelBackend.OpenAiCompatible, ModelBackend.OpenAiCompatible, Settings(), Settings()), TestContext.Current.CancellationToken);
+            new("chosen-model", "Japanese", ModelBackend.OpenAiCompatible, ModelBackend.OpenAiCompatible, Settings(), Settings()), TestContext.Current.CancellationToken);
     }
 
     /// <summary>构造无真实凭据的独立 API 配置。</summary><returns>测试配置。</returns>

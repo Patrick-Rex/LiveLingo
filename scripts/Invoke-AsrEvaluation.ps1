@@ -7,10 +7,11 @@ param(
     [ValidateRange(1,100)][int]$Repeats = 3,
     [ValidateRange(1,4096)][int]$MaxNewTokens = 512,
     [ValidateRange(1,1200)][int]$MaxWindowSeconds = 30,
-    [ValidateSet('auto','Japanese','English','Chinese')][string]$Language = 'auto'
+    [ValidateSet('Chinese','English','Japanese','Korean', IgnoreCase = $false)][string]$Language = 'Japanese',
+    [string]$CacheRoot = (Join-Path $env:LOCALAPPDATA 'LiveLingoData\cache')
 )
 $ErrorActionPreference = 'Stop'
-. (Join-Path $PSScriptRoot 'Enter-ModelEvaluation.ps1')
+. (Join-Path $PSScriptRoot 'Enter-ModelEvaluation.ps1') -CacheRoot $CacheRoot
 $repoRoot = Split-Path $PSScriptRoot -Parent
 if (-not [IO.Path]::IsPathFullyQualified($Output) -or [IO.Path]::GetPathRoot($Output) -notmatch '^[A-Z]:\\$') { throw 'Expected absolute local output.' }
 $outputPath = [IO.Path]::GetFullPath($Output).TrimEnd('\')

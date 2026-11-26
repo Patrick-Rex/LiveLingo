@@ -12,38 +12,19 @@ public static class JapaneseBoundaryPolicy
     /// <param name="text">完整原始日语块。</param><param name="stableObservations">全文一致的连续观察次数。</param>
     /// <param name="hasRightContext">是否存在独立右侧音频闭合证据。</param><param name="complete">是否非截断完整生成。</param>
     /// <returns>带可诊断原因的边界判断；不支持的句式保持可修订。</returns>
-    public static BoundaryDecision Evaluate(string text, int stableObservations, bool hasRightContext, bool complete)
+    public static BoundaryDecision Evaluate(string text, int stableObservations, bool hasRightContext, bool complete) =>
+        SubtitleBoundaryPolicy.Evaluate("Japanese", text, stableObservations, hasRightContext, complete);
+
+    /// <summary>检查日语块末尾的从属结构与谓语，供共用证据门槛判断是否闭合。</summary>
+    /// <param name="text">已确认非空且结构平衡的识别块。</param><returns>阻止定稿的原因，谓语闭合时为空。</returns>
+    internal static string? CheckEnding(string text)
     {
-        if (!complete) return new(false, "incomplete_generation", stableObservations, hasRightContext);
-        if (string.IsNullOrWhiteSpace(text)) return new(false, "empty_source", stableObservations, hasRightContext);
-        if (!Balanced(text)) return new(false, "open_quote_or_parenthesis", stableObservations, hasRightContext);
         var body = text.Trim().TrimEnd('。', '！', '？', '!', '?', '.', ' ', '　');
         if (body.EndsWith('、') || Dependencies.Any(x => body.EndsWith(x, StringComparison.Ordinal)))
-            return new(false, "open_dependency_or_enumeration", stableObservations, hasRightContext);
+            return "open_dependency_or_enumeration";
         if (body.EndsWith("よね", StringComparison.Ordinal)) body = body[..^2];
         else if (body.EndsWith('よ') || body.EndsWith('ね')) body = body[..^1];
         if (body.EndsWith('か')) body = body[..^1];
-        if (!Predicates.Any(x => body.EndsWith(x, StringComparison.Ordinal)))
-            return new(false, "predicate_not_confirmed", stableObservations, hasRightContext);
-        if (stableObservations < 2) return new(false, "source_not_stable", stableObservations, hasRightContext);
-        if (!hasRightContext) return new(false, "right_context_missing", stableObservations, false);
-        return new(true, "stable_complete_predicate_with_right_context", stableObservations, true);
-    }
-
-    /// <summary>检查成对引述及括号的嵌套，不把内部标点当外层句尾。</summary>
-    /// <param name="text">原始文本。</param><returns>所有已打开结构均按顺序闭合时为 true。</returns>
-    private static bool Balanced(string text)
-    {
-        var stack = new Stack<char>();
-        foreach (var character in text)
-        {
-            var closing = character switch { '「' => '」', '『' => '』', '（' => '）', '(' => ')', '[' => ']', '【' => '】', _ => '\0' };
-            if (closing != '\0') stack.Push(closing);
-            else if (character is '」' or '』' or '）' or ')' or ']' or '】')
-            {
-                if (!stack.TryPop(out var expected) || character != expected) return false;
-            }
-        }
-        return stack.Count == 0;
+        return Predicates.Any(x => body.EndsWith(x, StringComparison.Ordinal)) ? null : "predicate_not_confirmed";
     }
 }

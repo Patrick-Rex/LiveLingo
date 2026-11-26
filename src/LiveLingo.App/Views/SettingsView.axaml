@@ -46,6 +46,30 @@
       <TabItem Header="运行环境">
         <ScrollViewer HorizontalScrollBarVisibility="Disabled">
           <StackPanel Margin="0,20,8,16" Spacing="20">
+            <Expander Header="翻译词库" IsEnabled="{Binding CanEdit}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+              <StackPanel Spacing="8">
+                <CheckBox Content="启用词库" IsChecked="{Binding GlossaryEnabled}" />
+                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                  <views:ModelSourceSelector Name="GlossarySelector" ItemsSource="{Binding GlossaryProfiles}" SelectedItem="{Binding SelectedGlossary}"
+                            HorizontalAlignment="Stretch" AutomationProperties.Name="选择词库">
+                    <ComboBox.ItemTemplate><DataTemplate DataType="vm:GlossaryProfileEditor"><TextBlock Text="{Binding Name}" /></DataTemplate></ComboBox.ItemTemplate>
+                  </views:ModelSourceSelector>
+                  <Button Grid.Column="1" Content="新建" Command="{Binding AddGlossaryCommand}" IsEnabled="{Binding CanAddGlossary}" AutomationProperties.Name="新建词库" />
+                  <Button Grid.Column="2" Content="移除" Command="{Binding RemoveGlossaryCommand}" IsEnabled="{Binding CanRemoveGlossary}" AutomationProperties.Name="从草稿移除选中词库" />
+                </Grid>
+                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                  <TextBlock Text="词库名称" VerticalAlignment="Center" />
+                  <TextBox Grid.Column="1" Text="{Binding SelectedGlossary.Name}" AutomationProperties.Name="词库名称" />
+                </Grid>
+                <CheckBox Name="LocalOnlyGlossary" Content="仅本地翻译使用" IsChecked="{Binding SelectedGlossary.LocalOnly}" />
+                <TextBlock Text="每行填写一组「原文=中文译文」。整句匹配时直接使用指定译文。只匹配句中词语时，模型参考词条翻译全句。" Classes="caption" />
+                <TextBox Name="GlossaryEditor" Text="{Binding SelectedGlossary.Text}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="108" MaxHeight="240"
+                         Watermark="原文=中文译文" AutomationProperties.Name="原文与中文译文词表" />
+                <TextBlock Text="{Binding GlossaryError}" IsVisible="{Binding GlossaryError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                           Foreground="{DynamicResource DesktopDanger}" TextWrapping="Wrap" />
+                <TextBlock Text="勾选后，使用翻译 API 时会跳过这份词库，照常发送原文。取消勾选时，调用翻译 API 会附上当句匹配的词条。" Classes="caption" TextWrapping="Wrap" />
+              </StackPanel>
+            </Expander>
             <Border Classes="card">
               <StackPanel Spacing="10">
                 <TextBlock Text="依赖准备" Classes="section" />
@@ -66,11 +90,12 @@
               <TextBlock Text="API 识别会发送音频窗口，API 翻译会发送原文，服务商可能收费。API Key 直接保存在本地设置文件。" Classes="caption" TextWrapping="Wrap" />
             </StackPanel>
             <StackPanel Spacing="12" IsVisible="{Binding IsModelJson}">
-              <TextBlock Text="一份 JSON 包含 asr 和 translation；provider 为 local 或 openai，API 使用 base_url、api_key、model。" TextWrapping="Wrap" Classes="caption" />
+              <TextBlock Text="asr_language 指定原文语言，可填 Chinese、English、Japanese 或 Korean。asr 和 translation 分别指定来源，provider 可填 local 或 openai，API 使用 base_url、api_key、model。" TextWrapping="Wrap" Classes="caption" />
               <TextBox Text="{Binding ModelJson}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="280" MaxHeight="520" MaxLength="32768" AutomationProperties.Name="整体模型 JSON 配置" />
               <TextBlock Text="{Binding ModelJsonError}" TextWrapping="Wrap" />
             </StackPanel>
             <StackPanel Spacing="16" IsVisible="{Binding IsModelForm}">
+              <StackPanel Spacing="6"><TextBlock Text="识别语言" /><views:ModelSourceSelector Name="RecognitionLanguageSelector" ItemsSource="{Binding LanguageLabels}" SelectedIndex="{Binding AsrLanguageIndex}" HorizontalAlignment="Stretch" AutomationProperties.Name="识别语言" /></StackPanel>
               <StackPanel Spacing="8">
                 <TextBlock Text="语音识别" Classes="section" />
                 <views:ModelSourceSelector ItemsSource="{Binding ModelBackends}" SelectedIndex="{Binding AsrBackendIndex}" HorizontalAlignment="Stretch" AutomationProperties.Name="语音识别来源" />
@@ -90,7 +115,6 @@
                   <TextBlock Text="API Key（服务无需鉴权时可留空）" /><TextBox Text="{Binding TranslationApiKey}" PasswordChar="●" AutomationProperties.Name="翻译 API Key" />
                 </StackPanel>
               </StackPanel>
-              <StackPanel Spacing="6"><TextBlock Text="识别语言" /><ComboBox ItemsSource="{Binding Languages}" SelectedItem="{Binding AsrLanguage}" HorizontalAlignment="Stretch" AutomationProperties.Name="识别语言" /></StackPanel>
             </StackPanel>
             <StackPanel Spacing="6" IsVisible="{Binding IsLocalAsr}">
               <TextBlock Text="本地识别设备" /><ComboBox ItemsSource="{Binding RuntimeProfileLabels}" SelectedIndex="{Binding RuntimeProfileIndex}" HorizontalAlignment="Stretch" AutomationProperties.Name="本地识别设备" />

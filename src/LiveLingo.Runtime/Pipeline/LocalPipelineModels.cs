@@ -72,8 +72,16 @@ public sealed class LocalPipelineModels : IPipelineModels
                 catch (HttpRequestException) { await Task.Delay(200, startup.Token).ConfigureAwait(false); }
             }
             workflow = new(translation);
+            var warmupSource = selection.AsrLanguage switch
+            {
+                "Chinese" => "準備好了。",
+                "English" => "I am ready.",
+                "Japanese" => "準備ができました。",
+                "Korean" => "준비됐습니다.",
+                _ => throw new ArgumentException("预热源语言不受支持。", nameof(selection))
+            };
             var warmup = new TranslationInput(new(Guid.NewGuid(), 1, PipelineRequestKind.Translation, identity,
-                new(Guid.NewGuid(), 1), new(0, 1), 1), "準備ができました。");
+                new(Guid.NewGuid(), 1), new(0, 1), 1), warmupSource, SourceLanguage: selection.AsrLanguage);
             var warmed = await workflow.RunAsync(warmup, startup.Token).ConfigureAwait(false);
             if (!warmed.Complete) throw new InvalidDataException("translation_warmup_incomplete");
         }

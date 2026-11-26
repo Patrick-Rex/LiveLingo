@@ -2,6 +2,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using LiveLingo.App.Services;
 using LiveLingo.Core.History;
+using LiveLingo.Core.Transcription;
 
 namespace LiveLingo.App.ViewModels;
 
@@ -53,9 +54,14 @@ public sealed partial class HistoryViewModel(IHistoryInteraction interaction) : 
     public string DocumentTitle => document is null ? "会话详情" : $"{document.Summary.Info.ApplicationName} · {document.Summary.Info.StartedAt.ToLocalTime():yyyy-MM-dd HH:mm}";
     /// <summary>获取运行配置、状态和错误摘要。</summary>
     public string DocumentDetail => document is null ? "选择左侧会话；记录只保存在本机" :
-        $"{document.Summary.Info.SourceLanguage} → 简体中文 · {document.Summary.Info.TranslationModel} · {SelectedSession?.StateText}" +
+        $"{SourceLanguageLabel(document.Summary.Info.SourceLanguage)} → 简体中文 · {document.Summary.Info.TranslationModel} · {SelectedSession?.StateText}" +
         (document.Summary.Info.AsrModel is { } asrModel ? " · 识别 " + asrModel : "") +
         (document.Summary.Error is { } error ? " · " + error : "");
+
+    /// <summary>按会话记录的实际语言策略显示中文标签，兼容历史自动识别和其他旧值。</summary>
+    /// <param name="language">创建档案时记录的语言名。</param><returns>当前语言的中文名称或原始历史值。</returns>
+    private static string SourceLanguageLabel(string language) => AsrLanguages.IsSupported(language) ? AsrLanguages.DisplayName(language) :
+        language == "auto" ? "自动识别" : language;
     /// <summary>获取是否允许开始操作。</summary>
     public bool Ready => store is not null && !Busy && !closed;
     /// <summary>获取是否可复制或导出当前文档。</summary>

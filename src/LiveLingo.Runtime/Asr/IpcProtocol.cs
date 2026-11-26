@@ -3,12 +3,13 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using LiveLingo.Core.Audio;
 using LiveLingo.Core.Subtitles;
+using LiveLingo.Core.Transcription;
 
 namespace LiveLingo.Runtime.Asr;
 
 /// <summary>识别请求区分完整逻辑块与本次真实模型窗口，不伪造逐字覆盖。</summary>
 /// <param name="Ticket">完整逻辑调用身份。</param><param name="WindowRange">本次实际传入模型的范围。</param>
-/// <param name="BodyStartSample">窗口内正文锚点。</param><param name="Language">auto 或明确 Japanese。</param>
+/// <param name="BodyStartSample">窗口内正文锚点。</param><param name="Language">会话指定的中、英、日、韩语言名称。</param>
 /// <param name="MaxNewTokens">有限输出预算。</param>
 public sealed record AsrRequest(PipelineRequest Ticket, SampleRange WindowRange, long BodyStartSample, string Language, int MaxNewTokens);
 
@@ -36,7 +37,7 @@ public sealed record IpcHeader
     public AsrRequest? Correlation { get; init; }
     /// <summary>获取完整原始文本。</summary>
     public string? Text { get; init; }
-    /// <summary>获取模型检测语言。</summary>
+    /// <summary>获取转写使用的语言名称；来自请求指定的语言，不能作为自动检测证据。</summary>
     public string? Language { get; init; }
     /// <summary>获取实际生成正常完成状态。</summary>
     public bool? Complete { get; init; }
@@ -131,7 +132,7 @@ public static class IpcProtocol
                 ticket.Segment.Id == Guid.Empty || ticket.Segment.Generation <= 0 || ticket.SourceRevision < 0 ||
                 ticket.Identity.WorkerEpoch != header.WorkerEpoch || !ticket.Range.Contains(request.WindowRange) ||
                 request.WindowRange.Length is <= 0 or > 1920000 || request.BodyStartSample < request.WindowRange.Start ||
-                request.BodyStartSample >= request.WindowRange.End || request.Language is not ("auto" or "Japanese") || request.MaxNewTokens is < 1 or > 2048)
+                request.BodyStartSample >= request.WindowRange.End || !AsrLanguages.IsSupported(request.Language) || request.MaxNewTokens is < 1 or > 2048)
                 throw new InvalidDataException("ipc_request_metadata");
         }
         if (header.Type == "Transcription" && (header.Text is null || header.Complete is null || header.Reason is null ||

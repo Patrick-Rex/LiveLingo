@@ -38,7 +38,7 @@ public sealed class AsrWorkerClientTests
         })
         {
             var request = new AsrRequest(new(Guid.NewGuid(), ++sequence, PipelineRequestKind.Recognition, identity, key,
-                new(0, range.End), 0), range, range.Start, "auto", 2048);
+                new(0, range.End), 0), range, range.Start, "Japanese", 2048);
             using var lease = cache.Acquire(range);
             var result = await manager.RecognizeAsync(request, lease, CancellationToken.None);
             Assert.Equal($"{range.Start}:{range.Length}", result.Text);
@@ -68,7 +68,7 @@ public sealed class AsrWorkerClientTests
         for (var start = 0; start < 480000; start += 16000) cache.Append(start, new float[16000]);
         var identity = new PipelineIdentity(Guid.NewGuid(), 1, 1, 1);
         var request = new AsrRequest(new(Guid.NewGuid(), 1, PipelineRequestKind.Recognition, identity,
-            new(Guid.NewGuid(), 1), new(0, 480000), 0), new(0, 480000), 0, "auto", 512);
+            new(Guid.NewGuid(), 1), new(0, 480000), 0), new(0, 480000), 0, "Japanese", 512);
         try
         {
             await manager.StartAsync(1, CancellationToken.None);
@@ -102,7 +102,7 @@ public sealed class AsrWorkerClientTests
         }, new("test", "test", "test", "test", "test"), new());
         var identity = new PipelineIdentity(Guid.NewGuid(), 1, 1, 1);
         var request = new AsrRequest(new(Guid.NewGuid(), 1, PipelineRequestKind.Recognition, identity, new(Guid.NewGuid(), 1), new(0, 48000), 0),
-            new(0, 48000), 0, "auto", 512);
+            new(0, 48000), 0, "Japanese", 512);
         try
         {
             await manager.StartAsync(1, CancellationToken.None);
@@ -155,7 +155,7 @@ public sealed class AsrWorkerClientTests
                 var identity = new PipelineIdentity(Guid.NewGuid(), 1, 1, 1);
                 await client.AppendAudioAsync(identity, 1, new(0, 16000), new float[16000], CancellationToken.None);
                 var request = new AsrRequest(new(Guid.NewGuid(), 1, PipelineRequestKind.Recognition, identity,
-                    new(Guid.NewGuid(), 1), new(0, 16000), 0), new(0, 16000), 0, "auto", 512);
+                    new(Guid.NewGuid(), 1), new(0, 16000), 0), new(0, 16000), 0, "Japanese", 512);
                 if (mode == "normal")
                 {
                     var result = await client.RecognizeAsync(request, CancellationToken.None);
