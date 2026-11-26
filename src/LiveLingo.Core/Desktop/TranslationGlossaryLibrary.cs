@@ -1,12 +1,14 @@
 using System.Collections.Immutable;
+using LiveLingo.Core.Transcription;
 
 namespace LiveLingo.Core.Desktop;
 
-/// <summary>保存一份可以独立编辑和选用的原文至简体中文对照表。</summary>
+/// <summary>保存一份可以独立编辑和选用的原文与特定目标语言的对照表。</summary>
 /// <param name="Name">用于在桌面设置中切换的名称。</param>
 /// <param name="Text">每行一条原文与指定译文的对照。</param>
 /// <param name="LocalOnly">仅在翻译来源为本地模型时使用此表；旧表保留原有使用范围。</param>
-public sealed record TranslationGlossaryProfile(string Name, string Text, bool LocalOnly = false);
+/// <param name="TargetLanguage">词条译文使用的语言，旧词表默认为简体中文。</param>
+public sealed record TranslationGlossaryProfile(string Name, string Text, bool LocalOnly = false, string TargetLanguage = AsrLanguages.DefaultTarget);
 
 /// <summary>保存词库开关、选择及各表正文，关闭后仍保留用户的选择和编辑。</summary>
 public sealed record TranslationGlossaryLibrary
@@ -42,6 +44,7 @@ public sealed record TranslationGlossaryLibrary
                 throw new ArgumentException($"第 {index + 1} 份词库需要 1 至 32 个字符的名称，首尾不能有空白。");
             if (!names.Add(profile.Name))
                 throw new ArgumentException($"词库名“{profile.Name}”已被使用。");
+            if (!AsrLanguages.IsSupported(profile.TargetLanguage)) throw new ArgumentException($"请选择词库“{profile.Name}”的译文语言。");
             try { TranslationGlossary.Parse(profile.Text); }
             catch (ArgumentException error) { throw new ArgumentException($"词库“{profile.Name}”：{error.Message}", error); }
         }

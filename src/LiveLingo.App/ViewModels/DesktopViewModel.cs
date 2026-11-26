@@ -60,6 +60,17 @@ public sealed partial class DesktopViewModel : ObservableObject
     private string runtimeProfile = "win-x64-cpu";
     /// <summary>获取与识别语言契约顺序一致的中文选项。</summary>
     public string[] LanguageLabels { get; } = [.. AsrLanguages.Names.Select(AsrLanguages.DisplayName)];
+    /// <summary>获取翻译与词表目标语言的标签，明确区分简体中文输出。</summary>
+    public string[] TargetLanguageLabels { get; } = [.. AsrLanguages.Names.Select(AsrLanguages.TargetDisplayName)];
+    /// <summary>将翻译目标选择映射到持久化语言名。</summary>
+    public int TargetLanguageIndex
+    {
+        get => AsrLanguages.Names.IndexOf(TargetLanguage);
+        set
+        {
+            if (CanEdit && value >= 0 && value < AsrLanguages.Names.Length) TargetLanguage = AsrLanguages.Names[value];
+        }
+    }
     /// <summary>将设置页选择的中文标签映射到模型使用的语言名。</summary>
     public int AsrLanguageIndex
     {
@@ -70,7 +81,7 @@ public sealed partial class DesktopViewModel : ObservableObject
         }
     }
     /// <summary>获取与字幕显示模式数值顺序一致的本地化选项。</summary>
-    public string[] DisplayModes { get; } = ["双语", "仅中文", "仅原文"];
+    public string[] DisplayModes { get; } = ["双语", "仅译文", "仅原文"];
     /// <summary>获取与桌面主题数值顺序一致的显示名称。</summary>
     public string[] Themes { get; } = ["跟随系统", "浅色", "深色"];
     /// <summary>获取可选历史保留天数，零表示永久保留。</summary>
@@ -114,7 +125,7 @@ public sealed partial class DesktopViewModel : ObservableObject
                 ? $"本地 Qwen · {RuntimeProfileLabels[Array.IndexOf(RuntimeProfileIds, settings.RuntimeProfile)]}"
                 : $"API {settings.AsrApi.Model}";
             var translation = settings.TranslationBackend == ModelBackend.Local ? "本地" : "API";
-            return $"原文：{AsrLanguages.DisplayName(settings.AsrLanguage)}　识别：{recognition}　翻译：{translation} {settings.EffectiveTranslationModel}";
+            return $"原文：{AsrLanguages.DisplayName(settings.AsrLanguage)} → {AsrLanguages.TargetDisplayName(settings.TargetLanguage)}　识别：{recognition}　翻译：{translation} {settings.EffectiveTranslationModel}";
         }
     }
     /// <summary>获取或设置浮窗显示模式；忽略选择控件初始化的空选项。</summary>
@@ -248,6 +259,9 @@ public sealed partial class DesktopViewModel : ObservableObject
     /// <summary>获取待保存识别语言。</summary>
     [ObservableProperty, NotifyPropertyChangedFor(nameof(AsrLanguageIndex))]
     public partial string AsrLanguage { get; set; } = AsrLanguages.Default;
+    /// <summary>获取或设置下次会话使用的目标语言草稿。</summary>
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(TargetLanguageIndex))]
+    public partial string TargetLanguage { get; set; } = AsrLanguages.DefaultTarget;
     /// <summary>获取隔离解释器路径输入。</summary>
     [ObservableProperty] public partial string PythonPath { get; set; } = new DesktopSettings().PythonPath;
     /// <summary>获取 Qwen 权重目录输入。</summary>
@@ -260,7 +274,7 @@ public sealed partial class DesktopViewModel : ObservableObject
     [ObservableProperty] public partial string DataPath { get; set; } = new DesktopSettings().DataPath;
     /// <summary>获取缓存目录输入。</summary>
     [ObservableProperty] public partial string CachePath { get; set; } = new DesktopSettings().CachePath;
-    /// <summary>获取待应用中文字号。</summary>
+    /// <summary>获取待应用译文字号。</summary>
     [ObservableProperty, NotifyPropertyChangedFor(nameof(PreviewSourceFontSize))] public partial double FontSize { get; set; } = 28;
     /// <summary>获取待应用背景不透明度。</summary>
     [ObservableProperty] public partial double BackgroundOpacity { get; set; } = 0.75;
@@ -381,7 +395,7 @@ public sealed partial class DesktopViewModel : ObservableObject
     {
         base.OnPropertyChanged(e);
         if (e.PropertyName is nameof(RuntimeProfileIndex) or nameof(AsrBackendIndex) or nameof(TranslationBackendIndex) or nameof(AsrApiBaseUrl) or nameof(AsrApiModel) or nameof(AsrApiKey) or
-            nameof(TranslationApiBaseUrl) or nameof(TranslationApiModel) or nameof(TranslationApiKey) or nameof(ModelJsonError) or nameof(TranslationModel) or nameof(AsrLanguage) or nameof(PythonPath) or nameof(ModelPath) or
+            nameof(TranslationApiBaseUrl) or nameof(TranslationApiModel) or nameof(TranslationApiKey) or nameof(ModelJsonError) or nameof(TranslationModel) or nameof(AsrLanguage) or nameof(TargetLanguage) or nameof(PythonPath) or nameof(ModelPath) or
             nameof(OllamaPath) or nameof(OllamaModelsPath) or nameof(DataPath) or nameof(CachePath) or nameof(StartKey) or nameof(VisibilityKey) or nameof(LayoutKey) or nameof(HistoryRetentionDays))
         {
             SettingsSaveMessage = ""; NotifyPendingSettings();
@@ -394,7 +408,7 @@ public sealed partial class DesktopViewModel : ObservableObject
         OnPropertyChanged(nameof(HasPendingSettings)); OnPropertyChanged(nameof(PendingSettingsText)); OnPropertyChanged(nameof(CanToggle));
     }
 
-    /// <summary>字号滑块和浮窗按钮共用即时预览与延迟保存。</summary><param name="value">中文 DIP 字号。</param>
+    /// <summary>字号滑块和浮窗按钮共用即时预览与延迟保存。</summary><param name="value">译文 DIP 字号。</param>
     partial void OnFontSizeChanged(double value)
     {
         if (loadingSettings || closing || !double.IsFinite(value) || value is < 16 or > 64) return;
@@ -501,7 +515,7 @@ public sealed partial class DesktopViewModel : ObservableObject
     /// <summary>把双语字幕缩小一档，保持最小可读字号。</summary>
     [RelayCommand] private void DecreaseSubtitleFont() => AdjustSubtitleFontSize(-2);
 
-    /// <summary>调整中文字号并按比例缩放原文，保留未保存的模型设置与窗口布局。</summary><param name="delta">中文字号的 DIP 增量；非有限值忽略。</param>
+    /// <summary>调整译文字号并按比例缩放原文，保留未保存的模型设置与窗口布局。</summary><param name="delta">译文字号的 DIP 增量；非有限值忽略。</param>
     public void AdjustSubtitleFontSize(double delta)
     {
         if (closing || !double.IsFinite(delta)) return;
@@ -573,12 +587,12 @@ public sealed partial class DesktopViewModel : ObservableObject
         if (settings.DisplayMode == SubtitleDisplayMode.SourceOnly)
             phrases = phrases.Where(phrase => phrase.CurrentSource is not null)
                 .Select(phrase => phrase.IsPreviousTranslation ? phrase with
-                    { Source = phrase.CurrentSource!, Chinese = null, IsPreviousTranslation = false, StatusText = "更新中" } : phrase).ToArray();
+                    { Source = phrase.CurrentSource!, TranslatedText = null, IsPreviousTranslation = false, StatusText = "更新中" } : phrase).ToArray();
         var followSource = overlayFollowsNewest || settings.DisplayMode == SubtitleDisplayMode.SourceOnly;
         OverlayPhraseIndex = followSource ? LatestSourceIndex(phrases) : ReadingIndex(phrases);
         if (FollowLatest && !followSource && phrases.Length > 0)
         {
-            var lastReadable = Array.FindLastIndex(phrases, phrase => phrase.Chinese is not null);
+            var lastReadable = Array.FindLastIndex(phrases, phrase => phrase.TranslatedText is not null);
             if (lastReadable + 2 < phrases.Length) phrases = phrases[..(lastReadable + 2)];
         }
         UpdatePhrases(OverlayPhrases, phrases);
@@ -603,10 +617,10 @@ public sealed partial class DesktopViewModel : ObservableObject
     /// <param name="phrases">按播放顺序排列的短句。</param><returns>可阅读的短句位置；初次待译时从首句开始。</returns>
     private static int ReadingIndex(SubtitlePhraseRow[] phrases)
     {
-        var last = Array.FindLastIndex(phrases, phrase => phrase.Chinese is not null);
+        var last = Array.FindLastIndex(phrases, phrase => phrase.TranslatedText is not null);
         if (last < 0) return 0;
         for (var index = last; index >= 0 && phrases[index].Key == phrases[last].Key; index--)
-            if (!phrases[index].IsPreviousTranslation && phrases[index].Chinese is not null) return index;
+            if (!phrases[index].IsPreviousTranslation && phrases[index].TranslatedText is not null) return index;
         return last;
     }
 
@@ -644,7 +658,7 @@ public sealed partial class DesktopViewModel : ObservableObject
         RuntimeProfile = runtimeProfile, AsrBackend = (ModelBackend)AsrBackendIndex, TranslationBackend = (ModelBackend)TranslationBackendIndex,
         AsrApi = new() { BaseUrl = AsrApiBaseUrl, Model = AsrApiModel, ApiKey = AsrApiKey },
         TranslationApi = new() { BaseUrl = TranslationApiBaseUrl, Model = TranslationApiModel, ApiKey = TranslationApiKey },
-        TranslationModel = TranslationModel, AsrLanguage = AsrLanguage, GlossaryLibrary = glossaryDraft,
+        TranslationModel = TranslationModel, AsrLanguage = AsrLanguage, TargetLanguage = TargetLanguage, GlossaryLibrary = glossaryDraft,
         PythonPath = PythonPath, ModelPath = ModelPath,
         OllamaPath = OllamaPath, OllamaModelsPath = OllamaModelsPath, DataPath = DataPath, CachePath = CachePath,
         StartKey = StartKey, VisibilityKey = VisibilityKey, LayoutKey = LayoutKey, HistoryRetentionDays = HistoryRetentionDays

@@ -2,10 +2,11 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using LiveLingo.Core.Desktop;
+using LiveLingo.Core.Transcription;
 
 namespace LiveLingo.App.ViewModels;
 
-/// <summary>管理原文到中文的词库草稿，与模型来源共用应用和撤销边界。</summary>
+/// <summary>管理原文到所选目标语言的词库草稿，与模型来源共用应用和撤销边界。</summary>
 public sealed partial class DesktopViewModel
 {
     private TranslationGlossaryLibrary glossaryDraft = new();
@@ -53,7 +54,7 @@ public sealed partial class DesktopViewModel
         if (!CanEdit || !CanAddGlossary) return;
         var index = 1;
         while (GlossaryProfiles.Any(profile => profile.Name == $"自定义词表 {index}")) index++;
-        var added = new GlossaryProfileEditor(new($"自定义词表 {index}", ""), UpdateGlossaryDraft);
+        var added = new GlossaryProfileEditor(new($"自定义词表 {index}", "", TargetLanguage: TargetLanguage), UpdateGlossaryDraft);
         GlossaryProfiles.Add(added);
         SelectedGlossary = added;
     }
@@ -75,7 +76,7 @@ public sealed partial class DesktopViewModel
         glossaryDraft = glossaryDraft with
         {
             Enabled = GlossaryEnabled, SelectedIndex = GlossaryProfiles.IndexOf(SelectedGlossary),
-            Profiles = [.. GlossaryProfiles.Select(profile => new TranslationGlossaryProfile(profile.Name, profile.Text, profile.LocalOnly))]
+            Profiles = [.. GlossaryProfiles.Select(profile => new TranslationGlossaryProfile(profile.Name, profile.Text, profile.LocalOnly, profile.TargetLanguage))]
         };
         try { glossaryDraft.Validate(); GlossaryError = ""; }
         catch (ArgumentException error) { GlossaryError = error.Message; }
@@ -91,10 +92,24 @@ public sealed partial class GlossaryProfileEditor(TranslationGlossaryProfile pro
 {
     /// <summary>获取或设置列表中显示的词表名称。</summary>
     [ObservableProperty] public partial string Name { get; set; } = profile.Name;
-    /// <summary>获取或设置可保留空行的原文与中文译文对照表。</summary>
+    /// <summary>获取或设置可保留空行的原文与指定译文对照表。</summary>
     [ObservableProperty] public partial string Text { get; set; } = profile.Text;
     /// <summary>获取或设置该表是否仅在本地翻译时参与匹配。</summary>
     [ObservableProperty] public partial bool LocalOnly { get; set; } = profile.LocalOnly;
+    /// <summary>获取或设置词条译文使用的语言，并通知库保留其适用范围。</summary>
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(TargetLanguageIndex))]
+    public partial string TargetLanguage { get; set; } = profile.TargetLanguage;
+    /// <summary>将编辑器中的目标语言选项对应到词表的规范语言名。</summary>
+    public int TargetLanguageIndex
+    {
+        get => AsrLanguages.Names.IndexOf(TargetLanguage);
+        set
+        {
+            if (value >= 0 && value < AsrLanguages.Names.Length) TargetLanguage = AsrLanguages.Names[value];
+        }
+    }
+    /// <summary>将译文语言的修改纳入待应用词库。</summary><param name="value">该表使用的目标语言。</param>
+    partial void OnTargetLanguageChanged(string value) => changed();
     /// <summary>通知库重新检查名字的唯一性。</summary><param name="value">编辑后的名称。</param>
     partial void OnNameChanged(string value) => changed();
     /// <summary>通知库检查词条格式和重复原文。</summary><param name="value">编辑后的完整词表。</param>

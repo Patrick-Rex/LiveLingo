@@ -8,16 +8,17 @@ namespace LiveLingo.App.Tests;
 /// <summary>验证历史页面的选择、确认、固定导出与生命周期，不依赖磁盘或原生对话框。</summary>
 public sealed class HistoryViewModelTests
 {
-    /// <summary>历史正文显示该场保存的识别语言，包括旧版自动识别记录。</summary>
-    /// <param name="language">归档时保存的语言值。</param><param name="label">显示的中文标签。</param>
+    /// <summary>历史正文显示该场保存的识别和翻译方向，包括旧版自动识别记录。</summary>
+    /// <param name="source">归档时保存的识别语言。</param><param name="target">归档时保存的翻译目标。</param>
+    /// <param name="direction">会话详情应显示的语言方向。</param>
     /// <returns>历史页面加载任务。</returns>
-    [Theory, InlineData("Korean", "韩语"), InlineData("auto", "自动识别")]
-    public async Task ArchiveShowsItsRecordedSourceLanguage(string language, string label)
+    [Theory, InlineData("Korean", "English", "韩语 → 英语"), InlineData("auto", "Chinese", "自动识别 → 简体中文")]
+    public async Task ArchiveShowsItsRecordedLanguagePair(string source, string target, string direction)
     {
         var document = CreateDocument("player.exe", HistorySessionState.Completed, 1);
-        document = document with { Summary = document.Summary with { Info = document.Summary.Info with { SourceLanguage = language } } };
+        document = document with { Summary = document.Summary with { Info = document.Summary.Info with { SourceLanguage = source, TargetLanguage = target } } };
         var model = await CreateModelAsync(new MemoryHistoryStore(document), new MemoryHistoryInteraction());
-        try { Assert.StartsWith($"{label} → 简体中文", model.DocumentDetail); }
+        try { Assert.StartsWith(direction, model.DocumentDetail); }
         finally { await model.CloseAsync(); }
     }
 

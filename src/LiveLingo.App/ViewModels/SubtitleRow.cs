@@ -26,15 +26,15 @@ public sealed record SubtitleRow
     /// <summary>获取当前语义块的完整识别原文。</summary>
     public string Source => Segment.Source;
     /// <summary>获取最近译文，空结果显示等待。</summary>
-    public string Translation => Segment.Translation ?? "等待中文…";
+    public string Translation => Segment.Translation ?? "等待译文…";
     /// <summary>获取需要随正文显示的阶段或异常提示，常规已译分段留空。</summary>
     public string StatusText => GetStatusText(Segment);
 
     /// <summary>读取实时与历史共用的块状态，无需创建短句投影。</summary>
     /// <param name="segment">当前语义块。</param><returns>面向阅读的状态说明。</returns>
     internal static string GetStatusText(SubtitleSegment segment) => segment.TranslationState == TranslationState.Failed ? "翻译未完成" :
-        segment.Translation is null ? (segment.Phase == SubtitlePhase.Draft ? "草稿 · 等待中文" : "更新中 · 等待中文") :
-        segment.TranslatedSourceRevision != segment.SourceRevision ? "更新中 · 中文待更新" :
+        segment.Translation is null ? (segment.Phase == SubtitlePhase.Draft ? "草稿 · 等待译文" : "更新中 · 等待译文") :
+        segment.TranslatedSourceRevision != segment.SourceRevision ? "更新中 · 译文待更新" :
         segment.Phase switch
         {
             SubtitlePhase.Final when segment.TranslationState == TranslationState.Complete => "已定稿",
@@ -44,7 +44,7 @@ public sealed record SubtitleRow
         };
     /// <summary>获取精确版本和修订状态。</summary>
     public string Detail => $"{(Segment.SourceRangeSealed ? "实时分段 · 原文已固定" : Segment.Phase switch { SubtitlePhase.Final => "定稿", SubtitlePhase.Revised => "修订中", _ => "草稿" })} · 源 v{Segment.SourceRevision} / 字幕 v{Segment.SubtitleRevision}" +
-        (Segment.TranslatedSourceRevision != Segment.SourceRevision ? " · 中文待更新" : "") + (Segment.Error is { } error ? " · " + error : "");
+        (Segment.TranslatedSourceRevision != Segment.SourceRevision ? " · 译文待更新" : "") + (Segment.Error is { } error ? " · " + error : "");
 
     /// <summary>按原句位置绑定已确认的译文，兼容只保存当前整块译文的旧字幕。</summary>
     /// <returns>当前原文对应的双语阅读单元。</returns>
@@ -78,25 +78,25 @@ public sealed record SubtitleRow
             }
             else if (source is not null)
             {
-                result.Add(new(Segment.Key, index, source, null, failed ? "翻译未完成" : "等待中文", detail, false));
+                result.Add(new(Segment.Key, index, source, null, failed ? "翻译未完成" : "等待译文", detail, false));
             }
         }
         return result;
     }
 }
 
-/// <summary>呈现一个识别短句和归属于该位置的中文，保留重复原句的独立位置。</summary>
+/// <summary>呈现一个识别短句和归属于该位置的译文，保留重复原句的独立位置。</summary>
 /// <param name="Key">语义块身份。</param><param name="Index">块内短句序号。</param>
-/// <param name="Source">识别原句。</param><param name="Chinese">当前原句的译文，等待时为空。</param>
+/// <param name="Source">识别原句。</param><param name="TranslatedText">当前原句的译文，等待时为空。</param>
 /// <param name="StatusText">阅读状态。</param><param name="Detail">所属块的版本详情。</param><param name="IsFinal">该块已按当前译文定稿。</param>
 /// <param name="IsPreviousTranslation">正在显示上一版原译对，等待此位置的新译文。</param>
-public sealed record SubtitlePhraseRow(SegmentKey Key, int Index, string Source, string? Chinese, string StatusText, string Detail, bool IsFinal, bool IsPreviousTranslation = false)
+public sealed record SubtitlePhraseRow(SegmentKey Key, int Index, string Source, string? TranslatedText, string StatusText, string Detail, bool IsFinal, bool IsPreviousTranslation = false)
 {
     /// <summary>获取此位置的最新识别原文，供仅原文模式跟随。修订已删除该位置时为空。</summary>
     public string? CurrentSource { get; init; } = Source;
 
     /// <summary>获取译文或当前等待提示。</summary>
-    public string Translation => Chinese ?? "等待中文…";
+    public string Translation => TranslatedText ?? "等待译文…";
 }
 
 /// <summary>保持短句的显示项身份，原文、译文和版本修订时在现有控件上更新绑定。</summary>
@@ -111,8 +111,8 @@ public sealed partial class LivePhraseItem(SubtitlePhraseRow phrase) : Observabl
     [ObservableProperty] public partial bool Stopped { get; internal set; }
     /// <summary>获取当前的阅读状态，停止后区分定稿、已译未定稿和缺少可用译文。</summary>
     public string StatusText => Stopped && !Phrase.IsFinal
-        ? Phrase.IsPreviousTranslation ? "已停止 · 上一版译文" : Phrase.Chinese is null ? "已停止 · 翻译未完成" : "已停止 · 未定稿"
+        ? Phrase.IsPreviousTranslation ? "已停止 · 上一版译文" : Phrase.TranslatedText is null ? "已停止 · 翻译未完成" : "已停止 · 未定稿"
         : Phrase.StatusText;
     /// <summary>获取对应译文，尚未收到的译文在会话停止后结束等待。</summary>
-    public string Translation => Stopped && Phrase.Chinese is null ? "尚无译文" : Phrase.Translation;
+    public string Translation => Stopped && Phrase.TranslatedText is null ? "尚无译文" : Phrase.Translation;
 }

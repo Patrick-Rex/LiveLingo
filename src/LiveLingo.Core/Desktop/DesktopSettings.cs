@@ -17,9 +17,9 @@ public enum DesktopTheme
 /// <summary>控制浮窗呈现的语言，不改变识别、翻译或完整历史。</summary>
 public enum SubtitleDisplayMode
 {
-    /// <summary>同时显示原文与中文。</summary>
+    /// <summary>同时显示原文与译文。</summary>
     Bilingual,
-    /// <summary>只显示中文及其等待或修订状态。</summary>
+    /// <summary>只显示译文及其等待或修订状态。</summary>
     TranslationOnly,
     /// <summary>只显示原文及字幕状态。</summary>
     SourceOnly
@@ -36,10 +36,11 @@ public sealed record DesktopSettings
     /// <param name="pythonPath">保存的隔离解释器路径；新配置使用所选 profile 的用户目录。</param>
     /// <param name="glossaryLibrary">已保存的命名词库；旧版本没有此字段时使用关闭的示例库。</param>
     /// <param name="asrLanguage">识别语言。读取旧版 auto 或缺失字段时，沿用项目的日语优先设置。</param>
+    /// <param name="targetLanguage">翻译目标语言，旧文件缺省为简体中文。</param>
     [JsonConstructor]
     public DesktopSettings(int historyRetentionDays = 30, OpenAiApiSettings? asrApi = null, OpenAiApiSettings? translationApi = null,
         string? runtimeProfile = null, string? pythonPath = null, TranslationGlossaryLibrary? glossaryLibrary = null,
-        string asrLanguage = AsrLanguages.Default)
+        string asrLanguage = AsrLanguages.Default, string targetLanguage = AsrLanguages.DefaultTarget)
     {
         RuntimeProfile = runtimeProfile ?? (pythonPath is null ? "win-x64-cpu" : "win-x64-cu130");
         PythonPath = pythonPath ?? GetManagedInterpreter(RuntimeProfile);
@@ -47,6 +48,7 @@ public sealed record DesktopSettings
         AsrApi = asrApi ?? new(); TranslationApi = translationApi ?? new();
         GlossaryLibrary = glossaryLibrary ?? new();
         AsrLanguage = asrLanguage == "auto" ? AsrLanguages.Default : asrLanguage;
+        TargetLanguage = targetLanguage;
     }
 
     /// <summary>获取文件契约主版本。</summary>
@@ -70,7 +72,7 @@ public sealed record DesktopSettings
     public string TranslationModel { get; init; } = "translategemma:12b";
     /// <summary>获取本地保存的命名词库；首次安装和旧设置默认关闭。</summary>
     public TranslationGlossaryLibrary GlossaryLibrary { get; init; }
-    /// <summary>获取已启用且适用于当前翻译来源的词库正文，供会话启动时构建匹配表。</summary>
+    /// <summary>获取已启用且适用于当前目标语言与翻译来源的词库正文，供会话启动时构建匹配表。</summary>
     [JsonIgnore]
     public string TranslationGlossaryText
     {
@@ -78,11 +80,14 @@ public sealed record DesktopSettings
         {
             if (!GlossaryLibrary.Enabled) return "";
             var profile = GlossaryLibrary.Profiles[GlossaryLibrary.SelectedIndex];
-            return profile.LocalOnly && TranslationBackend != ModelBackend.Local ? "" : profile.Text;
+            if (profile.TargetLanguage != TargetLanguage || (profile.LocalOnly && TranslationBackend != ModelBackend.Local)) return "";
+            return profile.Text;
         }
     }
     /// <summary>获取本地或 API 识别使用的明确原文语言。</summary>
     public string AsrLanguage { get; init; }
+    /// <summary>获取本地模型和 API 翻译共用的目标语言，中文目标使用简体。</summary>
+    public string TargetLanguage { get; init; }
     /// <summary>获取每用户的资源根，独立于可更新或卸载的程序目录。</summary>
     public static string ResourceRoot => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "LiveLingoData");
     /// <summary>获取选中的本地推理配置标识。</summary>
@@ -108,7 +113,7 @@ public sealed record DesktopSettings
     public double OverlayWidth { get; init; } = 1000;
     /// <summary>获取字幕 DIP 高度。</summary>
     public double OverlayHeight { get; init; } = 260;
-    /// <summary>获取中文正文字号。</summary>
+    /// <summary>获取译文正文字号。</summary>
     public double FontSize { get; init; } = 28;
     /// <summary>获取背景不透明度。</summary>
     public double BackgroundOpacity { get; init; } = 0.75;
@@ -128,6 +133,7 @@ public sealed record DesktopSettings
         if (SchemaVersion != 1 || !Enum.IsDefined(AsrBackend) || !Enum.IsDefined(TranslationBackend))
             throw new ArgumentException("设置版本、模型或语言不受支持。");
         if (!AsrLanguages.IsSupported(AsrLanguage)) throw new ArgumentException("请选择中文、英语、日语或韩语作为识别语言。");
+        if (!AsrLanguages.IsSupported(TargetLanguage)) throw new ArgumentException("请选择简体中文、英语、日语或韩语作为翻译目标语言。");
         if (!IsSupportedRuntime(RuntimeProfile)) throw new ArgumentException("本地识别运行配置不受支持。");
         (GlossaryLibrary ?? throw new ArgumentException("词库配置须为对象。")).Validate();
         if (!Enum.IsDefined(DisplayMode)) throw new ArgumentException("字幕显示模式不受支持。");

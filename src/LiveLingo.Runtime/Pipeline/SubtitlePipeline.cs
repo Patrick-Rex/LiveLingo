@@ -403,7 +403,7 @@ public sealed class SubtitlePipeline
                 var phrases = SubtitlePhrases.Split(segment.Source);
                 var source = phrases[segment.NextPhraseIndex];
                 var match = selection.Glossary?.Match(source) ?? default;
-                var input = new TranslationInput(work.Request, source, match.Terms, selection.AsrLanguage);
+                var input = new TranslationInput(work.Request, source, match.Terms, selection.AsrLanguage, selection.TargetLanguage);
                 cancellationToken.ThrowIfCancellationRequested();
                 if (match.ExactTranslation is { } exact)
                 {

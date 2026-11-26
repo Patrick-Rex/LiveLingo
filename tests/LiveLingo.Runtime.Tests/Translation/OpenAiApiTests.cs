@@ -37,7 +37,7 @@ public sealed class OpenAiApiTests
         Assert.Null(result.LoadNanoseconds);
     }
 
-    /// <summary>术语渲染加入独立翻译规则，模型仍收到当前短句的完整原文。</summary>
+    /// <summary>四种源语言均能发往四种目标，术语提示与请求方向相符，模型收到完整原文。</summary>
     /// <param name="language">选定源语言。</param><param name="term">该语言的源词。</param><param name="source">含词的测试句子。</param>
     /// <returns>受控 API 传输检查任务。</returns>
     [Theory]
@@ -47,24 +47,27 @@ public sealed class OpenAiApiTests
     [InlineData("Korean", "첫 플레이", "첫 플레이예요.")]
     public async Task GlossaryHintsReachApiWithoutChangingSource(string language, string term, string source)
     {
-        var glossary = TranslationGlossary.Parse($"{term}=初见游玩\n神ゲー=神作");
-        var input = Input() with { Source = source, Terms = glossary.Match(source).Terms, SourceLanguage = language };
-        using var service = new OpenAiTranslationService(Settings(), TimeSpan.FromSeconds(2), new Handler(async (request, token) =>
+        foreach (var (target, rendering) in new[] { ("Chinese", "初见游玩"), ("English", "first playthrough"), ("Japanese", "初見プレイ"), ("Korean", "첫 플레이") })
         {
-            using var json = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(token));
-            var messages = json.RootElement.GetProperty("messages");
-            var instructions = messages[0].GetProperty("content").GetString();
-            Assert.Contains($"{language} text", instructions);
-            Assert.Contains("Simplified Chinese", instructions);
-            Assert.Contains($"the {language} terms", instructions);
-            Assert.Contains($"\"{term}\":\"初见游玩\"", instructions);
-            if (language == "Chinese") Assert.Contains("Traditional Chinese", instructions);
-            Assert.DoesNotContain("神作", instructions);
-            Assert.Equal(source, messages[1].GetProperty("content").GetString());
-            return Json("""{"choices":[{"message":{"content":"这是初见游玩。"},"finish_reason":"stop"}]}""");
-        }));
-        var result = await service.TranslateAsync(input, TestContext.Current.CancellationToken);
-        Assert.True(result.Complete);
+            var glossary = TranslationGlossary.Parse($"{term}={rendering}\n神ゲー=神作");
+            var input = Input() with { Source = source, Terms = glossary.Match(source).Terms, SourceLanguage = language, TargetLanguage = target };
+            using var service = new OpenAiTranslationService(Settings(), TimeSpan.FromSeconds(2), new Handler(async (request, token) =>
+            {
+                using var json = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(token));
+                var messages = json.RootElement.GetProperty("messages");
+                var instructions = messages[0].GetProperty("content").GetString();
+                Assert.Contains($"{language} text", instructions);
+                if (language != target) Assert.Contains($"into {(target == "Chinese" ? "Simplified Chinese" : target)}.", instructions);
+                else Assert.Contains(target == "Chinese" ? "Traditional Chinese" : "Preserve the original wording", instructions);
+                Assert.Contains($"preferred {target} renderings where the {language} terms", instructions);
+                Assert.Contains($"\"{term}\":\"{rendering}\"", instructions);
+                Assert.DoesNotContain("神作", instructions);
+                Assert.Equal(source, messages[1].GetProperty("content").GetString());
+                return Json(JsonSerializer.Serialize(new { choices = new[] { new { message = new { content = rendering }, finish_reason = "stop" } } }));
+            }));
+            var result = await service.TranslateAsync(input, TestContext.Current.CancellationToken);
+            Assert.True(result.Complete); Assert.Equal(rendering, result.Text);
+        }
     }
 
     /// <summary>截断、拒绝、工具调用及空响应不能被标为完整译文。</summary>

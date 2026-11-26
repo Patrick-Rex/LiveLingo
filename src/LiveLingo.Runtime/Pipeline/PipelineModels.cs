@@ -11,15 +11,17 @@ namespace LiveLingo.Runtime.Pipeline;
 /// <param name="TranslationModel">本地 TranslateGemma 标签或 API 模型。</param><param name="AsrLanguage">用户选择的固定源语言。</param>
 /// <param name="AsrBackend">识别来源。</param><param name="TranslationBackend">翻译来源。</param>
 /// <param name="AsrApi">仅 API 识别需要的配置。</param><param name="TranslationApi">仅 API 翻译需要的配置。</param>
-/// <param name="Glossary">会话固定的原文至中文词表；未配置时沿用模型翻译。</param>
+/// <param name="Glossary">适用于本次翻译方向及后端的词表。</param><param name="TargetLanguage">会话选定的译文语言。</param>
 public sealed record PipelineModelSelection(string TranslationModel = "translategemma:12b", string AsrLanguage = AsrLanguages.Default,
     ModelBackend AsrBackend = ModelBackend.Local, ModelBackend TranslationBackend = ModelBackend.Local,
-    OpenAiApiSettings? AsrApi = null, OpenAiApiSettings? TranslationApi = null, TranslationGlossary? Glossary = null)
+    OpenAiApiSettings? AsrApi = null, OpenAiApiSettings? TranslationApi = null, TranslationGlossary? Glossary = null,
+    string TargetLanguage = AsrLanguages.DefaultTarget)
 {
     /// <summary>拒绝未经本轮集成的模型与语言，不自动降级。</summary>
     public void Validate()
     {
-        if (!Enum.IsDefined(AsrBackend) || !Enum.IsDefined(TranslationBackend) || !AsrLanguages.IsSupported(AsrLanguage) ||
+        if (!Enum.IsDefined(AsrBackend) || !Enum.IsDefined(TranslationBackend) ||
+            !AsrLanguages.IsSupported(AsrLanguage) || !AsrLanguages.IsSupported(TargetLanguage) ||
             TranslationBackend == ModelBackend.Local && TranslationModel is not ("translategemma:4b" or "translategemma:12b"))
             throw new ArgumentException("unsupported_model_selection");
         if (AsrBackend == ModelBackend.OpenAiCompatible) (AsrApi ?? throw new ArgumentException("缺少识别 API 配置。")).Validate();

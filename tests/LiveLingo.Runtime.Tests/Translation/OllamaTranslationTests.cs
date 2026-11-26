@@ -24,7 +24,7 @@ public sealed class OllamaTranslationTests
         Assert.Throws<ArgumentException>(() => OfficialTranslationPrompt.Format(" "));
     }
 
-    /// <summary>单条模型提示从当前配置明确源语，词库沿用同一语言，正文仍是逐字原文。</summary>
+    /// <summary>每种源语言均可译至四种目标，词库与模型指令采用相同的目标，正文逐字保留。</summary>
     /// <param name="language">选定源语言。</param><param name="code">两位小写代码。</param><param name="source">当前短句原文。</param>
     [Theory]
     [InlineData("Chinese", "zh", "準備好了。")]
@@ -33,11 +33,16 @@ public sealed class OllamaTranslationTests
     [InlineData("Korean", "ko", "준비됐습니다.")]
     public void LocalPromptCarriesSelectedLanguage(string language, string code, string source)
     {
-        var prompt = OfficialTranslationPrompt.Format(source, [new(source[..1], "示例")], language);
-        Assert.Contains($"{language} ({code}) to Chinese (zh-Hans)", prompt);
-        Assert.Contains($"the {language} terms", prompt);
-        Assert.EndsWith($"the following {language} text into Chinese:\n\n\n" + source, prompt);
-        if (language == "Chinese") Assert.Contains("natural Simplified Chinese", prompt);
+        foreach (var (target, targetCode, term) in new[]
+                 { ("Chinese", "zh-Hans", "示例"), ("English", "en", "sample"), ("Japanese", "ja", "例"), ("Korean", "ko", "예시") })
+        {
+            var prompt = OfficialTranslationPrompt.Format(source, [new(source[..1], term)], language, target);
+            Assert.Contains($"{language} ({code}) to {target} ({targetCode})", prompt);
+            Assert.Contains($"preferred {target} renderings where the {language} terms", prompt);
+            Assert.EndsWith($"the following {language} text into {target}:\n\n\n" + source, prompt);
+            if (target == language)
+                Assert.Contains(target == "Chinese" ? "natural Simplified Chinese" : $"Preserve the original {target} wording", prompt);
+        }
     }
 
     /// <summary>有余量时按字面提供匹配译名，正文占满原预算时完整保留原始提示。</summary>
@@ -64,7 +69,7 @@ public sealed class OllamaTranslationTests
         var serving = ServeAsync(listener, [Tags(), Chat("stop", "是的，是的。不去。")]);
         using var service = Service(listener);
         await service.ValidateModelAsync(CancellationToken.None);
-        var input = Input();
+        var input = Input() with { TargetLanguage = "English" };
         var result = await service.TranslateAsync(input, CancellationToken.None);
         var requests = await serving;
         Assert.True(result.Complete);
@@ -78,7 +83,7 @@ public sealed class OllamaTranslationTests
         Assert.Equal(-1, root.GetProperty("keep_alive").GetInt32());
         var message = Assert.Single(root.GetProperty("messages").EnumerateArray());
         Assert.Equal("user", message.GetProperty("role").GetString());
-        Assert.Equal(OfficialTranslationPrompt.Format(input.Source), message.GetProperty("content").GetString());
+        Assert.Equal(OfficialTranslationPrompt.Format(input.Source, targetLanguage: "English"), message.GetProperty("content").GetString());
         var options = root.GetProperty("options");
         Assert.Equal(4096, options.GetProperty("num_ctx").GetInt32());
         Assert.Equal(512, options.GetProperty("num_predict").GetInt32());

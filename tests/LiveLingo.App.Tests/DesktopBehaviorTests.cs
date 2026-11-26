@@ -247,7 +247,7 @@ public sealed class DesktopBehaviorTests
         Assert.Equal(2, vm.OverlayRows.Count); Assert.Equal(vm.History[0].Source, vm.History[1].Source);
         second = second with { SourceRevision = 2, SubtitleRevision = 3, Source = "行かない。", Phase = SubtitlePhase.Revised };
         session.Publish(new(vm.SessionId, 2, new(identity, 2, false, [second], ImmutableHashSet.Create(first.Key.Id)), "running", 4, true)); queue.Dequeue()();
-        Assert.Single(vm.History); Assert.Contains("中文待更新", vm.History[0].Detail); Assert.Equal("行かない。", vm.History[0].Source);
+        Assert.Single(vm.History); Assert.Contains("译文待更新", vm.History[0].Detail); Assert.Equal("行かない。", vm.History[0].Source);
         await vm.CloseAsync(); session.Publish(new(vm.SessionId, 3, null, "late", 0, true)); Assert.Empty(queue);
     }
 
@@ -296,10 +296,10 @@ public sealed class DesktopBehaviorTests
         Assert.Equal(statuses, vm.OverlayPhrases.Select(item => item.StatusText));
         Assert.Equal(new[] { final.Translation, "一句译文", "尚无译文" }, vm.OverlayPhrases.Select(item => item.Translation));
         Assert.Same(partial, vm.History[1].Segment);
-        Assert.Equal("更新中 · 中文待更新", new HistoryEntryItem(new(1, partial), () => { }).StatusText);
+        Assert.Equal("更新中 · 译文待更新", new HistoryEntryItem(new(1, partial), () => { }).StatusText);
         await vm.ToggleCommand.ExecuteAsync(null);
         session.Publish(new(vm.SessionId, 1, snapshot with { Identity = new(vm.SessionId, 1, 1, 1) }, "新会话", 0, true));
-        Assert.Equal("等待中文…", vm.OverlayPhrases[^1].Translation);
+        Assert.Equal("等待译文…", vm.OverlayPhrases[^1].Translation);
         await vm.CloseAsync();
     }
 
@@ -316,7 +316,7 @@ public sealed class DesktopBehaviorTests
         };
         var rows = new SubtitleRow(segment).Phrases;
         Assert.Equal(["秋。", "夏。", "雨。"], rows.Select(row => row.Source));
-        Assert.Equal(["秋天。", "夏天。", "下雨。"], rows.Select(row => row.Chinese));
+        Assert.Equal(["秋天。", "夏天。", "下雨。"], rows.Select(row => row.TranslatedText));
         Assert.Equal(["秋。", "冬。", null], rows.Select(row => row.CurrentSource));
         Assert.Equal([false, true, true], rows.Select(row => row.IsPreviousTranslation));
         Assert.Equal(["", "上一版 · 待更新", "上一版 · 本次已移除"], rows.Select(row => row.StatusText));
@@ -336,7 +336,7 @@ public sealed class DesktopBehaviorTests
         var rows = new SubtitleRow(segment).Phrases;
         Assert.Equal([0, 1], rows.Select(row => row.Index));
         Assert.Equal(["秋。", "夏。"], rows.Select(row => row.CurrentSource));
-        Assert.Equal(["春天。", "夏天。"], rows.Select(row => row.Chinese));
+        Assert.Equal(["春天。", "夏天。"], rows.Select(row => row.TranslatedText));
         Assert.Equal(["上一版 · 待更新", ""], rows.Select(row => row.StatusText));
     }
 

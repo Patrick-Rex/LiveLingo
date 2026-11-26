@@ -12,7 +12,7 @@ public static class ModelConfigurationJson
     /// <param name="settings">当前表单快照。</param><returns>包含两个阶段的 JSON。</returns>
     public static string Write(DesktopSettings settings) => JsonSerializer.Serialize(new ModelConfiguration(
         Endpoint(settings.AsrBackend, "Qwen/Qwen3-ASR-1.7B", settings.AsrApi),
-        Endpoint(settings.TranslationBackend, settings.TranslationModel, settings.TranslationApi), settings.AsrLanguage),
+        Endpoint(settings.TranslationBackend, settings.TranslationModel, settings.TranslationApi), settings.AsrLanguage, settings.TargetLanguage),
         ModelConfigurationJsonContext.Default.ModelConfiguration);
 
     /// <summary>原子解析整体配置，只替换模型字段；任一阶段无效时不应用任何部分。</summary>
@@ -34,6 +34,8 @@ public static class ModelConfigurationJson
         if (config.Asr is null || config.Translation is null) throw new ArgumentException("整体配置必须同时包含 asr 和 translation。");
         if (!AsrLanguages.IsSupported(config.AsrLanguage))
             throw new ArgumentException($"请填写 asr_language，可选值为 {string.Join("、", AsrLanguages.Names)}。");
+        if (!AsrLanguages.IsSupported(config.TargetLanguage))
+            throw new ArgumentException($"请填写 target_language，可选值为 {string.Join("、", AsrLanguages.Names)}。");
         var asrBackend = Backend(config.Asr.Provider);
         var translationBackend = Backend(config.Translation.Provider);
         if (asrBackend == ModelBackend.Local && config.Asr.Model != "Qwen/Qwen3-ASR-1.7B") throw new ArgumentException("本地识别模型须为 Qwen/Qwen3-ASR-1.7B。");
@@ -45,7 +47,7 @@ public static class ModelConfigurationJson
         {
             AsrBackend = asrBackend, TranslationBackend = translationBackend, AsrApi = asrApi, TranslationApi = translationApi,
             TranslationModel = translationBackend == ModelBackend.Local ? config.Translation.Model : current.TranslationModel,
-            AsrLanguage = config.AsrLanguage
+            AsrLanguage = config.AsrLanguage, TargetLanguage = config.TargetLanguage
         };
     }
 
@@ -81,7 +83,8 @@ public static class ModelConfigurationJson
 
 /// <summary>一次编辑与导入两个阶段的完整模型配置。</summary>
 /// <param name="Asr">识别来源与模型。</param><param name="Translation">翻译来源与模型。</param><param name="AsrLanguage">识别语言。</param>
-internal sealed record ModelConfiguration(ModelEndpoint Asr, ModelEndpoint Translation, string AsrLanguage);
+/// <param name="TargetLanguage">翻译目标语言，旧模型文件缺省为简体中文。</param>
+internal sealed record ModelConfiguration(ModelEndpoint Asr, ModelEndpoint Translation, string AsrLanguage, string TargetLanguage = AsrLanguages.DefaultTarget);
 /// <summary>使用通用客户端字段表达一个阶段，不引入服务商专有参数。</summary>
 /// <param name="Provider">local 或 openai。</param><param name="Model">模型标识。</param>
 /// <param name="BaseUrl">API 版本根地址。</param><param name="ApiKey">API 凭据。</param>

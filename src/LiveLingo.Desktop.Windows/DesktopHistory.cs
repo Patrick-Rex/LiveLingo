@@ -67,7 +67,10 @@ public sealed class DesktopHistory(string? verificationDataPath = null) : IAsync
             IHistoryRecorder recorder;
             lock (gate) recorder = current!.BeginSession(new(id, target.Name, settings.AsrLanguage,
                 settings.TranslationBackend == ModelBackend.Local ? settings.TranslationModel : "API: " + settings.TranslationApi.Model, DateTimeOffset.UtcNow)
-            { AsrModel = settings.AsrBackend == ModelBackend.Local ? "本地 Qwen3-ASR-1.7B" : "API: " + settings.AsrApi.Model });
+            {
+                AsrModel = settings.AsrBackend == ModelBackend.Local ? "本地 Qwen3-ASR-1.7B" : "API: " + settings.AsrApi.Model,
+                TargetLanguage = settings.TargetLanguage
+            });
             recorder.StatusChanged += status => OnStatus(recorder, status);
             Changed?.Invoke(); return recorder;
         }

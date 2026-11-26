@@ -2,7 +2,7 @@ using System.Collections.Immutable;
 
 namespace LiveLingo.Core.Desktop;
 
-/// <summary>在设置应用时编译原文至简体中文的词表，为每条待译短句选择固定译文或相关术语。</summary>
+/// <summary>在设置应用时编译所选翻译目标语言的词表，为每条待译短句选择固定译文或相关术语。</summary>
 public sealed class TranslationGlossary
 {
     private readonly KeyValuePair<string, string>[] entries;

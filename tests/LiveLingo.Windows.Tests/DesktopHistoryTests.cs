@@ -19,7 +19,7 @@ public sealed class DesktopHistoryTests
         {
             await using (var history = new DesktopHistory())
             {
-                var recorder = Assert.IsAssignableFrom<IHistoryRecorder>(history.Begin(id, Target(), Settings(directory)));
+                var recorder = Assert.IsAssignableFrom<IHistoryRecorder>(history.Begin(id, Target(), Settings(directory) with { TargetLanguage = "English" }));
                 recorder.Offer(Snapshot(id, "完成的正文"));
                 await history.CompleteAsync(recorder, null);
                 Assert.Null(history.FailedRecorder); Assert.Null(history.MaintenanceError);
@@ -28,6 +28,7 @@ public sealed class DesktopHistoryTests
             var document = await reloaded.ReadAsync(id, TestContext.Current.CancellationToken);
             Assert.Equal("player.exe", document.Summary.Info.ApplicationName);
             Assert.Equal("Japanese", document.Summary.Info.SourceLanguage);
+            Assert.Equal("English", document.Summary.Info.TargetLanguage);
             Assert.Equal("translategemma:12b", document.Summary.Info.TranslationModel);
             Assert.Equal(HistorySessionState.Completed, document.Summary.State);
             Assert.Equal("完成的正文", Assert.Single(document.Entries).Segment.Source);

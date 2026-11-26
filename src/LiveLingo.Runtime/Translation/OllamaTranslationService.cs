@@ -50,7 +50,7 @@ public sealed class OllamaTranslationService : ITranslationService, IDisposable
     public async Task<TranslationResult> TranslateAsync(TranslationInput input, CancellationToken cancellationToken)
     {
         if (!validated) throw new InvalidOperationException("模型身份尚未通过验证。");
-        var prompt = OfficialTranslationPrompt.Format(input.Source, input.Terms, input.SourceLanguage);
+        var prompt = OfficialTranslationPrompt.Format(input.Source, input.Terms, input.SourceLanguage, input.TargetLanguage);
         // UTF-8 字节上界为 byte-fallback 留足 token 余量，另留 256 个模板 token；超限保留原文并报告。
         if (Encoding.UTF8.GetByteCount(prompt) > OfficialTranslationPrompt.MaximumPromptBytes) throw new ArgumentException("完整块超出已支持上下文预算。", nameof(input));
         var body = new OllamaChatRequest(model, false, -1, [new("user", prompt)], new(4096, 512, 0, 42, 1.0));

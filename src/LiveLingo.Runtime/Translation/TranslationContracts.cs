@@ -7,9 +7,9 @@ namespace LiveLingo.Runtime.Translation;
 /// <summary>将一条待译原文与其所属语义块关联。</summary>
 /// <param name="Ticket">本次短句调用的身份，其中音频范围和源版本属于整个语义块。</param><param name="Source">本次提交给模型的完整短句。</param>
 /// <param name="Terms">仅包含当前短句命中的用户词条，未配置或预热时为空。</param>
-/// <param name="SourceLanguage">与当前识别配置一致的固定源语言。</param>
+/// <param name="SourceLanguage">与当前识别配置一致的固定源语言。</param><param name="TargetLanguage">本次请求的译文语言。</param>
 public sealed record TranslationInput(PipelineRequest Ticket, string Source, ImmutableArray<KeyValuePair<string, string>> Terms = default,
-    string SourceLanguage = AsrLanguages.Default);
+    string SourceLanguage = AsrLanguages.Default, string TargetLanguage = AsrLanguages.DefaultTarget);
 
 /// <summary>返回原始译文与可核实终止状态，不等同于语义质量通过。</summary>
 /// <param name="Input">完整原始调用。</param><param name="Text">原始模型输出。</param><param name="Complete">正常完整生成。</param>

@@ -60,10 +60,23 @@ public sealed class ModelConfigurationTests
         Assert.Contains("asr_language", error.Message);
     }
 
-    /// <summary>四个中文选项对应同一模型 JSON 草稿，实时页只在用户应用后切换原文语言。</summary>
+    /// <summary>旧模型文件保持当时的简体中文目标，显式指定无效目标时返回字段错误。</summary>
+    /// <param name="invalidTarget">导入文件中显式提供的错误目标。</param>
+    [Theory, InlineData("auto"), InlineData("French"), InlineData(null)]
+    public void LegacyJsonDefaultsToChineseAndInvalidTargetsAreRejected(string? invalidTarget)
+    {
+        var current = new DesktopSettings { TargetLanguage = "Korean" };
+        Assert.Equal("Chinese", ModelConfigurationJson.Read(ApiJson, current).TargetLanguage);
+        var config = JsonNode.Parse(ApiJson)!.AsObject();
+        config["target_language"] = invalidTarget;
+        var error = Assert.Throws<ArgumentException>(() => ModelConfigurationJson.Read(config.ToJsonString(), current));
+        Assert.Contains("target_language", error.Message);
+    }
+
+    /// <summary>两组语言选项可独立修改，表单与 JSON 共享草稿，主窗显示已应用的方向。</summary>
     /// <returns>真实控件绑定与保存验证任务。</returns>
     [AvaloniaFact]
-    public async Task SourceLanguageSelectionIsExplicitAcrossFormJsonAndLiveSummary()
+    public async Task LanguagePairIsExplicitAcrossFormJsonAndLiveSummary()
     {
         var vm = new DesktopViewModel(new FakeSession(), new FakeStore(), action => action());
         await vm.InitializeAsync();
@@ -75,22 +88,30 @@ public sealed class ModelConfigurationTests
             var selector = view.FindControl<ComboBox>("RecognitionLanguageSelector")!;
             Assert.Equal(new[] { "中文", "英语", "日语", "韩语" }, selector.Items.Cast<string>());
             Assert.Equal("日语", selector.SelectedItem);
+            var target = view.FindControl<ComboBox>("TargetLanguageSelector")!;
+            Assert.Equal(new[] { "简体中文", "英语", "日语", "韩语" }, target.Items.Cast<string>());
+            Assert.Equal("简体中文", target.SelectedItem);
             var names = new[] { "Chinese", "English", "Japanese", "Korean" };
             for (var index = 0; index < names.Length; index++)
             {
                 selector.SelectedIndex = index;
+                var targetIndex = (index + 2) % names.Length;
+                target.SelectedIndex = targetIndex;
                 vm.ModelInputMode = 1;
-                Assert.Equal(names[index], JsonNode.Parse(vm.ModelJson)!["asr_language"]!.GetValue<string>());
+                var json = JsonNode.Parse(vm.ModelJson)!;
+                Assert.Equal(names[index], json["asr_language"]!.GetValue<string>());
+                Assert.Equal(names[targetIndex], json["target_language"]!.GetValue<string>());
                 vm.ModelInputMode = 0;
             }
-            Assert.Contains("原文：日语", vm.RuntimeSummary); Assert.False(vm.CanToggle);
+            Assert.Contains("日语 → 简体中文", vm.RuntimeSummary); Assert.False(vm.CanToggle);
             await vm.SaveCommand.ExecuteAsync(null);
-            Assert.Equal("Korean", vm.CurrentSettings.AsrLanguage); Assert.Contains("原文：韩语", vm.RuntimeSummary);
+            Assert.Equal("Korean", vm.CurrentSettings.AsrLanguage); Assert.Equal("English", vm.CurrentSettings.TargetLanguage);
+            Assert.Contains("韩语 → 英语", vm.RuntimeSummary);
             vm.ImportModelConfiguration(ApiJson.Replace("Japanese", "English"));
             vm.ModelInputMode = 0; window.UpdateLayout();
-            Assert.Equal("英语", selector.SelectedItem);
+            Assert.Equal("英语", selector.SelectedItem); Assert.Equal("简体中文", target.SelectedItem);
             vm.RevertSettingsCommand.Execute(null); window.UpdateLayout();
-            Assert.Equal("韩语", selector.SelectedItem); Assert.False(vm.HasPendingSettings);
+            Assert.Equal("韩语", selector.SelectedItem); Assert.Equal("英语", target.SelectedItem); Assert.False(vm.HasPendingSettings);
         }
         finally { window.Close(); await vm.CloseAsync(); }
     }
@@ -211,6 +232,7 @@ public sealed class ModelConfigurationTests
             var editor = view.FindControl<TextBox>("GlossaryEditor")!;
             var selector = view.FindControl<ComboBox>("GlossarySelector")!;
             var localOnly = view.FindControl<CheckBox>("LocalOnlyGlossary")!;
+            var glossaryTarget = view.FindControl<ComboBox>("GlossaryTargetSelector")!;
             var add = glossary.GetVisualDescendants().OfType<Button>().Single(x => x.Command == vm.AddGlossaryCommand);
             var scroll = selector.GetVisualAncestors().OfType<ScrollViewer>().First();
             var pointer = selector.TranslatePoint(new Point(12, selector.Bounds.Height / 2), window)!.Value;
@@ -222,19 +244,27 @@ public sealed class ModelConfigurationTests
             Assert.InRange(editorTop, -1, scroll.Bounds.Height - editor.Bounds.Height + 1);
             Assert.True(editor.AcceptsReturn); Assert.True(editor.IsEffectivelyEnabled); Assert.False(vm.GlossaryEnabled);
             Assert.Contains("ナイスプレイ！=打得漂亮！", editor.Text); Assert.False(vm.HasPendingSettings);
+            vm.TargetLanguage = "English";
             add.Command!.Execute(null); window.UpdateLayout();
-            editor.Text = "自分の台詞=自己的台词";
+            Assert.Equal("英语", glossaryTarget.SelectedItem);
+            glossaryTarget.SelectedIndex = 3;
+            editor.Text = "自分の台詞=나의 대사";
             localOnly.IsChecked = true;
             selector.SelectedIndex = 0; window.UpdateLayout(); Assert.Contains("神ゲー=神作", editor.Text);
-            Assert.False(localOnly.IsChecked);
+            Assert.Equal("简体中文", glossaryTarget.SelectedItem); Assert.False(localOnly.IsChecked);
             selector.SelectedIndex = 1;
             vm.ModelInputMode = 1; window.UpdateLayout();
-            Assert.Equal("自分の台詞=自己的台词", editor.Text);
+            Assert.Equal("自分の台詞=나의 대사", editor.Text); Assert.Equal("韩语", glossaryTarget.SelectedItem);
             Assert.True(localOnly.IsChecked);
             Assert.True(editor.IsEffectivelyVisible); Assert.DoesNotContain("台詞", vm.ModelJson);
+            vm.GlossaryEnabled = true;
+            await vm.SaveCommand.ExecuteAsync(null);
+            Assert.Empty(vm.CurrentSettings.TranslationGlossaryText);
+            vm.ModelInputMode = 0; vm.TargetLanguage = "Korean";
             await vm.SaveCommand.ExecuteAsync(null);
             await vm.ToggleCommand.ExecuteAsync(null); window.UpdateLayout();
             Assert.True(vm.Active); Assert.False(editor.IsEffectivelyEnabled);
+            Assert.Equal("自分の台詞=나의 대사", vm.CurrentSettings.TranslationGlossaryText);
         }
         finally { window.Close(); await vm.CloseAsync(); }
     }

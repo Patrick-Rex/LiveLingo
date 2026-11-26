@@ -102,7 +102,7 @@ public sealed partial class DesktopViewModel
             AsrBackendIndex = (int)value.AsrBackend; TranslationBackendIndex = (int)value.TranslationBackend;
             AsrApiBaseUrl = value.AsrApi.BaseUrl; AsrApiModel = value.AsrApi.Model; AsrApiKey = value.AsrApi.ApiKey;
             TranslationApiBaseUrl = value.TranslationApi.BaseUrl; TranslationApiModel = value.TranslationApi.Model; TranslationApiKey = value.TranslationApi.ApiKey;
-            TranslationModel = value.TranslationModel; AsrLanguage = value.AsrLanguage;
+            TranslationModel = value.TranslationModel; AsrLanguage = value.AsrLanguage; TargetLanguage = value.TargetLanguage;
             if (updateJson) { ModelJson = ModelConfigurationJson.Write(value); ModelJsonError = ""; }
         }
         finally { loadingModelInputs = false; }

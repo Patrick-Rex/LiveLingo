@@ -7,6 +7,7 @@ using LiveLingo.Core.Audio;
 using LiveLingo.Core.Desktop;
 using LiveLingo.Core.History;
 using LiveLingo.Core.Subtitles;
+using LiveLingo.Core.Transcription;
 
 namespace LiveLingo.Runtime.Storage;
 
@@ -29,6 +30,7 @@ public sealed class JsonTranslationHistoryStore(string dataPath, TimeProvider? t
     {
         ArgumentNullException.ThrowIfNull(info);
         if (info.SessionId == Guid.Empty || string.IsNullOrWhiteSpace(info.ApplicationName)) throw new ArgumentException("历史会话需要有效身份和应用名称。", nameof(info));
+        if (!AsrLanguages.IsSupported(info.TargetLanguage)) throw new ArgumentException("历史会话的翻译目标语言不受支持。", nameof(info));
         lock (registryGate)
         {
             ObjectDisposedException.ThrowIf(disposed, this);
@@ -139,6 +141,7 @@ public sealed class JsonTranslationHistoryStore(string dataPath, TimeProvider? t
         text.Append("结束：").Append(document.Summary.EndedAt is { } ended ? FormatTime(ended) : "尚未结束").Append('\n');
         text.Append("状态：").Append(StateText(document.Summary.State)).Append('\n');
         text.Append("识别语言：").Append(Clean(document.Summary.Info.SourceLanguage, markdown)).Append('\n');
+        text.Append("目标语言：").Append(Clean(document.Summary.Info.TargetLanguage, markdown)).Append('\n');
         if (document.Summary.Info.AsrModel is { } asrModel) text.Append("识别模型：").Append(Clean(asrModel, markdown)).Append('\n');
         text.Append("翻译模型：").Append(Clean(document.Summary.Info.TranslationModel, markdown)).Append('\n');
         if (document.Summary.Error is { } error) text.Append("记录提示：").Append(Clean(error, markdown)).Append('\n');
@@ -280,7 +283,8 @@ public sealed class JsonTranslationHistoryStore(string dataPath, TimeProvider? t
         if (Directory.Exists(SessionPath(id))) RejectLink(SessionPath(id));
         var file = await ReadFileAsync(Path.Combine(SessionPath(id), "summary.json"), HistoryJsonContext.Default.HistorySummaryFile, 65536, token).ConfigureAwait(false);
         if (file.SchemaVersion != 1 || file.Summary is null || file.Summary.Info is null || file.Summary.Info.SessionId != id ||
-            string.IsNullOrWhiteSpace(file.Summary.Info.ApplicationName) || !Enum.IsDefined(file.Summary.State)) throw new InvalidDataException("历史摘要版本或身份不受支持。");
+            string.IsNullOrWhiteSpace(file.Summary.Info.ApplicationName) || !AsrLanguages.IsSupported(file.Summary.Info.TargetLanguage) ||
+            !Enum.IsDefined(file.Summary.State)) throw new InvalidDataException("历史摘要版本、语言或身份不受支持。");
         return file.Summary.LastSavedAt is not null ? file.Summary : file.Summary with
         { LastSavedAt = new DateTimeOffset(File.GetLastWriteTimeUtc(Path.Combine(SessionPath(id), "summary.json")), TimeSpan.Zero) };
     }

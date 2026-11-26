@@ -245,6 +245,34 @@ public sealed class TranslationHistoryTests
         finally { Directory.Delete(directory, true); }
     }
 
+    /// <summary>读取早期摘要时使用当时固定的中文翻译目标，原摘要可以直接保留在磁盘上。</summary>
+    /// <returns>旧档案读取与导出验证任务。</returns>
+    [Fact]
+    public async Task LegacySummaryKeepsSimplifiedChineseTargetWithoutRewriting()
+    {
+        var directory = NewDirectory(); var id = Guid.NewGuid(); var token = TestContext.Current.CancellationToken;
+        try
+        {
+            await using (var original = new JsonTranslationHistoryStore(directory))
+            {
+                var recorder = original.BeginSession(Info(id));
+                recorder.Offer(Snapshot(id, 1, 1, [Segment("旧版字幕", 0)]));
+                await recorder.CompleteAsync(cancellationToken: token);
+            }
+            var path = Path.Combine(directory, "history", id.ToString("N"), "summary.json");
+            var json = System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(path, token))!;
+            Assert.True(json["Summary"]!["Info"]!.AsObject().Remove("TargetLanguage"));
+            var legacy = json.ToJsonString();
+            await File.WriteAllTextAsync(path, legacy, token);
+
+            await using var reloaded = new JsonTranslationHistoryStore(directory);
+            Assert.Equal("Chinese", (await reloaded.ReadAsync(id, token)).Summary.Info.TargetLanguage);
+            Assert.Contains("目标语言：Chinese", await reloaded.ExportAsync(id, HistoryExportFormat.Text, cancellationToken: token));
+            Assert.Equal(legacy, await File.ReadAllTextAsync(path, token));
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
     /// <summary>导出冻结点击时版本，保留待更新标记，Markdown 不执行模型输出标记。</summary><returns>导出快照验证任务。</returns>
     [Fact]
     public async Task ExportFreezesActiveSnapshotAndPreservesRevisionStatus()
@@ -253,7 +281,7 @@ public sealed class TranslationHistoryTests
         try
         {
             await using var store = new JsonTranslationHistoryStore(directory);
-            var recorder = store.BeginSession(Info(id));
+            var recorder = store.BeginSession(Info(id) with { TargetLanguage = "Korean" });
             var segment = Segment("[链接](https://example.test)\r\n<script>", 0) with { SourceRevision = 2, TranslatedSourceRevision = 1 };
             recorder.Offer(Snapshot(id, 1, 1, [segment, Segment("未选中", 16000)]));
             var frozen = await store.ExportAsync(id, HistoryExportFormat.Markdown, [new(1, segment.Key.Id)], TestContext.Current.CancellationToken);
@@ -262,9 +290,11 @@ public sealed class TranslationHistoryTests
             Assert.DoesNotContain("未选中", frozen); Assert.DoesNotContain("新版本", frozen); Assert.DoesNotContain('\r', frozen);
             Assert.Contains("翻译中", frozen); Assert.Contains("时间从本片段起算", frozen);
             Assert.Contains("识别语言：Japanese", frozen); Assert.Contains("翻译模型：translategemma:12b", frozen);
+            Assert.Contains("目标语言：Korean", frozen);
             Assert.Contains("结束：尚未结束", frozen); Assert.Contains(id.ToString(), frozen);
             await recorder.CompleteAsync(cancellationToken: TestContext.Current.CancellationToken);
             var completed = await store.ExportAsync(id, HistoryExportFormat.Text, cancellationToken: TestContext.Current.CancellationToken);
+            Assert.Contains("目标语言：Korean", completed);
             Assert.Contains("结束：", completed); Assert.DoesNotContain("尚未结束", completed); Assert.Contains("状态：已结束", completed);
         }
         finally { Directory.Delete(directory, true); }

@@ -1,5 +1,6 @@
 using LiveLingo.Core.Audio;
 using LiveLingo.Core.Subtitles;
+using LiveLingo.Core.Transcription;
 
 namespace LiveLingo.Core.History;
 
@@ -29,7 +30,9 @@ public enum HistoryExportFormat
 /// <param name="SessionId">不可复用的会话身份。</param><param name="ApplicationName">采集应用名称。</param>
 /// <param name="SourceLanguage">本次识别语言策略。</param><param name="TranslationModel">本次翻译模型。</param>
 /// <param name="StartedAt">开始时间，存储保留时区偏移。</param>
-public sealed record HistorySessionInfo(Guid SessionId, string ApplicationName, string SourceLanguage, string TranslationModel, DateTimeOffset StartedAt)
+/// <param name="TargetLanguage">录制时选定的翻译目标，缺少此字段的旧档案沿用当时固定的简体中文。</param>
+public sealed record HistorySessionInfo(Guid SessionId, string ApplicationName, string SourceLanguage, string TranslationModel,
+    DateTimeOffset StartedAt, string TargetLanguage = AsrLanguages.DefaultTarget)
 {
     /// <summary>获取识别模型及来源；旧档案未记录时为空，不能追补未经记录的信息。</summary>
     public string? AsrModel { get; init; }

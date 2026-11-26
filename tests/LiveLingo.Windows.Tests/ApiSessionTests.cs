@@ -15,25 +15,33 @@ public sealed class ApiSessionTests
 {
     /// <summary>真实本机 HTTP 请求贯通识别、翻译与字幕，整个会话无需任何本地推理资产。</summary>
     /// <param name="language">已应用的识别语言。</param><param name="code">转写接口预期的 ISO 639-1 代码。</param>
-    /// <param name="first">第一句识别正文。</param><param name="second">第二句识别正文。</param>
+    /// <param name="target">本场翻译目标语言。</param><param name="first">第一句识别正文。</param><param name="second">第二句识别正文。</param>
     /// <param name="gapReason">宿主收到的未识别范围原因，为空时仅提供完整音频。</param>
     /// <returns>字幕完成、服务关闭及进程清理验证任务。</returns>
     [Theory]
-    [InlineData("Japanese", "ja", "今日は行きません。", "また明日。", null)]
-    [InlineData("Chinese", "zh", "今天不去。", "明天见！", null)]
-    [InlineData("English", "en", "I cannot go today.", "See you tomorrow!", "audio_backlog_capacity")]
-    [InlineData("Korean", "ko", "오늘은 안 가요.", "내일 봐요!", "live_recognition_gap")]
-    public async Task AllApiSessionProducesSubtitlesOverHttpWithoutLocalAssets(string language, string code, string first, string second, string? gapReason)
+    [InlineData("Japanese", "ja", "Chinese", "今日は行きません。", "また明日。", null)]
+    [InlineData("Chinese", "zh", "English", "今天不去。", "明天见！", null)]
+    [InlineData("English", "en", "Korean", "I cannot go today.", "See you tomorrow!", "audio_backlog_capacity")]
+    [InlineData("Korean", "ko", "Japanese", "오늘은 안 가요.", "내일 봐요!", "live_recognition_gap")]
+    public async Task AllApiSessionProducesSubtitlesOverHttpWithoutLocalAssets(string language, string code, string target, string first, string second, string? gapReason)
     {
         var root = Path.Combine(Path.GetTempPath(), "api-http-session-" + Guid.NewGuid().ToString("N"));
         var source = first + (language is "English" or "Korean" ? " " : "") + second;
-        await using var server = new LoopbackApi(code, source, [first, second]);
+        string[] translations = target switch
+        {
+            "Chinese" => ["今天不去。", "再见。明天见！"],
+            "English" => ["I cannot go today.", "Goodbye. See you tomorrow!"],
+            "Japanese" => ["今日は行きません。", "さようなら。また明日！"],
+            "Korean" => ["오늘은 안 가요.", "잘 가요. 내일 봐요!"],
+            _ => throw new ArgumentOutOfRangeException(nameof(target))
+        };
+        await using var server = new LoopbackApi(code, source, [first, second], target, translations);
         var settings = new DesktopSettings
         {
-            AsrLanguage = language, AsrBackend = ModelBackend.OpenAiCompatible, TranslationBackend = ModelBackend.OpenAiCompatible,
+            AsrLanguage = language, TargetLanguage = target, AsrBackend = ModelBackend.OpenAiCompatible, TranslationBackend = ModelBackend.OpenAiCompatible,
             AsrApi = new() { BaseUrl = server.BaseUrl, Model = "speech-fixture", ApiKey = "asr-fixture-key" },
             TranslationApi = new() { BaseUrl = server.BaseUrl, Model = "text-fixture", ApiKey = "translation-fixture-key" },
-            GlossaryLibrary = new() { Enabled = true, Profiles = [new("本地测试表", $"{first}=本地整句\n{second[..2]}=local-term-fixture", LocalOnly: true)] },
+            GlossaryLibrary = new() { Enabled = true, Profiles = [new("本地测试表", $"{first}=本地整句\n{second[..2]}=local-term-fixture", LocalOnly: true, TargetLanguage: target)] },
             PythonPath = "", ModelPath = "", OllamaPath = "", OllamaModelsPath = "", DataPath = root, CachePath = Path.Combine(root, "cache")
         };
         var history = new DesktopHistory(root);
@@ -54,10 +62,11 @@ public sealed class ApiSessionTests
             var segment = Assert.Single(final.Subtitles.Segments);
             Assert.Equal(source, segment.Source);
             Assert.Equal([first, second], segment.PhraseTranslations.Select(pair => pair?.Source));
-            Assert.Equal(["今天不去。", "再见。明天见！"], segment.PhraseTranslations.Select(pair => pair?.Translation));
+            Assert.Equal(translations, segment.PhraseTranslations.Select(pair => pair?.Translation));
+            Assert.Equal(string.Join('\n', translations), segment.Translation);
             Assert.True(server.RecognitionCalls > 0); Assert.Equal(2, server.TranslationCalls);
             var saved = await history.Store!.ReadAsync(id, TestContext.Current.CancellationToken);
-            Assert.Equal(language, saved.Summary.Info.SourceLanguage);
+            Assert.Equal((language, target), (saved.Summary.Info.SourceLanguage, saved.Summary.Info.TargetLanguage));
             Assert.Equal(HistorySessionState.Completed, saved.Summary.State);
             Assert.Equal(gapReason is null ? 1 : 2, Assert.Single(saved.Entries).Key.CaptureEpoch);
             if (gapReason is not null)
@@ -97,6 +106,8 @@ public sealed class ApiSessionTests
         private readonly string languageCode;
         private readonly string source;
         private readonly string[] phrases;
+        private readonly string target;
+        private readonly string[] translations;
         private readonly TcpListener listener = new(IPAddress.Loopback, 0);
         private readonly CancellationTokenSource stop = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         private readonly Task serving;
@@ -110,9 +121,11 @@ public sealed class ApiSessionTests
         /// <summary>在随机回环端口启动仅本测试拥有的服务。</summary>
         /// <param name="languageCode">每次转写应显式指定的代码。</param><param name="source">测试接口返回的识别原文。</param>
         /// <param name="phrases">应逐句送入翻译的正文。</param>
-        public LoopbackApi(string languageCode, string source, string[] phrases)
+        /// <param name="target">应显式请求的目标语言。</param><param name="translations">服务逐句返回的译文。</param>
+        public LoopbackApi(string languageCode, string source, string[] phrases, string target, string[] translations)
         {
             this.languageCode = languageCode; this.source = source; this.phrases = phrases;
+            this.target = target; this.translations = translations;
             listener.Start(); BaseUrl = $"http://127.0.0.1:{((IPEndPoint)listener.LocalEndpoint).Port}/fixture/v1";
             serving = ServeAsync();
         }
@@ -151,10 +164,12 @@ public sealed class ApiSessionTests
                     Assert.Equal("Bearer translation-fixture-key", headers["Authorization"]);
                     using var json = JsonDocument.Parse(body);
                     Assert.Equal("text-fixture", json.RootElement.GetProperty("model").GetString());
-                    Assert.DoesNotContain("local-term-fixture", json.RootElement.GetProperty("messages")[0].GetProperty("content").GetString()!);
+                    var instruction = json.RootElement.GetProperty("messages")[0].GetProperty("content").GetString()!;
+                    Assert.Contains($"into {(target == "Chinese" ? "Simplified Chinese" : target)}.", instruction);
+                    Assert.DoesNotContain("local-term-fixture", instruction);
                     Assert.Equal(phrases[TranslationCalls],
                         json.RootElement.GetProperty("messages")[1].GetProperty("content").GetString());
-                    var translation = TranslationCalls++ == 0 ? "今天不去。" : "再见。明天见！";
+                    var translation = translations[TranslationCalls++];
                     response = JsonSerializer.Serialize(new { choices = new[] { new { message = new { content = translation }, finish_reason = "stop" } } });
                 }
                 var payload = Encoding.UTF8.GetBytes(response);

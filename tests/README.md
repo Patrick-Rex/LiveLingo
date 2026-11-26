@@ -38,6 +38,8 @@ SubtitlePipelineTests 使用缩小的积压上限验证直播取消旧调用、�
 
 词库测试覆盖旧设置默认关闭、命名表选择、开关及使用范围往返、API 实际请求跳过仅本地翻译的词表、无效草稿保护、整句命中跳过推理和句中匹配保持原文。
 
+翻译目标回归覆盖四种语言之间的十二种跨语组合、同语请求、旧设置默认简体中文，以及目标不匹配时跳过整份词表。档案测试核对 TXT 和 Markdown 的目标语言与旧档案读取。
+
 四语配置回归由 `ModelConfigurationTests` 验证表单标签、模型 JSON 的显式语言、保存、撤销和实时页摘要，`DesktopSettingsStoreTests` 检查旧 `auto` 或缺失语言的设置按日语加载，以及保存新选择后的重启。`HistoryViewModelTests` 检查新档案的语言标签和旧 `auto` 档案的显示。`AlignmentBoundaryTests` 检查不同源语言的断句证据及英韩词间分隔。`OpenAiApiTests` 验证四种转写请求中的 `language`、翻译提示和词条，`OllamaTranslationTests` 验证本地翻译提示。
 
 Runtime Storage 测试覆盖旧设置默认值、历史同代次替换与撤销、真实重复、跨采集代次保留、异常中断、部分保存、存储失败重试、删除后不复活、固定导出和保留期边界。Windows DesktopHistoryTests 验证跨宿主重启、旧记录器固定目录、验证根隔离、旧失败不被新会话成功遮蔽、删除旧失败后保留后续失败、自动清理及退出冲刷。

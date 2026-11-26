@@ -36,7 +36,7 @@
               <StackPanel Margin="20" Spacing="8" VerticalAlignment="Center"><TextBlock Text="今日は、とてもいい天気ですね。" IsVisible="{Binding PreviewSourceVisible}" FontSize="{Binding PreviewSourceFontSize}" TextWrapping="Wrap" Foreground="{DynamicResource SubtitlePreviewSecondaryText}" /><TextBlock Text="今天天气真好。" IsVisible="{Binding PreviewTranslationVisible}" FontSize="{Binding FontSize}" TextWrapping="Wrap" FontWeight="SemiBold" Foreground="{DynamicResource SubtitlePreviewText}" /></StackPanel>
             </Grid>
             <Grid ColumnDefinitions="108,*" ColumnSpacing="12"><TextBlock Text="显示语言" VerticalAlignment="Center" /><ComboBox Name="DisplayModeSelector" Grid.Column="1" ItemsSource="{Binding DisplayModes}" SelectedIndex="{Binding DisplayModeIndex}" MinWidth="150" AutomationProperties.Name="浮窗显示语言" /></Grid>
-            <Grid ColumnDefinitions="108,*,84" ColumnSpacing="12"><TextBlock Text="中文字号" VerticalAlignment="Center" /><Slider Name="FontSizeSlider" Grid.Column="1" Minimum="16" Maximum="64" Value="{Binding FontSize}" VerticalAlignment="Center" AutomationProperties.Name="中文字号" /><NumericUpDown Name="FontSizeInput" Grid.Column="2" ShowButtonSpinner="False" MinHeight="36" VerticalAlignment="Center" Minimum="16" Maximum="64" Increment="2" FormatString="0" Value="{Binding FontSize}" AutomationProperties.Name="中文字号数值" /></Grid>
+            <Grid ColumnDefinitions="108,*,84" ColumnSpacing="12"><TextBlock Text="译文字号" VerticalAlignment="Center" /><Slider Name="FontSizeSlider" Grid.Column="1" Minimum="16" Maximum="64" Value="{Binding FontSize}" VerticalAlignment="Center" AutomationProperties.Name="译文字号" /><NumericUpDown Name="FontSizeInput" Grid.Column="2" ShowButtonSpinner="False" MinHeight="36" VerticalAlignment="Center" Minimum="16" Maximum="64" Increment="2" FormatString="0" Value="{Binding FontSize}" AutomationProperties.Name="译文字号数值" /></Grid>
             <Grid ColumnDefinitions="108,*,64" ColumnSpacing="12"><TextBlock Text="背景不透明度" VerticalAlignment="Center" /><Slider Name="OpacitySlider" Grid.Column="1" Minimum="0.1" Maximum="1" Value="{Binding BackgroundOpacity}" VerticalAlignment="Center" AutomationProperties.Name="背景不透明度" /><TextBlock Grid.Column="2" Text="{Binding BackgroundOpacity, StringFormat={}{0:P0}}" VerticalAlignment="Center" /></Grid>
             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8"><TextBlock Text="{Binding AppearanceSaveMessage}" Classes="saveStatus" Classes.error="{Binding AppearanceSaveFailed}" /><Button Grid.Column="1" Content="重试保存" IsVisible="{Binding AppearanceSaveFailed}" Command="{Binding RetryAppearanceSaveCommand}" /></Grid>
             <TextBlock Text="点击字幕右上角的锁定图标进入布局模式。拖动顶部调整位置，从边缘调整大小；完成后重新锁定。字号与布局自动保存。" Classes="caption" />
@@ -61,10 +61,14 @@
                   <TextBlock Text="词库名称" VerticalAlignment="Center" />
                   <TextBox Grid.Column="1" Text="{Binding SelectedGlossary.Name}" AutomationProperties.Name="词库名称" />
                 </Grid>
+                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                  <TextBlock Text="词库译文语言" VerticalAlignment="Center" />
+                  <views:ModelSourceSelector Grid.Column="1" Name="GlossaryTargetSelector" ItemsSource="{Binding TargetLanguageLabels}" SelectedIndex="{Binding SelectedGlossary.TargetLanguageIndex}" HorizontalAlignment="Stretch" AutomationProperties.Name="词库译文语言" />
+                </Grid>
                 <CheckBox Name="LocalOnlyGlossary" Content="仅本地翻译使用" IsChecked="{Binding SelectedGlossary.LocalOnly}" />
-                <TextBlock Text="每行填写一组「原文=中文译文」。整句匹配时直接使用指定译文。只匹配句中词语时，模型参考词条翻译全句。" Classes="caption" />
+                <TextBlock Text="只在翻译目标与词库译文语言一致时使用。每行填写一组「原文=译文」。整句匹配时直接使用指定译文。只匹配句中词语时，模型参考词条翻译全句。" Classes="caption" TextWrapping="Wrap" />
                 <TextBox Name="GlossaryEditor" Text="{Binding SelectedGlossary.Text}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="108" MaxHeight="240"
-                         Watermark="原文=中文译文" AutomationProperties.Name="原文与中文译文词表" />
+                         Watermark="原文=译文" AutomationProperties.Name="原文与译文词表" />
                 <TextBlock Text="{Binding GlossaryError}" IsVisible="{Binding GlossaryError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                            Foreground="{DynamicResource DesktopDanger}" TextWrapping="Wrap" />
                 <TextBlock Text="勾选后，使用翻译 API 时会跳过这份词库，照常发送原文。取消勾选时，调用翻译 API 会附上当句匹配的词条。" Classes="caption" TextWrapping="Wrap" />
@@ -90,12 +94,15 @@
               <TextBlock Text="API 识别会发送音频窗口，API 翻译会发送原文，服务商可能收费。API Key 直接保存在本地设置文件。" Classes="caption" TextWrapping="Wrap" />
             </StackPanel>
             <StackPanel Spacing="12" IsVisible="{Binding IsModelJson}">
-              <TextBlock Text="asr_language 指定原文语言，可填 Chinese、English、Japanese 或 Korean。asr 和 translation 分别指定来源，provider 可填 local 或 openai，API 使用 base_url、api_key、model。" TextWrapping="Wrap" Classes="caption" />
+              <TextBlock Text="asr_language 指定原文语言，target_language 指定译文语言，两者均可填 Chinese、English、Japanese 或 Korean。asr 和 translation 分别指定来源，provider 可填 local 或 openai，API 使用 base_url、api_key、model。" TextWrapping="Wrap" Classes="caption" />
               <TextBox Text="{Binding ModelJson}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="280" MaxHeight="520" MaxLength="32768" AutomationProperties.Name="整体模型 JSON 配置" />
               <TextBlock Text="{Binding ModelJsonError}" TextWrapping="Wrap" />
             </StackPanel>
             <StackPanel Spacing="16" IsVisible="{Binding IsModelForm}">
-              <StackPanel Spacing="6"><TextBlock Text="识别语言" /><views:ModelSourceSelector Name="RecognitionLanguageSelector" ItemsSource="{Binding LanguageLabels}" SelectedIndex="{Binding AsrLanguageIndex}" HorizontalAlignment="Stretch" AutomationProperties.Name="识别语言" /></StackPanel>
+              <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
+                <StackPanel Spacing="6"><TextBlock Text="识别语言" /><views:ModelSourceSelector Name="RecognitionLanguageSelector" ItemsSource="{Binding LanguageLabels}" SelectedIndex="{Binding AsrLanguageIndex}" HorizontalAlignment="Stretch" AutomationProperties.Name="识别语言" /></StackPanel>
+                <StackPanel Grid.Column="1" Spacing="6"><TextBlock Text="翻译目标语言" /><views:ModelSourceSelector Name="TargetLanguageSelector" ItemsSource="{Binding TargetLanguageLabels}" SelectedIndex="{Binding TargetLanguageIndex}" HorizontalAlignment="Stretch" AutomationProperties.Name="翻译目标语言" /></StackPanel>
+              </Grid>
               <StackPanel Spacing="8">
                 <TextBlock Text="语音识别" Classes="section" />
                 <views:ModelSourceSelector ItemsSource="{Binding ModelBackends}" SelectedIndex="{Binding AsrBackendIndex}" HorizontalAlignment="Stretch" AutomationProperties.Name="语音识别来源" />

@@ -130,11 +130,11 @@ public sealed class ViewTests
     /// <param name="phase">权威字幕阶段。</param><param name="translationState">权威翻译状态。</param>
     /// <param name="translation">可能缺失的译文。</param><param name="translatedRevision">译文对应源版本。</param><param name="expected">预期短状态。</param>
     [Theory]
-    [InlineData(SubtitlePhase.Draft, TranslationState.None, null, null, "草稿 · 等待中文")]
-    [InlineData(SubtitlePhase.Revised, TranslationState.Pending, null, null, "更新中 · 等待中文")]
+    [InlineData(SubtitlePhase.Draft, TranslationState.None, null, null, "草稿 · 等待译文")]
+    [InlineData(SubtitlePhase.Revised, TranslationState.Pending, null, null, "更新中 · 等待译文")]
     [InlineData(SubtitlePhase.Revised, TranslationState.Complete, "译文", 2L, "更新中")]
     [InlineData(SubtitlePhase.Final, TranslationState.Complete, "译文", 2L, "已定稿")]
-    [InlineData(SubtitlePhase.Final, TranslationState.Pending, "译文", 1L, "更新中 · 中文待更新")]
+    [InlineData(SubtitlePhase.Final, TranslationState.Pending, "译文", 1L, "更新中 · 译文待更新")]
     [InlineData(SubtitlePhase.Final, TranslationState.Pending, "译文", 2L, "更新中")]
     [InlineData(SubtitlePhase.Final, TranslationState.Failed, "旧译文", 1L, "翻译未完成")]
     public void SubtitleStatusDoesNotHideIncompleteTranslation(SubtitlePhase phase, TranslationState translationState, string? translation,
@@ -388,7 +388,7 @@ public sealed class ViewTests
             control.Show(); overlay.Show(); control.UpdateLayout(); overlay.UpdateLayout();
             Assert.Equal(40, vm.LivePhrases.Count);
             Assert.Equal(sources[0], Assert.Single(vm.OverlayPhrases).Phrase.Source);
-            Assert.All(vm.LivePhrases, item => Assert.Equal("等待中文…", item.Phrase.Translation));
+            Assert.All(vm.LivePhrases, item => Assert.Equal("等待译文…", item.Phrase.Translation));
 
             segment = segment with { PhraseTranslations = translations[..20], SubtitleRevision = 3 };
             session.Publish(new(vm.SessionId, 2, new(identity, 2, false, [segment], []), "运行中", 0, true));
@@ -396,7 +396,7 @@ public sealed class ViewTests
             var latest = vm.LivePhrases[19].Phrase;
             Assert.Equal((sources[19], translations[19].Translation), (latest.Source, latest.Translation));
             Assert.Equal(latest, vm.OverlayPhrases[^2].Phrase);
-            Assert.Null(vm.OverlayPhrases[^1].Phrase.Chinese);
+            Assert.Null(vm.OverlayPhrases[^1].Phrase.TranslatedText);
             var phrases = overlay.FindControl<ItemsControl>("PhraseList")!;
             var scroll = overlay.FindControl<ScrollViewer>("SubtitleScroll")!;
             // 跟随在布局结束时设置滚动偏移，等待下一帧将偏移应用到正文控件。
@@ -599,7 +599,7 @@ public sealed class ViewTests
             settings.FindControl<TabControl>("SettingsTabs")!.SelectedIndex = 1; control.UpdateLayout();
             var selector = settings.FindControl<ComboBox>("DisplayModeSelector")!;
             selector.SelectedIndex = 1; overlay.UpdateLayout();
-            Assert.False(source.IsVisible); Assert.True(translation.IsVisible); Assert.Equal("等待中文…", translation.Text);
+            Assert.False(source.IsVisible); Assert.True(translation.IsVisible); Assert.Equal("等待译文…", translation.Text);
             Assert.Equal(1, overlay.FindControl<ComboBox>("DisplayModeSelector")!.SelectedIndex);
             overlay.FindControl<ComboBox>("DisplayModeSelector")!.SelectedIndex = 2; overlay.UpdateLayout();
             Assert.True(source.IsVisible); Assert.False(translation.IsVisible); Assert.Equal(2, selector.SelectedIndex);
@@ -609,7 +609,7 @@ public sealed class ViewTests
         finally { vm.AppearanceChanged -= overlay.ApplyAppearance; overlay.Close(); control.Close(); }
     }
 
-    /// <summary>完整长句在三档字号下都保留可滚动尾部，不裁剪源文或译文。</summary><param name="font">中文字号。</param>
+    /// <summary>完整长句在三档字号下都保留可滚动尾部，不裁剪源文或译文。</summary><param name="font">译文字号。</param>
     [AvaloniaTheory, InlineData(16.0), InlineData(28.0), InlineData(64.0)]
     public void LongSemanticBlockRemainsScrollable(double font)
     {

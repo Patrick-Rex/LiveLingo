@@ -54,7 +54,7 @@ public sealed partial class HistoryViewModel(IHistoryInteraction interaction) : 
     public string DocumentTitle => document is null ? "会话详情" : $"{document.Summary.Info.ApplicationName} · {document.Summary.Info.StartedAt.ToLocalTime():yyyy-MM-dd HH:mm}";
     /// <summary>获取运行配置、状态和错误摘要。</summary>
     public string DocumentDetail => document is null ? "选择左侧会话；记录只保存在本机" :
-        $"{SourceLanguageLabel(document.Summary.Info.SourceLanguage)} → 简体中文 · {document.Summary.Info.TranslationModel} · {SelectedSession?.StateText}" +
+        $"{SourceLanguageLabel(document.Summary.Info.SourceLanguage)} → {AsrLanguages.TargetDisplayName(document.Summary.Info.TargetLanguage)} · {document.Summary.Info.TranslationModel} · {SelectedSession?.StateText}" +
         (document.Summary.Info.AsrModel is { } asrModel ? " · 识别 " + asrModel : "") +
         (document.Summary.Error is { } error ? " · " + error : "");
 

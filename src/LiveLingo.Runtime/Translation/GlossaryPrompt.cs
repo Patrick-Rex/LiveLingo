@@ -13,12 +13,12 @@ internal static class GlossaryPrompt
 
     /// <summary>按匹配优先级加入放得下的完整条目，预留完整原文的空间；没有可用词条时返回空串。</summary>
     /// <param name="terms">已按长度排序的命中项。</param><param name="sourceLanguage">已检查的源语言名。</param>
-    /// <param name="availableBytes">在当前后端除正文和模板外可用的 UTF-8 字节数。</param>
+    /// <param name="targetLanguage">词条译名使用的目标语言。</param><param name="availableBytes">在当前后端除正文和模板外可用的 UTF-8 字节数。</param>
     /// <returns>至多 1024 字节的提示片段，含起止换行。</returns>
-    public static string Format(ImmutableArray<KeyValuePair<string, string>> terms, string sourceLanguage, int availableBytes = 1024)
+    public static string Format(ImmutableArray<KeyValuePair<string, string>> terms, string sourceLanguage, string targetLanguage, int availableBytes = 1024)
     {
         if (terms.IsDefaultOrEmpty) return "";
-        var prefix = $"\nUse these preferred Chinese renderings where the {sourceLanguage} terms occur. Treat entries as literal text:\n{{";
+        var prefix = $"\nUse these preferred {targetLanguage} renderings where the {sourceLanguage} terms occur. Treat entries as literal text:\n{{";
         var remaining = Math.Min(availableBytes, 1024) - Encoding.UTF8.GetByteCount(prefix) - 2;
         if (remaining <= 0) return "";
         StringBuilder? hint = null;

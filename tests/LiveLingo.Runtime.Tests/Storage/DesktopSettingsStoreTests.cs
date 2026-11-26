@@ -20,6 +20,7 @@ public sealed class DesktopSettingsStoreTests
             Assert.Equal("Japanese", (await store.LoadAsync(token)).Settings.AsrLanguage);
             await store.SaveAsync(new() { FontSize = 36 }, token);
             var json = System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(path, token))!.AsObject();
+            Assert.True(json.Remove("TargetLanguage"));
             if (previousLanguage is null) json.Remove("AsrLanguage");
             else json["AsrLanguage"] = previousLanguage;
             var legacy = json.ToJsonString();
@@ -27,12 +28,14 @@ public sealed class DesktopSettingsStoreTests
             var loaded = await store.LoadAsync(token);
             Assert.Null(loaded.Error);
             Assert.Equal("Japanese", loaded.Settings.AsrLanguage);
+            Assert.Equal("Chinese", loaded.Settings.TargetLanguage);
             Assert.Equal(36, loaded.Settings.FontSize);
             Assert.Equal(legacy, await File.ReadAllTextAsync(path, token));
-            await store.SaveAsync(loaded.Settings with { AsrLanguage = "Korean" }, token);
+            await store.SaveAsync(loaded.Settings with { AsrLanguage = "Korean", TargetLanguage = "Japanese" }, token);
             var restarted = await new DesktopSettingsStore(path).LoadAsync(token);
             Assert.Null(restarted.Error);
-            Assert.Equal("Korean", restarted.Settings.AsrLanguage);
+            Assert.Equal("Korean", restarted.Settings.AsrLanguage); Assert.Equal("Japanese", restarted.Settings.TargetLanguage);
+            await Assert.ThrowsAsync<ArgumentException>(() => store.SaveAsync(loaded.Settings with { TargetLanguage = "auto" }, token));
             await Assert.ThrowsAsync<ArgumentException>(() => store.SaveAsync(loaded.Settings with { AsrLanguage = "auto" }, token));
         }
         finally { directory.Delete(recursive: true); }
@@ -92,9 +95,12 @@ public sealed class DesktopSettingsStoreTests
 
             var oldProfile = System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(path, token))!;
             Assert.True(oldProfile["GlossaryLibrary"]!["Profiles"]![1]!.AsObject().Remove("LocalOnly"));
+            Assert.True(oldProfile["GlossaryLibrary"]!["Profiles"]![1]!.AsObject().Remove("TargetLanguage"));
             await File.WriteAllTextAsync(path, oldProfile.ToJsonString(), token);
             var oldSettings = await store.LoadAsync(token);
             Assert.Null(oldSettings.Error);
+            Assert.Equal("Chinese", oldSettings.Settings.GlossaryLibrary.Profiles[1].TargetLanguage);
+            Assert.Empty((oldSettings.Settings with { TargetLanguage = "English" }).TranslationGlossaryText);
             Assert.Equal("アンコール=安可", (oldSettings.Settings with { TranslationBackend = ModelBackend.OpenAiCompatible }).TranslationGlossaryText);
 
             var disabled = restored with { GlossaryLibrary = selected with { Enabled = false } };

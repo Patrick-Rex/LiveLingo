@@ -81,7 +81,7 @@ public sealed class LocalPipelineModels : IPipelineModels
                 _ => throw new ArgumentException("预热源语言不受支持。", nameof(selection))
             };
             var warmup = new TranslationInput(new(Guid.NewGuid(), 1, PipelineRequestKind.Translation, identity,
-                new(Guid.NewGuid(), 1), new(0, 1), 1), warmupSource, SourceLanguage: selection.AsrLanguage);
+                new(Guid.NewGuid(), 1), new(0, 1), 1), warmupSource, SourceLanguage: selection.AsrLanguage, TargetLanguage: selection.TargetLanguage);
             var warmed = await workflow.RunAsync(warmup, startup.Token).ConfigureAwait(false);
             if (!warmed.Complete) throw new InvalidDataException("translation_warmup_incomplete");
         }
