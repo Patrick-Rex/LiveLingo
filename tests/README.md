@@ -26,7 +26,7 @@ dotnet test --project tests/LiveLingo.Runtime.Tests/LiveLingo.Runtime.Tests.cspr
 dotnet test --project tests/LiveLingo.Windows.Tests/LiveLingo.Windows.Tests.csproj -c Release --no-build --no-progress --filter-class LiveLingo.Windows.Tests.DesktopHistoryTests
 ```
 
-普通异步等待、Channel 和文件读写传递 `TestContext.Current.CancellationToken`，使测试取消可中断等待；验证主动取消或超时行为时保留场景专用令牌。警告审计使用根 README 的 `-t:Rebuild -warnaserror` 命令，不以关闭分析器代替修复。
+普通异步等待、Channel 和文件读写传递 `TestContext.Current.CancellationToken`，使测试取消可中断等待；验证主动取消或超时行为时保留场景专用令牌。需要审计全部编译警告时，在仓库根目录运行 `dotnet build LiveLingo.slnx -c Release --no-restore --disable-build-servers -t:Rebuild -warnaserror`。
 
 OwnedJobTests 会主动把测试哨兵句柄设为可继承，因此使用独占测试集合，避免同进程中并行执行的环境或安装探测继承该人工句柄。其余测试仍按原并行策略运行；保留真实管道、父孙进程归属、句柄白名单和退出断言。
 
