@@ -22,6 +22,9 @@ public partial class SubtitleWindow : Window
     /// <summary>获取贴合字幕右上角的锁定按钮窗口，其生命周期从属于字幕窗。</summary>
     public SubtitleLockWindow LayoutLock { get; } = new();
 
+    /// <summary>获取锁定且处于回看状态时允许点击的从属窗口。</summary>
+    public SubtitleResumeWindow LockedResume { get; } = new();
+
     /// <summary>加载实际透明窗口视图，登记可解除的窗口内事件。</summary>
     public SubtitleWindow()
     {
@@ -125,18 +128,8 @@ public partial class SubtitleWindow : Window
     /// <summary>跟随当前原译对，下一句等待翻译时优先为刚回填的译文保留可见空间。</summary><param name="sender">字幕滚动区。</param><param name="args">布局通知。</param>
     private void FollowTail(object? sender, EventArgs args)
     {
-        if (DataContext is not DesktopViewModel { FollowLatest: true } model || model.OverlayPhrases.Count == 0 ||
-            subtitleScroll.Viewport.Height <= 0) return;
-        var index = model.OverlayPhraseIndex;
-        if (phraseList.ContainerFromIndex(index) is not { } pair)
-        {
-            phraseList.ScrollIntoView(index);
-            return;
-        }
-        if (phraseList.ItemsPanelRoot is not { } panel || pair.TranslatePoint(new Point(0, pair.Bounds.Height), panel) is not { } bottom) return;
-        var target = Math.Clamp(bottom.Y - subtitleScroll.Viewport.Height, 0,
-            Math.Max(0, subtitleScroll.Extent.Height - subtitleScroll.Viewport.Height));
-        if (Math.Abs(target - subtitleScroll.Offset.Y) > 1) subtitleScroll.Offset = subtitleScroll.Offset.WithY(target);
+        if (DataContext is DesktopViewModel { FollowLatest: true } model)
+            SubtitleScrollPosition.Align(phraseList, subtitleScroll, model.OverlayPhraseIndex);
     }
 
     /// <summary>只在有可滚动内容时暂停跟随，保留当前滚动位置与阅读身份。</summary>
@@ -159,6 +152,7 @@ public partial class SubtitleWindow : Window
     {
         subtitleScroll.LayoutUpdated -= FollowTail;
         LayoutLock.Close();
+        LockedResume.Close();
         base.OnClosed(e);
     }
 }

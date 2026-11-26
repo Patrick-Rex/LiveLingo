@@ -2,7 +2,10 @@
         xmlns:vm="using:LiveLingo.App.ViewModels" xmlns:core="using:LiveLingo.Core.Desktop" xmlns:views="using:LiveLingo.App.Views"
         x:Class="LiveLingo.App.Views.ControlWindow" x:DataType="vm:DesktopViewModel" Classes="desktop"
         Title="LiveLingo" Width="960" Height="760" MinWidth="760" MinHeight="600">
-  <Window.Styles><StyleInclude Source="avares://LiveLingo.App/Themes/DesktopTheme.axaml" /></Window.Styles>
+  <Window.Styles>
+    <StyleInclude Source="avares://LiveLingo.App/Themes/DesktopTheme.axaml" />
+    <StyleInclude Source="avares://LiveLingo.App/Themes/ResumeReadingButton.axaml" />
+  </Window.Styles>
   <Grid ColumnDefinitions="164,*">
     <Border Background="{DynamicResource DesktopSurface}" BorderBrush="{DynamicResource DesktopBorder}" BorderThickness="0,0,1,0" Padding="12,24">
       <Grid RowDefinitions="Auto,*,Auto" RowSpacing="28">
@@ -47,10 +50,10 @@
           <Grid Grid.Row="2" RowDefinitions="Auto,*" RowSpacing="10">
             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
               <TextBlock Text="当前会话" Classes="section" VerticalAlignment="Center" />
-              <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8"><Button Content="回到最新" IsVisible="{Binding CanResumeReading}" Command="{Binding ResumeReadingCommand}" /><Button Content="{Binding OverlayToggleText}" Command="{Binding ToggleOverlayCommand}" /></StackPanel>
+              <Button Grid.Column="1" Content="{Binding OverlayToggleText}" Command="{Binding ToggleOverlayCommand}" />
             </Grid>
             <Border Grid.Row="1" Classes="card" Padding="0">
-              <Grid>
+              <Grid RowDefinitions="*,Auto">
                 <StackPanel IsVisible="{Binding !HasLiveHistory}" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="24" Spacing="8">
                   <TextBlock Text="等待语音开始" FontSize="18" HorizontalAlignment="Center" /><TextBlock Text="开始翻译后，原文与译文会显示在这里。&#10;字幕可能随上下文继续修订。" Classes="caption" TextAlignment="Center" />
                 </StackPanel>
@@ -63,6 +66,8 @@
                     </StackPanel>
                   </DataTemplate></ListBox.ItemTemplate>
                 </ListBox>
+                <Button Name="ResumeReadingButton" Grid.Row="1" Classes="resume-reading" Margin="12,4,12,8"
+                        HorizontalAlignment="Center" IsVisible="{Binding CanResumeReading}" Command="{Binding ResumeReadingCommand}" />
               </Grid>
             </Border>
           </Grid>

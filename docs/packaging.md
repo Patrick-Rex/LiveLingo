@@ -6,12 +6,12 @@
 
 固定 SDK 与本地 CLI 为 1.2.161（MIT）；不使用 Velopack Flow。生产程序保持 framework-dependent，安装器声明 `net10.0-x64-runtime`，缺失时在线安装；外部 .NET 安装脚本使用 winget。模型、Python 环境、Ollama、驱动与 .NET 不入包，必要脚本、worker、profile/锁和第三方许可随包。
 
-当前稳定版本为 [v0.2.9](https://github.com/Patrick-Rex/LiveLingo/releases/tag/v0.2.9)，支持四种显式识别语言、可选词库和字幕回看。Windows x64 客户端通过固定的 [自动更新渠道](https://github.com/Patrick-Rex/LiveLingo/releases/tag/updates-win-x64) 获取更新。v0.2.1 曾因原生增量清单冲突标记为预发布。以下命令展示从 0.2.8 验证 0.2.9 差分的过程，在仓库根目录使用 PowerShell 7 执行。
+普通用户从 [GitHub 最新正式版](https://github.com/Patrick-Rex/LiveLingo/releases/latest) 获取安装器。Windows x64 客户端通过固定的 [自动更新渠道](https://github.com/Patrick-Rex/LiveLingo/releases/tag/updates-win-x64) 获取更新。以下命令以 0.2.9 升级到 0.2.10 为例，在仓库根目录使用 PowerShell 7 执行。
 
 ```powershell
-# 首次建立更新渠道时，先在输出目录放入与 GitHub v0.2.8 SHA-256 一致的上一版 full。
-./scripts/New-LiveLingoRelease.ps1 -Version 0.2.9
-./scripts/Test-LiveLingoRelease.ps1 -FullPackage artifacts/releases/LiveLingo-0.2.9-win-x64-full.nupkg -PreviousPackage artifacts/releases/LiveLingo-0.2.8-win-x64-full.nupkg -DeltaPackage artifacts/releases/LiveLingo-0.2.9-win-x64-delta.nupkg
+# 先将线上渠道清单引用的全部历史 full/delta 放入输出目录，按清单核对 SHA-256。
+./scripts/New-LiveLingoRelease.ps1 -Version 0.2.10
+./scripts/Test-LiveLingoRelease.ps1 -FullPackage artifacts/releases/LiveLingo-0.2.10-win-x64-full.nupkg -PreviousPackage artifacts/releases/LiveLingo-0.2.9-win-x64-full.nupkg -DeltaPackage artifacts/releases/LiveLingo-0.2.10-win-x64-delta.nupkg
 ```
 
 实际文件名以输出为准（默认 win-x64 渠道可能带渠道后缀）；差分验证同时传 `-PreviousPackage <旧full> -DeltaPackage <新delta>`，使用随包原生 Update.exe 在隔离目录还原并逐项比较 SHA-256。完整包与还原包均检查唯一的根应用清单。打包只生成本地产物，不上传。首版无 delta；后续同一输出目录有旧 full 时自动生成差分。保留全包供跨版本回退下载。`-OutputDirectory` 可覆盖输出位置，同版本不覆盖。
@@ -19,19 +19,19 @@
 构建目录包含 Setup.exe、full/delta nupkg、渠道 JSON/RELEASES 和 SHA256SUMS，不直接整目录上传。构建前拒绝残留独立脚本、指南和其他非预期文件；构建校验清单显式选择当前安装器、full/delta 与渠道清单。`assets.win-x64.json` 和兼容用 `RELEASES-win-x64` 留在本地。发布前分流：
 
 ```powershell
-./scripts/Export-LiveLingoRelease.ps1 -Version 0.2.6 -ReleaseDirectory artifacts/releases
+./scripts/Export-LiveLingoRelease.ps1 -Version 0.2.10 -ReleaseDirectory artifacts/releases
 ```
 
-默认输出 `artifacts/distribution/0.2.6`，可用 `-OutputDirectory` 指定新的空输出位置。`installers/` 只含 EXE；可显式传 `-MsixPackage <路径>` 添加同版 MSIX，报告记录签名状态，当前未签名开发包不自动加入正式安装下载。`updates/` 仅含 `releases.win-x64.json` 与其引用的全部 full/delta。哈希清单及分流报告留在输出根，供发布核验，不作为普通版本附件。导出先验证每个包的名称、尺寸、SHA-256、当前版本和缺失引用，拒绝路径越界及覆盖已有输出；不上传。
+默认输出 `artifacts/distribution/0.2.10`，可用 `-OutputDirectory` 指定新的空输出位置。`installers/` 只含 EXE；可显式传 `-MsixPackage <路径>` 添加同版 MSIX，报告记录签名状态，当前未签名开发包不自动加入正式安装下载。`updates/` 仅含 `releases.win-x64.json` 与其引用的全部 full/delta。哈希清单及分流报告留在输出根，供发布核验，不作为普通版本附件。导出先验证每个包的名称、尺寸、SHA-256、当前版本和缺失引用，拒绝路径越界及覆盖已有输出；不上传。
 
 同仓库使用两个入口：
 
-- 普通版本 `v0.2.6` 等：只上传 `installers/` 的正式安装包，设为 latest。GitHub 自动显示的源码归档由平台生成，不属于手动上传的附件。
+- 普通版本 `v0.2.10` 等：只上传 `installers/` 的正式安装包，设为 latest。GitHub 自动显示的源码归档由平台生成，不属于手动上传的附件。
 - 固定 tag `updates-win-x64`：更新专用 Release，设为正式发布（非 prerelease）、不设为 latest。上传 `updates/` 的包和清单，所有引用文件必须存在于此 Release。新客户端使用 `https://github.com/Patrick-Rex/LiveLingo/releases/download/updates-win-x64/`，不使用 GitHub API 或 latest 别名，也不内置令牌。
 
 先上传带版本号的 nupkg 并验证远程大小／SHA-256，最后更新渠道 JSON，再发布普通安装包版本。不要覆盖已发布的同名版本包；不要删除旧清单仍引用的包。专用 Release 需要可更新附件，不能启用 immutable release；每次替换清单的短暂失败由应用提示重试。若需要保留多版本增量链，保留本地历史 full/delta 后再构建、导出完整清单。`-DownloadPrevious` 仅从固定更新源取上一 full，不能恢复完整历史链；新目录缺少旧 delta 时，旧客户端可回退完整包。首轮建立更新源时需先手动提供上一已验证 full，并省略 `-DownloadPrevious`。本地导出不等于线上发布完成。
 
-旧 0.2.5 使用 GitHub API 查前 10 个 Release，正常时能从其中正式发布的更新专用 Release 发现新版，普通安装版本缺少清单会被跳过。旧版遇 403/429 会回退 `latest/download`；新的普通版本只含安装包后，此旧回退会失效，固定专用 Release 离开前 10 项也会影响尚未迁移的旧版。此时等待限流结束重试，或运行新版安装器迁移；不能承诺旧客户端永久自动迁移。先建立并核验专用更新源，再迁移普通发布附件，保留可回退包；新客户端不受旧列表和 latest 路径限制。
+v0.2.1 曾因原生增量清单冲突标记为预发布。旧 0.2.5 使用 GitHub API 查前 10 个 Release，正常时能从其中正式发布的更新专用 Release 发现新版，普通安装版本缺少清单会被跳过。旧版遇 403/429 会回退 `latest/download`；新的普通版本只含安装包后，此旧回退会失效，固定专用 Release 离开前 10 项也会影响尚未迁移的旧版。此时等待限流结束重试，或运行新版安装器迁移；不能承诺旧客户端永久自动迁移。先建立并核验专用更新源，再迁移普通发布附件，保留可回退包；新客户端不受旧列表和 latest 路径限制。
 
 Setup.exe 是普通用户唯一安装入口，.NET 缺项由安装器在线补齐，首次使用默认用户目录，明确自定义目录可传 `--installto`。Velopack 使用 current/packages 布局和稳定启动入口。仓库中的安装 PowerShell 保留为高级自动化入口。旧 ZIP 的 app/desktop 不原地转换；先关闭旧版并独立安装，默认 data/settings.json 与模型保持复用。以下第1–7节只描述旧 ZIP 布局，不用于修改 Velopack 的 current 或 packages。
 
@@ -210,5 +210,3 @@ Write-Output "Installed files match package $($manifest.version)"
 [用户指南](../packaging/USER-GUIDE.md)提供 CPU、AMD ROCm 与 NVIDIA CUDA 独立环境、Qwen 固定 revision、Ollama 模型准备及常用操作。依赖准备只在首次使用或明确改变配置时进行，程序替换不等于重新初始化环境。
 
 卸载先退出程序，只处理目标 app/desktop；模型、Python 环境、设置及数据独立保留，按需要另外处理。不要删除其他应用共享的 Ollama 权重。上述卸载方式仅适用于旧 ZIP。Velopack 安装使用 Windows“已安装的应用”卸载；模型和数据独立保留。
-
-发布清单 releases.win-x64.json 也用于 GitHub API 403/429 时的公开下载回退，因此必须与当前 full/delta 一起上传。回退不使用用户凭据；API 正常时仍通过 GithubSource 查找历史差分。

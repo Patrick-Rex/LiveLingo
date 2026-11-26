@@ -107,6 +107,7 @@ public sealed class DesktopVerification
                         lastCommand = command;
                         if (command.StartsWith("position:", StringComparison.Ordinal))
                         { var p = command[9..].Split(',').Select(int.Parse).ToArray(); overlay.Position = new(p[0], p[1]); overlay.Width = p[2]; overlay.Height = p[3]; }
+                        else if (command == "review-sample" && wave is null && targetPid == 0) SeedReadingSample(model);
                         else if (command == "save-settings") { model.FontSize = 32; await model.SaveCommand.ExecuteAsync(null); }
                         else if (command.StartsWith("update", StringComparison.Ordinal)) model.Status = "更新证据 " + ++index;
                         else if (command.StartsWith("reshow", StringComparison.Ordinal)) { model.ToggleOverlayCommand.Execute(null); model.ToggleOverlayCommand.Execute(null); }
@@ -116,6 +117,8 @@ public sealed class DesktopVerification
                     Styles = OverlayNative.ReadStyles(OverlayBridge.Handle(overlay)), Transparency = overlay.ActualTransparencyLevel.ToString(),
                     overlay.Position, overlay.Width, overlay.Height, overlay.RenderScaling, model.LayoutMode, model.OverlayVisible, model.Status, model.Error,
                     LayoutLock = new { overlay.LayoutLock.Position, overlay.LayoutLock.Width, overlay.LayoutLock.Height, overlay.LayoutLock.RenderScaling, overlay.LayoutLock.IsVisible, Styles = OverlayNative.ReadStyles(OverlayBridge.Handle(overlay.LayoutLock)) },
+                    model.IsReviewing, model.ReviewingTranscript,
+                    LockedResume = overlay.LockedResume.IsVisible ? OverlayBridge.Handle(overlay.LockedResume).ToInt64() : 0,
                     Rows = model.OverlayRows.Count, History = model.History.Count, Settings = model.CurrentSettings,
                     MovePoint = MovePoint(overlay),
                     Screens = overlay.Screens?.All.Select(x => new { x.DisplayName, x.Scaling, x.Bounds, x.WorkingArea }).ToArray() });
@@ -202,6 +205,21 @@ public sealed class DesktopVerification
         finally { settings.SelectedIndex = settingsIndex; tabs.SelectedIndex = selected; control.Width = width; control.Height = height; control.RequestedThemeVariant = theme; }
     }
 
+    /// <summary>为原生窗口的回看验证提供编号字幕，末行尚待翻译，可与最后一个译文区分。</summary>
+    /// <param name="model">当前使用隔离设置的验证窗口模型。</param>
+    private static void SeedReadingSample(DesktopViewModel model)
+    {
+        var rows = Enumerable.Range(1, 40).Select(number =>
+        {
+            var translated = number < 40;
+            return new SubtitleRow(new(new(Guid.NewGuid(), 1), new((number - 1) * 16000, number * 16000), 1, 1,
+                $"第 {number} 句原文。", translated ? $"第 {number} 句译文。" : null, translated ? 1 : null, SubtitlePhase.Draft,
+                translated ? TranslationState.Complete : TranslationState.Pending, null, BoundaryDecision.Pending));
+        }).ToArray();
+        model.OverlayRows = rows;
+        model.History = rows;
+    }
+
     /// <summary>渲染锁定与解锁字幕，并核对真实按钮 HWND 的命中样式、位置及显隐；不模拟鼠标输入。</summary><param name="model">字幕状态。</param><param name="overlay">当前字幕窗。</param><returns>截图和原生状态核验任务。</returns>
     private async Task CaptureSubtitleModesAsync(DesktopViewModel model, SubtitleWindow overlay)
     {
@@ -237,8 +255,21 @@ public sealed class DesktopVerification
                     combined.Render(canvas); combined.Save(Path.Combine(directory, $"subtitle-{key}.png"), PngBitmapEncoderOptions.Default);
                 }
             }
+            model.PauseFollowing();
+            if (model.LayoutMode) model.ToggleLayoutCommand.Execute(null);
+            await Dispatcher.UIThread.InvokeAsync(overlay.UpdateLayout, DispatcherPriority.Background);
+            var resume = overlay.LockedResume;
+            var reviewAnchor = overlay.FindControl<Grid>("ReviewAnchor")!;
+            checks["LockedReviewAction"] = resume.IsVisible && resume.Position == reviewAnchor.PointToScreen(default) &&
+                (OverlayNative.ReadStyles(OverlayBridge.Handle(resume)) & (OverlayNative.NoActivate | OverlayNative.Transparent)) == OverlayNative.NoActivate &&
+                (OverlayNative.ReadStyles(OverlayBridge.Handle(overlay)) & OverlayNative.Transparent) != 0;
             model.ToggleOverlayCommand.Execute(null);
-            checks["HiddenTogether"] = !overlay.IsVisible && !overlay.LayoutLock.IsVisible;
+            checks["HiddenTogether"] = !overlay.IsVisible && !overlay.LayoutLock.IsVisible && !resume.IsVisible;
+            model.ToggleOverlayCommand.Execute(null);
+            checks["ReshownWhileReading"] = resume.IsVisible;
+            model.ResumeFollowingCommand.Execute(null);
+            await Dispatcher.UIThread.InvokeAsync(overlay.UpdateLayout, DispatcherPriority.Background);
+            checks["ResumedWhileLocked"] = !resume.IsVisible && !model.LayoutMode && model.FollowLatest;
             await WriteAsync("subtitle-controls.json", checks);
             if (checks.Values.Any(value => !value)) throw new InvalidOperationException("字幕锁定按钮原生状态核验失败。");
         }

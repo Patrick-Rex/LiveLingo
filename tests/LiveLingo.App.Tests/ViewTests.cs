@@ -77,6 +77,55 @@ public sealed class ViewTests
         finally { overlay.Close(); }
     }
 
+    /// <summary>回看操作在紧凑与常规尺寸下都保留独立命中区，脱离边缘并能从主窗键盘执行。</summary>
+    /// <param name="width">字幕窗宽度（DIP）。</param>
+    /// <param name="height">字幕窗高度（DIP）。</param>
+    [AvaloniaTheory, InlineData(320, 120), InlineData(600, 260)]
+    public void ReviewButtonsStayClearOfSubtitlesAndResizeEdges(int width, int height)
+    {
+        var vm = new DesktopViewModel(new FakeSession(), new FakeStore(), action => action());
+        var overlay = new SubtitleWindow { DataContext = vm, Width = width, Height = height };
+        var control = new ControlWindow { DataContext = vm, Width = 760, Height = 600 };
+        try
+        {
+            overlay.Show(); control.Show();
+            vm.PauseFollowing();
+            var anchor = overlay.FindControl<Grid>("ReviewAnchor")!;
+            var lockAnchor = overlay.FindControl<Border>("LockAnchor")!;
+            var scroll = overlay.FindControl<ScrollViewer>("SubtitleScroll")!;
+            var button = overlay.FindControl<Button>("ResumeFollowingButton")!;
+            foreach (var unlocked in new[] { false, true })
+            {
+                overlay.SetInteractive(unlocked);
+                Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+                overlay.UpdateLayout();
+                Assert.True(anchor.IsEffectivelyVisible);
+                Assert.Equal(unlocked, button.IsEffectivelyVisible);
+                var bounds = new Rect(anchor.TranslatePoint(default, overlay)!.Value, anchor.Bounds.Size);
+                var body = new Rect(scroll.TranslatePoint(default, overlay)!.Value, scroll.Bounds.Size);
+                var padlock = new Rect(lockAnchor.TranslatePoint(default, overlay)!.Value, lockAnchor.Bounds.Size);
+                Assert.Equal(new Size(128, 40), bounds.Size);
+                Assert.False(bounds.Intersects(body));
+                Assert.False(bounds.Intersects(padlock));
+                Assert.True(body.Width >= 120 && body.Height >= 32, $"Subtitle viewport {body}, unlocked={unlocked}");
+                Assert.True(bounds.X >= 12 && bounds.Right <= width - 12 && bounds.Bottom <= height - 12,
+                    $"Review anchor {bounds} in {overlay.ClientSize}, unlocked={unlocked}");
+            }
+            var mainButton = control.FindControl<Button>("ResumeReadingButton")!;
+            control.RequestedThemeVariant = height == 120 ? ThemeVariant.Dark : ThemeVariant.Light;
+            control.UpdateLayout();
+            Assert.True(mainButton.IsEffectivelyVisible);
+            Assert.Equal(AutomationProperties.GetName(button), AutomationProperties.GetName(mainButton));
+            Assert.Equal("回到最新字幕并恢复跟随", AutomationProperties.GetName(mainButton));
+            Assert.True(mainButton.Bounds.Width >= 120 && mainButton.Bounds.Height >= 32);
+            Assert.True(mainButton.Focus(NavigationMethod.Tab));
+            control.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            control.KeyReleaseQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            Assert.True(vm.FollowLatest);
+        }
+        finally { overlay.Close(); control.Close(); }
+    }
+
     /// <summary>读取状态以对应翻译版本为准，失败、待译和陈旧译文不能冒充完整定稿。</summary>
     /// <param name="phase">权威字幕阶段。</param><param name="translationState">权威翻译状态。</param>
     /// <param name="translation">可能缺失的译文。</param><param name="translatedRevision">译文对应源版本。</param><param name="expected">预期短状态。</param>
@@ -255,8 +304,9 @@ public sealed class ViewTests
     }
 
     /// <summary>长字幕增长和窗口变窄时保持末尾，回看期间不跳动，返回最新按钮恢复跟随。</summary>
-    [AvaloniaFact]
-    public void AutoFollowPausesForReviewAndResumesFromButton()
+    /// <param name="lockBeforeReturn">是否在回看后锁定浮窗，通过独立按钮恢复跟随。</param>
+    [AvaloniaTheory, InlineData(false), InlineData(true)]
+    public void AutoFollowPausesForReviewAndResumesFromButton(bool lockBeforeReturn)
     {
         var vm = new DesktopViewModel(new FakeSession(), new FakeStore(), action => action());
         var row = new SubtitleRow(new(new(Guid.NewGuid(), 1), new(0, 16000), 1, 1,
@@ -264,9 +314,17 @@ public sealed class ViewTests
             Core.Subtitles.TranslationState.Complete, null, Core.Subtitles.BoundaryDecision.Pending));
         vm.History = [row]; vm.OverlayRows = [row];
         var overlay = new SubtitleWindow { DataContext = vm, Width = 600, Height = 360 };
+        var control = new ControlWindow { DataContext = vm, Width = 760, Height = 600 };
         try
         {
-            overlay.Show(); overlay.SetInteractive(true); overlay.UpdateLayout();
+            control.Show(); control.UpdateLayout();
+            var list = control.FindControl<ListBox>("HistoryList")!;
+            var listViewport = list.Scroll!;
+            var listHit = list.TranslatePoint(new Point(80, 35), control)!.Value;
+            Assert.True(listViewport.Extent.Height > listViewport.Viewport.Height * 2);
+            control.MouseWheel(listHit, new Vector(0, 4)); control.UpdateLayout();
+            Assert.True(vm.ReviewingTranscript);
+            overlay.Show(); vm.ToggleLayoutCommand.Execute(null); overlay.SetInteractive(vm.LayoutMode); overlay.UpdateLayout();
             var scroll = overlay.FindControl<ScrollViewer>("SubtitleScroll")!;
             Assert.True(scroll.Offset.Y > 0);
             Assert.Equal(scroll.Extent.Height - scroll.Viewport.Height, scroll.Offset.Y, 1);
@@ -279,38 +337,61 @@ public sealed class ViewTests
             Assert.Equal(reviewedOffset, scroll.Offset.Y, 1);
             overlay.Width = 500; overlay.MouseMove(new Point(40, 40)); overlay.UpdateLayout();
             Assert.False(vm.FollowLatest); Assert.Equal(reviewedOffset, scroll.Offset.Y, 1);
-            var button = overlay.FindControl<Button>("ResumeFollowingButton")!;
-            Assert.True(button.IsVisible);
-            var point = button.TranslatePoint(new Point(button.Bounds.Width / 2, button.Bounds.Height / 2), overlay)!.Value;
-            overlay.MouseDown(point, MouseButton.Left); overlay.MouseUp(point, MouseButton.Left); overlay.UpdateLayout();
+            Window buttonHost = overlay;
+            if (lockBeforeReturn)
+            {
+                vm.ToggleLayoutCommand.Execute(null);
+                overlay.SetInteractive(vm.LayoutMode);
+                overlay.LockedResume.DataContext = vm;
+                overlay.LockedResume.Show(overlay);
+                buttonHost = overlay.LockedResume;
+            }
+            buttonHost.UpdateLayout();
+            var button = buttonHost.FindControl<Button>(lockBeforeReturn ? "LockedResumeButton" : "ResumeFollowingButton")!;
+            Assert.True(button.IsEffectivelyVisible);
+            var point = button.TranslatePoint(new Point(button.Bounds.Width / 2, button.Bounds.Height / 2), buttonHost)!.Value;
+            buttonHost.MouseDown(point, MouseButton.Left); buttonHost.MouseUp(point, MouseButton.Left);
+            overlay.UpdateLayout();
+            Assert.Equal(!lockBeforeReturn, vm.LayoutMode);
+            Assert.Equal(vm.LayoutMode, overlay.CanResize);
             Assert.True(vm.FollowLatest);
             Assert.Equal(scroll.Extent.Height - scroll.Viewport.Height, scroll.Offset.Y, 1);
             overlay.Width = 420; overlay.UpdateLayout();
             Assert.Equal(scroll.Extent.Height - scroll.Viewport.Height, scroll.Offset.Y, 1);
+            Assert.True(vm.ReviewingTranscript);
+            vm.ResumeReadingCommand.Execute(null); control.UpdateLayout();
+            Assert.Equal(listViewport.Extent.Height - listViewport.Viewport.Height, listViewport.Offset.Y, 1);
+            control.Width = 890; control.UpdateLayout(); Avalonia.Threading.Dispatcher.UIThread.RunJobs(); control.UpdateLayout();
+            Assert.Equal(listViewport.Extent.Height - listViewport.Viewport.Height, listViewport.Offset.Y, 1);
         }
-        finally { overlay.Close(); }
+        finally { overlay.Close(); control.Close(); }
     }
 
-    /// <summary>同一识别块一次返回多句时，迟到的译文紧跟其原句，两窗跟随译文且主窗可独立回看。</summary>
+    /// <summary>向活动会话发送字幕快照，验证主窗回看、两窗返回未译的最新句及旧译文回填后的跟随位置。</summary>
+    /// <returns>活动会话与两个实际字幕视口的验证任务。</returns>
     [AvaloniaFact]
-    public void LiveViewsFollowTranslatedPairsWhileMoreRecognizedPhrasesWait()
+    public async Task LiveViewsFollowTranslatedPairsWhileMoreRecognizedPhrasesWait()
     {
         var sources = Enumerable.Range(1, 40).Select(index => $"第{index}句。").ToArray();
         var translations = sources.Select((source, index) => new SubtitlePhraseTranslation(source, $"译{index + 1}。另一句中文！")).ToImmutableArray();
         var segment = new SubtitleSegment(new(Guid.NewGuid(), 1), new(0, 16000), 2, 2, string.Concat(sources),
             "旧整块译文", 1, SubtitlePhase.Revised, TranslationState.Pending, null, BoundaryDecision.Pending);
-        var vm = new DesktopViewModel(new FakeSession(), new FakeStore(), action => action());
+        var session = new FakeSession();
+        var vm = new DesktopViewModel(session, new FakeStore(), action => action());
+        await vm.InitializeAsync(); await vm.ToggleCommand.ExecuteAsync(null);
+        var identity = new PipelineIdentity(vm.SessionId, 1, 1, 1);
         var control = new ControlWindow { DataContext = vm };
         var overlay = new SubtitleWindow { DataContext = vm, Width = 340, Height = 150 };
         try
         {
-            vm.History = [new(segment)]; vm.ResumeFollowingCommand.Execute(null);
+            session.Publish(new(vm.SessionId, 1, new(identity, 1, false, [segment], []), "运行中", 0, true));
             control.Show(); overlay.Show(); control.UpdateLayout(); overlay.UpdateLayout();
             Assert.Equal(40, vm.LivePhrases.Count);
             Assert.Equal(sources[0], Assert.Single(vm.OverlayPhrases).Phrase.Source);
             Assert.All(vm.LivePhrases, item => Assert.Equal("等待中文…", item.Phrase.Translation));
 
-            vm.History = [new(segment with { PhraseTranslations = translations[..20] })]; vm.ResumeFollowingCommand.Execute(null);
+            segment = segment with { PhraseTranslations = translations[..20], SubtitleRevision = 3 };
+            session.Publish(new(vm.SessionId, 2, new(identity, 2, false, [segment], []), "运行中", 0, true));
             control.UpdateLayout(); overlay.UpdateLayout();
             var latest = vm.LivePhrases[19].Phrase;
             Assert.Equal((sources[19], translations[19].Translation), (latest.Source, latest.Translation));
@@ -335,16 +416,37 @@ public sealed class ViewTests
             Assert.True(vm.ReviewingTranscript); Assert.True(vm.FollowLatest);
             var reviewed = list.Scroll.Offset.Y;
 
-            vm.History = [new(segment with { PhraseTranslations = translations[..30] })];
+            segment = segment with { PhraseTranslations = translations[..30], SubtitleRevision = 4 };
+            session.Publish(new(vm.SessionId, 3, new(identity, 3, false, [segment], []), "运行中", 0, true));
             control.UpdateLayout();
             Assert.Equal(reviewed, list.Scroll.Offset.Y, 1);
-            vm.ResumeReadingCommand.Execute(null); control.UpdateLayout(); overlay.UpdateLayout();
+            var resume = control.GetVisualDescendants().OfType<Button>().Single(button => button.Command == vm.ResumeReadingCommand);
+            var click = resume.TranslatePoint(new Point(resume.Bounds.Width / 2, resume.Bounds.Height / 2), control)!.Value;
+            control.MouseDown(click, MouseButton.Left); control.MouseUp(click, MouseButton.Left);
+            control.UpdateLayout(); overlay.UpdateLayout(); Avalonia.Threading.Dispatcher.UIThread.RunJobs();
             Assert.False(vm.ReviewingTranscript); Assert.True(list.Scroll.Offset.Y > reviewed);
-            Assert.Equal(sources[29], vm.OverlayPhrases[^2].Phrase.Source);
-            vm.DisplayModeIndex = 2;
             Assert.Equal(sources[^1], vm.OverlayPhrases[^1].Phrase.Source);
+            Assert.Equal(list.Scroll.Extent.Height - list.Scroll.Viewport.Height, list.Scroll.Offset.Y, 1);
+            Assert.Equal(scroll.Extent.Height - scroll.Viewport.Height, scroll.Offset.Y, 1);
+            foreach (var (items, viewport) in new (ItemsControl, Control)[] { (list, list), (phrases, scroll) })
+            {
+                var tail = items.ContainerFromIndex(39)!;
+                var lastLine = tail.TranslatePoint(new Point(0, tail.Bounds.Height), viewport)!.Value.Y;
+                Assert.InRange(lastLine, 0, viewport.Bounds.Height + 1);
+            }
+
+            segment = segment with { Source = segment.Source + "新的一句。", SourceRevision = 3, SubtitleRevision = 5,
+                PhraseTranslations = translations[..31] };
+            session.Publish(new(vm.SessionId, 4, new(identity, 4, false, [segment], []), "运行中", 0, true));
+            control.UpdateLayout(); overlay.UpdateLayout(); Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            Assert.Equal("新的一句。", vm.LivePhrases[vm.LivePhraseIndex].Phrase.Source);
+            Assert.Equal("新的一句。", vm.OverlayPhrases[^1].Phrase.Source);
+            Assert.Equal(list.Scroll.Extent.Height - list.Scroll.Viewport.Height, list.Scroll.Offset.Y, 1);
+            Assert.Equal(scroll.Extent.Height - scroll.Viewport.Height, scroll.Offset.Y, 1);
+            vm.DisplayModeIndex = 2;
+            Assert.Equal("新的一句。", vm.OverlayPhrases[^1].Phrase.Source);
         }
-        finally { overlay.Close(); control.Close(); }
+        finally { overlay.Close(); control.Close(); await vm.CloseAsync(); }
     }
 
     /// <summary>新块加入后两个窗口继续展示相邻的译文，浮窗向上滚动可以回到更早的块。</summary>
@@ -361,9 +463,9 @@ public sealed class ViewTests
         var overlay = new SubtitleWindow { DataContext = vm, Width = 520, Height = 260 };
         try
         {
-            vm.History = rows; vm.ResumeFollowingCommand.Execute(null);
+            vm.History = rows; vm.OverlayRows = vm.History;
             control.Show(); overlay.Show(); control.UpdateLayout(); overlay.UpdateLayout();
-            vm.History = [..rows, pending]; vm.ResumeFollowingCommand.Execute(null);
+            vm.History = [..rows, pending]; vm.OverlayRows = vm.History;
             control.UpdateLayout(); overlay.UpdateLayout(); Avalonia.Threading.Dispatcher.UIThread.RunJobs();
             control.UpdateLayout(); overlay.UpdateLayout();
             var scroll = overlay.FindControl<ScrollViewer>("SubtitleScroll")!;
@@ -379,6 +481,12 @@ public sealed class ViewTests
                     Assert.InRange(top, -1, viewport.Bounds.Height - translation.Bounds.Height + 1);
                 }
             }
+            var mainBody = list.TranslatePoint(new Point(30, 40), control)!.Value;
+            control.MouseWheel(mainBody, new Vector(0, 3)); control.UpdateLayout();
+            Assert.True(vm.ReviewingTranscript); Assert.True(vm.FollowLatest);
+            vm.ResumeReadingCommand.Execute(null);
+            control.UpdateLayout(); overlay.UpdateLayout(); Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            Assert.Equal(scroll.Extent.Height - scroll.Viewport.Height, scroll.Offset.Y, 1);
             overlay.SetInteractive(true); overlay.UpdateLayout();
             var overlayBar = scroll.GetVisualDescendants().OfType<ScrollBar>().Single(bar => bar.Orientation == Avalonia.Layout.Orientation.Vertical);
             Assert.True(overlayBar.IsEffectivelyVisible); Assert.False(overlayBar.AllowAutoHide);
@@ -410,16 +518,21 @@ public sealed class ViewTests
         var overlay = new SubtitleWindow { DataContext = vm, Width = 520, Height = 260 };
         try
         {
-            vm.History = [new(segment)]; vm.ResumeFollowingCommand.Execute(null);
+            vm.History = [new(segment)]; vm.OverlayRows = vm.History;
             overlay.Show(); overlay.UpdateLayout(); Avalonia.Threading.Dispatcher.UIThread.RunJobs(); overlay.UpdateLayout();
             var scroll = overlay.FindControl<ScrollViewer>("SubtitleScroll")!;
             Assert.True(scroll.Offset.Y > 0);
             Assert.Equal("旧译20。", vm.OverlayPhrases[^1].Translation);
             vm.History = [new(segment with { PhraseTranslations = [new("新甲。", "译文甲。")] })];
-            vm.ResumeFollowingCommand.Execute(null); overlay.UpdateLayout(); Avalonia.Threading.Dispatcher.UIThread.RunJobs(); overlay.UpdateLayout();
+            vm.OverlayRows = vm.History; overlay.UpdateLayout(); Avalonia.Threading.Dispatcher.UIThread.RunJobs(); overlay.UpdateLayout();
             Assert.Equal(0, scroll.Offset.Y);
             Assert.Equal("译文甲。", vm.OverlayPhrases[0].Translation);
             Assert.Equal("旧译2。", vm.OverlayPhrases[1].Translation);
+            vm.PauseFollowing(); vm.ResumeFollowingCommand.Execute(null);
+            overlay.UpdateLayout(); Avalonia.Threading.Dispatcher.UIThread.RunJobs(); overlay.UpdateLayout();
+            var latest = overlay.FindControl<ItemsControl>("PhraseList")!.ContainerFromIndex(1)!;
+            var bottom = latest.TranslatePoint(new Point(0, latest.Bounds.Height), scroll)!.Value.Y;
+            Assert.InRange(bottom, 0, scroll.Viewport.Height + 1);
             vm.DisplayModeIndex = (int)Core.Desktop.SubtitleDisplayMode.SourceOnly;
             Assert.Equal(new[] { "新甲。", "新乙。" }, vm.OverlayPhrases.Select(item => item.Phrase.Source));
         }

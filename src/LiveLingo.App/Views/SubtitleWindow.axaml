@@ -4,6 +4,7 @@
         WindowDecorations="None" Background="Transparent" TransparencyLevelHint="Transparent"
         RequestedThemeVariant="Dark" Topmost="True" ShowActivated="False" ShowInTaskbar="False">
   <Window.Styles>
+    <StyleInclude Source="avares://LiveLingo.App/Themes/ResumeReadingButton.axaml" />
     <Style Selector="Button.subtitle-tool">
       <Setter Property="MinWidth" Value="32" />
       <Setter Property="Height" Value="32" />
@@ -11,10 +12,25 @@
       <Setter Property="FontSize" Value="12" />
       <Setter Property="HorizontalContentAlignment" Value="Center" />
     </Style>
+    <Style Selector="ScrollViewer#SubtitleScroll"><Setter Property="Grid.ColumnSpan" Value="3" /></Style>
+    <Style Selector="Grid#ReviewAnchor">
+      <Setter Property="Grid.Row" Value="2" />
+      <Setter Property="Grid.ColumnSpan" Value="3" />
+    </Style>
+    <ContainerQuery Name="subtitle-surface" Query="max-height:160">
+      <Style Selector="Grid.adjusting.reviewing > ScrollViewer#SubtitleScroll"><Setter Property="Grid.ColumnSpan" Value="1" /></Style>
+      <Style Selector="Grid.adjusting.reviewing > Grid#ReviewAnchor">
+        <Setter Property="Grid.Row" Value="1" />
+        <Setter Property="Grid.Column" Value="1" />
+        <Setter Property="Grid.ColumnSpan" Value="2" />
+      </Style>
+    </ContainerQuery>
   </Window.Styles>
-  <Border Name="Surface" Background="#BF101720" CornerRadius="12" Padding="16,12" BorderThickness="1" BorderBrush="#395267">
-    <Grid RowDefinitions="Auto,*,Auto" ColumnDefinitions="*,40" ColumnSpacing="8">
-      <Grid Name="LayoutToolbar" IsVisible="False" ColumnDefinitions="*,Auto" ColumnSpacing="8" Margin="0,0,0,8">
+  <Border Name="Surface" Container.Name="subtitle-surface" Container.Sizing="Height"
+          Background="#BF101720" CornerRadius="12" Padding="16,12" BorderThickness="1" BorderBrush="#395267">
+    <Grid RowDefinitions="Auto,*,Auto" ColumnDefinitions="*,88,40"
+          Classes.reviewing="{Binding IsReviewing}" Classes.adjusting="{Binding #LayoutToolbar.IsVisible}">
+      <Grid Name="LayoutToolbar" Grid.ColumnSpan="2" IsVisible="False" ColumnDefinitions="*,Auto" ColumnSpacing="8" Margin="0,0,8,8">
         <Border Name="MoveHandle" Background="Transparent" Cursor="SizeAll" MinWidth="32" Height="32"
                 ToolTip.Tip="拖动移动字幕；拖动边缘调整大小" AutomationProperties.Name="拖动字幕窗口">
           <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
@@ -34,8 +50,8 @@
           </StackPanel>
         </Grid>
       </Grid>
-      <Border Name="LockAnchor" Grid.Column="1" Width="40" Height="40" VerticalAlignment="Top" />
-      <ScrollViewer Name="SubtitleScroll" Grid.Row="1" Grid.ColumnSpan="2" HorizontalScrollBarVisibility="Disabled" AllowAutoHide="False"
+      <Border Name="LockAnchor" Grid.Column="2" Width="40" Height="40" VerticalAlignment="Top" />
+      <ScrollViewer Name="SubtitleScroll" Grid.Row="1" HorizontalScrollBarVisibility="Disabled" AllowAutoHide="False"
                     AutomationProperties.Name="实时字幕正文">
         <ItemsControl Name="PhraseList" ItemsSource="{Binding OverlayPhrases}">
           <ItemsControl.ItemsPanel><ItemsPanelTemplate><VirtualizingStackPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
@@ -53,10 +69,14 @@
           </ItemsControl.ItemTemplate>
         </ItemsControl>
       </ScrollViewer>
-      <Grid Name="ReviewToolbar" Grid.Row="2" Grid.ColumnSpan="2" IsVisible="False">
-        <Button Name="ResumeFollowingButton" Classes="subtitle-tool" IsVisible="{Binding IsReviewing}" Content="回到最新"
-                Command="{Binding ResumeFollowingCommand}" HorizontalAlignment="Right" Margin="0,8,0,0"
-                AutomationProperties.Name="回到最新字幕并恢复跟随" />
+      <Grid Name="ReviewAnchor" Width="128" Height="40" HorizontalAlignment="Center" VerticalAlignment="Bottom"
+            IsVisible="{Binding IsReviewing}">
+        <Grid Name="ReviewToolbar" IsVisible="False">
+          <Border Margin="4" CornerRadius="4" Background="{DynamicResource ResumeReadingOverlaySurface}">
+            <Button Name="ResumeFollowingButton" Classes="resume-reading" HorizontalAlignment="Stretch"
+                    Command="{Binding ResumeFollowingCommand}" />
+          </Border>
+        </Grid>
       </Grid>
     </Grid>
   </Border>

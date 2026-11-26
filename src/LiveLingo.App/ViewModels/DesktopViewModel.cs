@@ -25,6 +25,9 @@ public sealed partial class DesktopViewModel : ObservableObject
     private bool allowAutoSave;
     private bool closing;
     private bool transcriptStopped;
+    private bool transcriptFollowsNewest;
+    private bool overlayFollowsNewest;
+    private int newestTranscriptIndex;
     private (Guid SessionId, long CaptureEpoch, long Sequence) projected;
 
     /// <summary>绑定会话、设置及 UI 调度边界。</summary><param name="session">独占会话。</param><param name="store">设置文件服务。</param><param name="post">UI 调度。</param>
@@ -208,7 +211,7 @@ public sealed partial class DesktopViewModel : ObservableObject
     [ObservableProperty, NotifyPropertyChangedFor(nameof(HasLiveHistory))] public partial IReadOnlyList<SubtitleRow> History { get; set; } = [];
     /// <summary>获取实时页的短句序列，修订和新增内容时保留其他阅读项。</summary>
     public ObservableCollection<LivePhraseItem> LivePhrases { get; } = [];
-    /// <summary>获取主窗跟随的最近已译短句，尚未收到翻译时停在第一句。</summary>
+    /// <summary>获取主窗本次应定位的短句。手动返回实时位置后跟随最新识别。</summary>
     public int LivePhraseIndex { get; private set; }
     /// <summary>获取或设置主窗是否正在手动回看。</summary>
     [ObservableProperty, NotifyPropertyChangedFor(nameof(CanResumeReading))]
@@ -318,6 +321,7 @@ public sealed partial class DesktopViewModel : ObservableObject
             if (SelectedTarget is null) throw new InvalidOperationException("请先选择可核实的应用根进程。");
             settings.Validate();
             SessionId = Guid.NewGuid(); pump.SwitchSession(SessionId);
+            transcriptFollowsNewest = false; overlayFollowsNewest = false;
             History = []; OverlayRows = []; FollowLatest = true; ReviewingTranscript = false; Active = true; Status = "正在加载模型…";
             await session.StartAsync(SessionId, SelectedTarget, settings, lifetime.Token);
         }
@@ -473,16 +477,23 @@ public sealed partial class DesktopViewModel : ObservableObject
     /// <summary>手动回看时保留当前阅读身份，不让新块替换正在阅读的内容。</summary>
     public void PauseFollowing() { if (!closing) FollowLatest = false; }
 
-    /// <summary>回到当前阅读模式的最新字幕并恢复自动滚动。</summary>
+    /// <summary>立即显示最新有效识别句，此后浮窗随新增字幕前进。</summary>
     [RelayCommand]
     private void ResumeFollowing()
     {
         if (closing) return;
-        FollowLatest = true; UpdateOverlayRows();
+        overlayFollowsNewest = true; FollowLatest = true; UpdateOverlayRows();
     }
 
     /// <summary>从主窗恢复当前会话的实时阅读位置，并恢复浮窗跟随。</summary>
-    [RelayCommand] private void ResumeReading() { if (!closing) { ReviewingTranscript = false; ResumeFollowing(); } }
+    [RelayCommand]
+    private void ResumeReading()
+    {
+        if (closing) return;
+        transcriptFollowsNewest = true; ReviewingTranscript = false;
+        LivePhraseIndex = newestTranscriptIndex;
+        ResumeFollowing();
+    }
 
     /// <summary>把双语字幕放大一档，运行中也可操作。</summary>
     [RelayCommand] private void IncreaseSubtitleFont() => AdjustSubtitleFontSize(2);
@@ -563,9 +574,9 @@ public sealed partial class DesktopViewModel : ObservableObject
             phrases = phrases.Where(phrase => phrase.CurrentSource is not null)
                 .Select(phrase => phrase.IsPreviousTranslation ? phrase with
                     { Source = phrase.CurrentSource!, Chinese = null, IsPreviousTranslation = false, StatusText = "更新中" } : phrase).ToArray();
-        OverlayPhraseIndex = settings.DisplayMode == SubtitleDisplayMode.SourceOnly
-            ? Math.Max(0, phrases.Length - 1) : ReadingIndex(phrases);
-        if (FollowLatest && settings.DisplayMode != SubtitleDisplayMode.SourceOnly && phrases.Length > 0)
+        var followSource = overlayFollowsNewest || settings.DisplayMode == SubtitleDisplayMode.SourceOnly;
+        OverlayPhraseIndex = followSource ? LatestSourceIndex(phrases) : ReadingIndex(phrases);
+        if (FollowLatest && !followSource && phrases.Length > 0)
         {
             var lastReadable = Array.FindLastIndex(phrases, phrase => phrase.Chinese is not null);
             if (lastReadable + 2 < phrases.Length) phrases = phrases[..(lastReadable + 2)];
@@ -578,9 +589,15 @@ public sealed partial class DesktopViewModel : ObservableObject
     partial void OnHistoryChanged(IReadOnlyList<SubtitleRow> value)
     {
         var phrases = value.SelectMany(row => row.Phrases).ToArray();
-        LivePhraseIndex = ReadingIndex(phrases);
+        newestTranscriptIndex = LatestSourceIndex(phrases);
+        LivePhraseIndex = transcriptFollowsNewest ? newestTranscriptIndex : ReadingIndex(phrases);
         UpdatePhrases(LivePhrases, phrases);
     }
+
+    /// <summary>定位本次识别仍保留的最后一句，末尾可能还有修订前已移除的旧译文。</summary>
+    /// <param name="phrases">当前显示的原译短句。</param><returns>最新有效识别句序号，空列表返回零。</returns>
+    private static int LatestSourceIndex(SubtitlePhraseRow[] phrases) =>
+        Math.Max(0, Array.FindLastIndex(phrases, phrase => phrase.CurrentSource is not null));
 
     /// <summary>优先跟随最新的当前译文，原文重译期间可跟随上一版译文。</summary>
     /// <param name="phrases">按播放顺序排列的短句。</param><returns>可阅读的短句位置；初次待译时从首句开始。</returns>

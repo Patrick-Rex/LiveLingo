@@ -1,0 +1,26 @@
+<Styles xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Styles.Resources>
+    <SolidColorBrush x:Key="ResumeReadingOverlaySurface" Color="#242424" />
+  </Styles.Resources>
+  <Style Selector="Button.resume-reading">
+    <Setter Property="MinWidth" Value="120" />
+    <Setter Property="MinHeight" Value="32" />
+    <Setter Property="Padding" Value="12,4" />
+    <Setter Property="FontSize" Value="14" />
+    <Setter Property="CornerRadius" Value="4" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="ToolTip.Tip" Value="跳到最新字幕并恢复自动跟随" />
+    <Setter Property="AutomationProperties.Name" Value="回到最新字幕并恢复跟随" />
+    <Setter Property="Content" Value="回到最新" />
+    <Setter Property="ContentTemplate">
+      <DataTemplate x:DataType="x:String">
+        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" IsHitTestVisible="False">
+          <TextBlock FontFamily="Segoe Fluent Icons" FontSize="16" Text="&#xE74B;" VerticalAlignment="Center"
+                     AutomationProperties.AccessibilityView="Raw" />
+          <TextBlock Text="{Binding .}" VerticalAlignment="Center" />
+        </StackPanel>
+      </DataTemplate>
+    </Setter>
+  </Style>
+</Styles>

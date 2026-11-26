@@ -12,7 +12,6 @@ namespace LiveLingo.App.Views;
 public partial class ControlWindow : Window
 {
     private readonly ListBox historyList;
-    private SubtitlePhraseRow? followedPhrase;
 
     /// <summary>加载实时页并登记只作用于当前会话列表的跟随和回看操作。</summary>
     public ControlWindow()
@@ -29,13 +28,9 @@ public partial class ControlWindow : Window
     /// <param name="sender">实时列表。</param><param name="args">布局通知。</param>
     private void FollowTranslation(object? sender, EventArgs args)
     {
-        if (DataContext is not DesktopViewModel model || !historyList.IsEffectivelyVisible || model.LivePhrases.Count == 0) return;
-        if (model.ReviewingTranscript) { followedPhrase = null; return; }
-        var phrase = model.LivePhrases[model.LivePhraseIndex].Phrase;
-        if (followedPhrase is { } previous && previous.Key == phrase.Key && previous.Index == phrase.Index &&
-            previous.Source == phrase.Source && previous.Chinese == phrase.Chinese) return;
-        followedPhrase = phrase;
-        historyList.ScrollIntoView(model.LivePhraseIndex);
+        if (DataContext is DesktopViewModel { ReviewingTranscript: false } model &&
+            historyList.IsEffectivelyVisible && historyList.Scroll is { } scroll)
+            SubtitleScrollPosition.Align(historyList, scroll, model.LivePhraseIndex);
     }
 
     /// <summary>仅在有实际滚动空间且用户沿该方向滚动时暂停主窗跟随。</summary>
@@ -65,10 +60,7 @@ public partial class ControlWindow : Window
     private void PauseTranscript()
     {
         if (DataContext is DesktopViewModel model && historyList.Scroll is { } scroll && scroll.Extent.Height > scroll.Viewport.Height)
-        {
             model.ReviewingTranscript = true;
-            followedPhrase = null;
-        }
     }
 
     /// <inheritdoc />

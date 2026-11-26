@@ -1,0 +1,13 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:LiveLingo.App.ViewModels" x:Class="LiveLingo.App.Views.SubtitleResumeWindow" x:DataType="vm:DesktopViewModel"
+        Title="LiveLingo 回到最新字幕" Width="128" Height="40" CanResize="False"
+        WindowDecorations="None" Background="Transparent" TransparencyLevelHint="Transparent"
+        RequestedThemeVariant="Dark" Topmost="True" ShowActivated="False" ShowInTaskbar="False">
+  <Window.Styles>
+    <StyleInclude Source="avares://LiveLingo.App/Themes/ResumeReadingButton.axaml" />
+  </Window.Styles>
+  <Border Margin="4" CornerRadius="4" Background="{DynamicResource ResumeReadingOverlaySurface}">
+    <Button Name="LockedResumeButton" Classes="resume-reading" HorizontalAlignment="Stretch"
+            Command="{Binding ResumeFollowingCommand}" />
+  </Border>
+</Window>
